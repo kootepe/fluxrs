@@ -6,6 +6,8 @@ use std::error::Error;
 use std::fs::File;
 use std::path::Path;
 
+use csv::StringRecord;
+
 struct LinReg {
     intercept: f64,
     slope: f64,
@@ -58,15 +60,15 @@ fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
     let file = File::open(filename)?;
     let mut rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
-        .skip_rows(5)
+        .flexible(true)
         .from_reader(file);
 
-    for result in rdr.records() {
-        let record = result?;
-        println!("{:?}", record);
+    let skip = 4;
+
+    for _ in 0..skip {
+        rdr.records().next();
     }
 
-    Ok(())
     let mut gas: Vec<f64> = Vec::new();
     let mut diag: Vec<u32> = Vec::new();
     let mut date: Vec<String> = Vec::new();
@@ -116,6 +118,16 @@ fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
             DateTime::<Utc>::from(d) // Convert to DateTime<Utc>
         })
         .collect();
+    //let datetime: Vec<SystemTime> = secs
+    //    .iter()
+    //    .zip(nsecs.iter())
+    //    .map(|(&sec, &nsec)| UNIX_EPOCH + Duration::from_secs(sec) + Duration::from_nanos(nsec))
+    //    .collect();
+    //let datetime = DateTime::<Utc>::from(d);
+    //Formats the combined date and time with the specified format string.
+    //let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
+    //let tm = secs[0] + (nsecs[0] / 1_000_000_000.);
+    //println!("{}", tm);
     let df = DataFrame {
         header,
         datetime,
