@@ -3,6 +3,17 @@ use std::fs::File;
 use std::path::Path;
 
 fn read_csv<P: AsRef<Path>>(filename: P) -> Result<(), Box<dyn Error>> {
+#[derive(Debug)]
+struct DataFrame {
+    header: StringRecord,
+    datetime: Vec<DateTime<Utc>>,
+    secs: Vec<u64>,
+    fsecs: Vec<f64>,
+    nsecs: Vec<u64>,
+    gas: Vec<f64>,
+    diag: Vec<u32>,
+}
+
 fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
     let file = File::open(filename)?;
     let mut rdr = csv::ReaderBuilder::new()
