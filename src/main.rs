@@ -1,3 +1,7 @@
+use chrono::prelude::DateTime;
+use chrono::Utc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
@@ -138,5 +142,20 @@ fn main() {
     if let Some(df) = &df {
         let s = df.fsecs.clone();
         let gas = df.gas.clone();
+        let calcvec: Vec<(f64, f64)> = s.into_iter().zip(gas.into_iter()).collect();
+        //let lr = LinReg::train(&calcvec);
+
+        let d = UNIX_EPOCH + Duration::from_secs(df.secs[0]) + Duration::from_nanos(df.nsecs[0]);
+        // Create DateTime from SystemTime
+        let datetime = DateTime::<Utc>::from(d);
+        // Formats the combined date and time with the specified format string.
+        let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
+        println! {"{}",timestamp_str};
+
+        println!("{:?}", df.header);
+        println!("{:?}", df.datetime[0]);
+        println!("{:?}", df.secs[0]);
+        println!("{:?}", df.gas[0]);
+        println!("{:?}", df.diag[0]);
     }
 }
