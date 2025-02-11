@@ -1,5 +1,6 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
+use glob::glob;
 use std::env;
 use std::io;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -84,16 +85,7 @@ fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
             DateTime::<Utc>::from(d) // Convert to DateTime<Utc>
         })
         .collect();
-    //let datetime: Vec<SystemTime> = secs
-    //    .iter()
-    //    .zip(nsecs.iter())
-    //    .map(|(&sec, &nsec)| UNIX_EPOCH + Duration::from_secs(sec) + Duration::from_nanos(nsec))
-    //    .collect();
-    //let datetime = DateTime::<Utc>::from(d);
-    //Formats the combined date and time with the specified format string.
-    //let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
-    //let tm = secs[0] + (nsecs[0] / 1_000_000_000.);
-    //println!("{}", tm);
+
     let df = DataFrame {
         header,
         datetime,
@@ -109,10 +101,13 @@ fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let fpath: PathBuf = if let Some(val) = args.get(1) {
-        PathBuf::from(val)
+    let fpaths: Vec<PathBuf> = if let Some(val) = args.get(1) {
+        glob(val)
+            .expect("Failed to read glob pattern")
+            .filter_map(Result::ok)
+            .collect()
     } else {
-        println!("Give path to file:");
+        println!("Give path pattern (e.g., *.txt):");
         loop {
             let mut input = String::new();
             io::stdin()
@@ -120,50 +115,72 @@ fn main() {
                 .expect("Failed to read line");
 
             let value = input.trim().to_string();
-            if !value.is_empty() {
-                break PathBuf::from(value);
+            println!("Pattern entered: {}", value);
+
+            let paths: Vec<PathBuf> = glob(&value)
+                .expect("Failed to read glob pattern")
+                .filter_map(Result::ok)
+                .collect();
+
+            if !paths.is_empty() {
+                break paths;
             } else {
-                println!("Give valid file path.")
+                println!("No files matched the pattern. Try again.");
             }
         }
     };
 
-    println!("{:?}", &fpath);
-    let df = match read_csv(&fpath) {
-        Ok(res) => Some(res),
-        Err(err) => {
-            println!("Crashed with: {}, {:?}", err, &fpath);
-            None
-        }
-    };
-
-    if let Some(df) = &df {
-        let s = df.fsecs.clone();
-        let gas = df.gas.clone();
-        let calcvec: Vec<(f64, f64)> = s.into_iter().zip(gas.into_iter()).collect();
-        let lr = stats::LinReg::train(&calcvec);
-        println!("{:?}", lr.slope);
-        println!("{:?}", lr.intercept);
-
-        let d = UNIX_EPOCH + Duration::from_secs(df.secs[0]) + Duration::from_nanos(df.nsecs[0]);
-        // Create DateTime from SystemTime
-        let datetime = DateTime::<Utc>::from(d);
-        // Formats the combined date and time with the specified format string.
-        let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
-
-        let r = stats::pearson_correlation(&df.fsecs, &df.gas);
-        match r {
-            None => println!("asd"),
-            Some(val) => {
-                println!("r: {}", val);
-                println!("r2: {}", f64::powf(val, 2.));
+    let mut dfvec: Vec<DataFrame> = Vec::new();
+    println!("{:?}", &fpaths);
+    for path in &fpaths {
+        let df = match read_csv(&path) {
+            Ok(res) => Some(res),
+            Err(err) => {
+                println!("Crashed with: {}, {:?}", err, &path);
+                None
             }
+        };
+        if let Some(df) = &df {
+            let r = stats::pearson_correlation(&df.fsecs, &df.gas);
+            println!("{:?}", r);
         }
-
-        println!("{:?}", df.header);
-        println!("{:?}", df.datetime[0]);
-        println!("{:?}", df.secs[0]);
-        println!("{:?}", df.gas[0]);
-        println!("{:?}", df.diag[0]);
+        // println!("{}", df.nsecs);
     }
+    // let df = match read_csv(&fpath) {
+    //     Ok(res) => Some(res),
+    //     Err(err) => {
+    //         println!("Crashed with: {}, {:?}", err, &fpath);
+    //         None
+    //     }
+    // };
+
+    // if let Some(df) = &df {
+    // let s = df.fsecs.clone();
+    // let gas = df.gas.clone();
+    // let calcvec: Vec<(f64, f64)> = s.into_iter().zip(gas.into_iter()).collect();
+    // let lr = stats::LinReg::train(&calcvec);
+    // println!("{:?}", lr.slope);
+    //     println!("{:?}", lr.intercept);
+    //
+    //     let d = UNIX_EPOCH + Duration::from_secs(df.secs[0]) + Duration::from_nanos(df.nsecs[0]);
+    //     // Create DateTime from SystemTime
+    //     let datetime = DateTime::<Utc>::from(d);
+    //     // Formats the combined date and time with the specified format string.
+    //     let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
+    //
+    //     let r = stats::pearson_correlation(&df.fsecs, &df.gas);
+    //     match r {
+    //         None => println!("asd"),
+    //         Some(val) => {
+    //             println!("r: {}", val);
+    //             println!("r2: {}", f64::powf(val, 2.));
+    //         }
+    //     }
+    //
+    //     println!("{:?}", df.header);
+    //     println!("{:?}", df.datetime[0]);
+    //     println!("{:?}", df.secs[0]);
+    //     println!("{:?}", df.gas[0]);
+    //     println!("{:?}", df.diag[0]);
+    // }
 }
