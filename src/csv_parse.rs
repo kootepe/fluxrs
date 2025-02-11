@@ -110,7 +110,7 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
 pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
     let file = File::open(filename)?;
     let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(false)
+        .has_headers(true)
         .from_reader(file);
 
     // chamber_id,start_time,close_offset,open_offset,end_offset
@@ -122,41 +122,19 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
 
     for (i, r) in rdr.records().enumerate() {
         let record: &csv::StringRecord = &r?;
-        // if let Ok(val) = record[0].parse::<String>() {
-        //     chamber_id.push(val.to_owned())
-        // }
         chamber_id.push(record[0].to_owned());
 
-        // if let Ok(datetime) = record[1].parse::<DateTime<Utc>>() {
-        //     start_time.push(datetime);
-        // } else {
-        //     println!("Error at {:?}", record[1].to_string())
-        // }
+        if i < 10 {
+            println!("{}", &record[1]);
+        }
         match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
             Ok(naive_dt) => {
+                // BUG: doesnt remove the UTC offset, eg. just adds label for UTC offset
                 let datetime_utc: DateTime<Utc> = naive_dt.and_utc();
-                println!("Parsed DateTime<Utc>: {}", datetime_utc);
+                start_time.push(datetime_utc)
             }
             Err(e) => println!("Failed to parse timestamp: {}", e),
         }
-        // match record[0].parse::<DateTime<Utc>>() {
-        //     Ok(datetime) => datetime,
-        //     Err(e) => {
-        //         println!("Failed to parse");
-        //     }
-        // }
-        // start_time.push(
-        //     record[0]
-        //         .to_owned()
-        //         .parse::<DateTime<Utc>>()
-        //         .expect("Failed parse"),
-        // );
-        // if let Ok(val) = record[1].parse::<String>() {
-        //     let time = val.to_owned();
-        //     start_time.push(time.parse::<DateTime<Utc>>().expect("Failed parse"))
-        //     // time.parse::<DateTime<Utc>>().expect("Failed parse");
-        //     // start_time.push(time)
-        // }
         if let Ok(val) = record[2].parse::<u64>() {
             close_offset.push(val)
         }
