@@ -1,7 +1,7 @@
 pub struct LinReg {
-        pub intercept: f64,
-        pub slope: f64,
-    }
+    pub intercept: f64,
+    pub slope: f64,
+}
 
 impl LinReg {
     pub fn calculate(&self, x: f64) -> f64 {
@@ -32,5 +32,33 @@ impl LinReg {
         let intercept = avg_y - slope * avg_x;
 
         Self { intercept, slope }
+    }
+}
+
+pub fn pearson_correlation(x: &Vec<f64>, y: &Vec<f64>) -> Option<f64> {
+    if x.len() != y.len() || x.is_empty() {
+        return None;
+    }
+
+    let n = x.len() as f64;
+
+    let mean_x = x.iter().sum::<f64>() / n;
+    let mean_y = y.iter().sum::<f64>() / n;
+
+    let numerator: f64 = x
+        .iter()
+        .zip(y.iter())
+        .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
+        .sum();
+
+    let denominator_x: f64 = x.iter().map(|&xi| (xi - mean_x).powi(2)).sum();
+    let denominator_y: f64 = y.iter().map(|&yi| (yi - mean_y).powi(2)).sum();
+
+    let denominator = (denominator_x * denominator_y).sqrt();
+
+    if denominator == 0.0 {
+        None
+    } else {
+        Some(numerator / denominator)
     }
 }
