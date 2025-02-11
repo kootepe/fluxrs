@@ -1,14 +1,15 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
+use std::env;
+use std::io;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use std::error::Error;
 use std::fs::File;
-use std::path::Path;
-mod lin_reg;
+use std::path::{Path, PathBuf};
+mod stats;
 
 use csv::StringRecord;
-
 
 #[derive(Debug)]
 struct DataFrame {
@@ -57,7 +58,7 @@ fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
         date.push(record[6].to_string());
         time.push(record[7].to_string());
 
-        if let Ok(val) = record[9].parse::<f64>() {
+        if let Ok(val) = record[10].parse::<f64>() {
             gas.push(val)
         }
         if let Ok(val) = record[4].parse::<u32>() {
@@ -106,29 +107,58 @@ fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
 }
 
 fn main() {
-    let fpath =
-        "/home/eerokos/code/python/autochambers/flux_calc/fluxObject/data/gas_data/240126.DAT";
+    let args: Vec<String> = env::args().collect();
 
-    let df = match read_csv(fpath) {
+    let fpath: PathBuf = if let Some(val) = args.get(1) {
+        PathBuf::from(val)
+    } else {
+        println!("Give path to file:");
+        loop {
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read line");
+
+            let value = input.trim().to_string();
+            if !value.is_empty() {
+                break PathBuf::from(value);
+            } else {
+                println!("Give valid file path.")
+            }
+        }
+    };
+
+    println!("{:?}", &fpath);
+    let df = match read_csv(&fpath) {
         Ok(res) => Some(res),
         Err(err) => {
-            println!("Crashed with {}", err);
+            println!("Crashed with: {}, {:?}", err, &fpath);
             None
         }
     };
+
     if let Some(df) = &df {
         let s = df.fsecs.clone();
         let gas = df.gas.clone();
         let calcvec: Vec<(f64, f64)> = s.into_iter().zip(gas.into_iter()).collect();
-        let lr = lin_reg::LinReg::train(&calcvec);
+        let lr = stats::LinReg::train(&calcvec);
         println!("{:?}", lr.slope);
+        println!("{:?}", lr.intercept);
 
         let d = UNIX_EPOCH + Duration::from_secs(df.secs[0]) + Duration::from_nanos(df.nsecs[0]);
         // Create DateTime from SystemTime
         let datetime = DateTime::<Utc>::from(d);
         // Formats the combined date and time with the specified format string.
         let timestamp_str = datetime.format("%Y-%m-%d %H:%M:%S.%f").to_string();
-        println! {"{}",timestamp_str};
+
+        let r = stats::pearson_correlation(&df.fsecs, &df.gas);
+        match r {
+            None => println!("asd"),
+            Some(val) => {
+                println!("r: {}", val);
+                println!("r2: {}", f64::powf(val, 2.));
+            }
+        }
 
         println!("{:?}", df.header);
         println!("{:?}", df.datetime[0]);
