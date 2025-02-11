@@ -1,4 +1,5 @@
 use chrono::prelude::DateTime;
+use chrono::NaiveDateTime;
 use chrono::Utc;
 use csv::StringRecord;
 use std::error::Error;
@@ -6,7 +7,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-pub struct DataFrame {
+pub struct GasData {
     pub header: StringRecord,
     pub datetime: Vec<DateTime<Utc>>,
     pub secs: Vec<u64>,
@@ -16,14 +17,25 @@ pub struct DataFrame {
     pub diag: Vec<u32>,
 }
 
-pub fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>> {
+pub struct TimeData {
+    pub chamber_id: Vec<String>,
+    pub start_time: Vec<DateTime<Utc>>,
+    pub close_offset: Vec<u64>,
+    pub open_offset: Vec<u64>,
+    pub end_offset: Vec<u64>,
+}
+pub fn mk_rdr<P: AsRef<Path>>(filename: P) -> Result<csv::Reader<File>, Box<dyn Error>> {
     let file = File::open(filename)?;
-    let mut rdr = csv::ReaderBuilder::new()
+    let rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
         .has_headers(false)
         .flexible(true)
         .from_reader(file);
+    Ok(rdr)
+}
 
+pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Error>> {
+    let mut rdr = mk_rdr(filename)?;
     let skip = 4;
 
     for _ in 0..skip {
@@ -49,8 +61,8 @@ pub fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>
         if i == 1 {
             continue;
         }
-        // date.push(record[6].to_string());
-        // time.push(record[7].to_string());
+        date.push(record[6].to_string());
+        time.push(record[7].to_string());
 
         if let Ok(val) = record[10].parse::<f64>() {
             gas.push(val)
@@ -83,7 +95,7 @@ pub fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>
         })
         .collect();
 
-    let df = DataFrame {
+    let df = GasData {
         header,
         datetime,
         secs,
@@ -91,6 +103,76 @@ pub fn read_csv<P: AsRef<Path>>(filename: P) -> Result<DataFrame, Box<dyn Error>
         nsecs,
         gas,
         diag,
+    };
+    Ok(df)
+}
+
+pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
+    let file = File::open(filename)?;
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(file);
+
+    // chamber_id,start_time,close_offset,open_offset,end_offset
+    let mut chamber_id: Vec<String> = Vec::new();
+    let mut start_time: Vec<DateTime<Utc>> = Vec::new();
+    let mut close_offset: Vec<u64> = Vec::new();
+    let mut open_offset: Vec<u64> = Vec::new();
+    let mut end_offset: Vec<u64> = Vec::new();
+
+    for (i, r) in rdr.records().enumerate() {
+        let record: &csv::StringRecord = &r?;
+        // if let Ok(val) = record[0].parse::<String>() {
+        //     chamber_id.push(val.to_owned())
+        // }
+        chamber_id.push(record[0].to_owned());
+
+        // if let Ok(datetime) = record[1].parse::<DateTime<Utc>>() {
+        //     start_time.push(datetime);
+        // } else {
+        //     println!("Error at {:?}", record[1].to_string())
+        // }
+        match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
+            Ok(naive_dt) => {
+                let datetime_utc: DateTime<Utc> = naive_dt.and_utc();
+                println!("Parsed DateTime<Utc>: {}", datetime_utc);
+            }
+            Err(e) => println!("Failed to parse timestamp: {}", e),
+        }
+        // match record[0].parse::<DateTime<Utc>>() {
+        //     Ok(datetime) => datetime,
+        //     Err(e) => {
+        //         println!("Failed to parse");
+        //     }
+        // }
+        // start_time.push(
+        //     record[0]
+        //         .to_owned()
+        //         .parse::<DateTime<Utc>>()
+        //         .expect("Failed parse"),
+        // );
+        // if let Ok(val) = record[1].parse::<String>() {
+        //     let time = val.to_owned();
+        //     start_time.push(time.parse::<DateTime<Utc>>().expect("Failed parse"))
+        //     // time.parse::<DateTime<Utc>>().expect("Failed parse");
+        //     // start_time.push(time)
+        // }
+        if let Ok(val) = record[2].parse::<u64>() {
+            close_offset.push(val)
+        }
+        if let Ok(val) = record[3].parse::<u64>() {
+            open_offset.push(val)
+        }
+        if let Ok(val) = record[4].parse::<u64>() {
+            end_offset.push(val)
+        }
+    }
+    let df = TimeData {
+        chamber_id,
+        start_time,
+        close_offset,
+        open_offset,
+        end_offset,
     };
     Ok(df)
 }
