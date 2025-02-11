@@ -37,32 +37,22 @@ fn main() {
         }
     };
 
+    let mut gasv: Vec<csv_parse::GasData> = Vec::new();
     for path in &gaspaths {
-        let gases = match csv_parse::read_gas_csv(&path) {
-            Ok(res) => Some(res),
+        match csv_parse::read_gas_csv(&path) {
+            Ok(res) => {
+                let r = stats::pearson_correlation(&res.fsecs, &res.gas).unwrap_or_else(|| {
+                    println!("{:?}", &path);
+                    0.0
+                });
+                println!("{:?}", &r);
+                gasv.push(res);
+            }
             Err(err) => {
                 println!("Crashed with: {}, {:?}", err, &path);
-                None
+                return;
             }
         };
-        if let Some(df) = gases {
-            // println!("{:?}", &path);
-            // let r = stats::pearson_correlation(&df.fsecs, &df.gas);
-            // let s = df.fsecs.clone();
-            // let g = df.gas.clone();
-            // let calcvec: Vec<(f64, f64)> = s.into_iter().zip(g.into_iter()).collect();
-            let r = stats::pearson_correlation(&df.fsecs, &df.gas).unwrap_or_else(|| {
-                // let r = stats::pearson_correlation(&calcvec).unwrap_or_else(|| {
-                println!("{:?}", &path);
-                // println!("{:?}", &df.secs);
-                // println!("{:?}", &df.gas);
-                // panic!("Whats wrong?");
-                0.0
-            });
-            // dfvec.push(df);
-            println!("{:?}", r);
-            // println!("{:?}", df.nsecs);
-        }
     }
     for path in &timepaths {
         let times = match csv_parse::read_time_csv(&path) {
@@ -73,22 +63,7 @@ fn main() {
             }
         };
         if let Some(df) = times {
-            // println!("{:?}", &path);
-            // let r = stats::pearson_correlation(&df.fsecs, &df.gas);
-            // let s = df.fsecs.clone();
-            // let g = df.gas.clone();
-            // let calcvec: Vec<(f64, f64)> = s.into_iter().zip(g.into_iter()).collect();
-            // let r = stats::pearson_correlation(&df.fsecs, &df.gas).unwrap_or_else(|| {
-            //     // let r = stats::pearson_correlation(&calcvec).unwrap_or_else(|| {
-            //     println!("{:?}", &path);
-            //     // println!("{:?}", &df.secs);
-            //     // println!("{:?}", &df.gas);
-            //     // panic!("Whats wrong?");
-            //     0.0
-            // });
-            // dfvec.push(df);
-            // println!("{:?}", r);
-            // println!("{:?}", df.close_offset);
+            println!("{:?}", df.start_time[0]);
         }
     }
 }
