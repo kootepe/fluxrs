@@ -69,3 +69,37 @@ pub fn pearson_correlation(x: &Vec<f64>, y: &Vec<f64>) -> Option<f64> {
         Some(numerator / denominator)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::pearson_correlation;
+
+    #[test]
+    fn test_pearson_length() {
+        let x = vec![1., 2.];
+        let y = vec![1., 2., 3.];
+
+        assert_eq!(pearson_correlation(&x, &y), None);
+    }
+    #[test]
+    fn test_pearsons_empty() {
+        let x = vec![1., 2.];
+        let y = vec![];
+
+        assert_eq!(pearson_correlation(&x, &y), None);
+    }
+    #[test]
+    fn test_pearsons_pos() {
+        let x = vec![1., 2., 3., 4., 5.];
+        let y = vec![1., 2., 3., 4., 5.];
+
+        assert_eq!(pearson_correlation(&x, &y), Some(1.));
+    }
+    #[test]
+    fn test_pearsons_neg() {
+        let x = vec![1., 2., 3., 4., 5.];
+        let y = vec![5., 4., 3., 2., 1.];
+
+        assert_eq!(pearson_correlation(&x, &y), Some(-1.));
+    }
+}
