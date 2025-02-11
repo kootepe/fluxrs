@@ -4,44 +4,39 @@ use std::io;
 
 use std::path::{Path, PathBuf};
 mod csv_parse;
+mod get_paths;
 mod stats;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let fpaths: Vec<PathBuf> = if let Some(val) = args.get(1) {
-        glob(val)
-            .expect("Failed to read glob pattern")
-            .filter_map(Result::ok)
-            .collect()
-    } else {
-        println!("Give path pattern (e.g., *.txt):");
-        loop {
-            let mut input = String::new();
-            io::stdin()
-                .read_line(&mut input)
-                .expect("Failed to read line");
+    let gas_pat: &str = match args.get(1) {
+        Some(str) => str,
+        None => "", // returning empty string will prompt get paths to to ask
+    };
 
-            let value = input.trim().to_string();
-            println!("Pattern entered: {}", value);
+    let time_pat: &str = match args.get(2) {
+        Some(str) => str,
+        None => "", // returning empty string will prompt get paths to to ask
+    };
 
-            let paths: Vec<PathBuf> = glob(&value)
-                .expect("Failed to read glob pattern")
-                .filter_map(Result::ok)
-                .collect();
-
-            if !paths.is_empty() {
-                break paths;
-            } else {
-                println!("No files matched the pattern. Try again.");
-            }
+    let str: &str = "gas";
+    let gaspaths: Vec<PathBuf> = match get_paths::get_paths(gas_pat, str) {
+        Ok(vec) => vec,
+        Err(e) => {
+            println!("{}", e);
+            return;
+        }
+    };
+    let str: &str = "time";
+    let timepaths: Vec<PathBuf> = match get_paths::get_paths(time_pat, str) {
+        Ok(vec) => vec,
+        Err(e) => {
+            println!("{}", e);
+            return;
         }
     };
 
-    // let mut dfvec: Vec<csv_parse::DataFrame> = Vec::new();
-    // println!("{:?}", &fpaths);
-    for path in &fpaths {
-        let df = match csv_parse::read_csv(&path) {
             Ok(res) => Some(res),
             Err(err) => {
                 println!("Crashed with: {}, {:?}", err, &path);
