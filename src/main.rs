@@ -5,45 +5,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
+mod lin_reg;
 
 use csv::StringRecord;
 
-struct LinReg {
-    intercept: f64,
-    slope: f64,
-}
-
-impl LinReg {
-    fn calculate(&self, x: f64) -> f64 {
-        self.intercept + self.slope * x
-    }
-
-    fn train(input: &[(f64, f64)]) -> Self {
-        let x: Vec<f64> = input.iter().map(|pairs| pairs.0).collect();
-        let y: Vec<f64> = input.iter().map(|pairs| pairs.1).collect();
-
-        let avg_x: f64 = x.iter().sum::<f64>() / x.len() as f64;
-        let x_differences_to_average: Vec<f64> = x.iter().map(|value| avg_x - value).collect();
-        let x_differences_to_average_squared: Vec<f64> = x_differences_to_average
-            .iter()
-            .map(|value| value.powi(2))
-            .collect();
-        let ss_xx: f64 = x_differences_to_average_squared.iter().sum();
-
-        let avg_y = y.iter().sum::<f64>() / y.len() as f64;
-        let y_differences_to_average: Vec<f64> = y.iter().map(|value| avg_y - value).collect();
-        let x_and_y_differences_multiplied: Vec<f64> = x_differences_to_average
-            .iter()
-            .zip(y_differences_to_average.iter())
-            .map(|(a, b)| a * b)
-            .collect();
-        let ss_xy: f64 = x_and_y_differences_multiplied.iter().sum();
-        let slope = ss_xy / ss_xx;
-        let intercept = avg_y - slope * avg_x;
-
-        Self { intercept, slope }
-    }
-}
 
 #[derive(Debug)]
 struct DataFrame {
@@ -155,7 +120,8 @@ fn main() {
         let s = df.fsecs.clone();
         let gas = df.gas.clone();
         let calcvec: Vec<(f64, f64)> = s.into_iter().zip(gas.into_iter()).collect();
-        //let lr = LinReg::train(&calcvec);
+        let lr = lin_reg::LinReg::train(&calcvec);
+        println!("{:?}", lr.slope);
 
         let d = UNIX_EPOCH + Duration::from_secs(df.secs[0]) + Duration::from_nanos(df.nsecs[0]);
         // Create DateTime from SystemTime
