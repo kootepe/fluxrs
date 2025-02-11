@@ -36,7 +36,14 @@ impl LinReg {
 }
 
 pub fn pearson_correlation(x: &Vec<f64>, y: &Vec<f64>) -> Option<f64> {
-    if x.len() != y.len() || x.is_empty() {
+    if x.len() != y.len() {
+        println!("Vectors not the same length");
+        println!("x_len: {}", x.len());
+        println!("y_len: {}", y.len());
+        return None;
+    }
+    if x.is_empty() {
+        println!("Empty data.");
         return None;
     }
 
