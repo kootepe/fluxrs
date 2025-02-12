@@ -4,9 +4,9 @@ use std::io;
 use std::path::PathBuf;
 
 // pub fn get_paths(args: Vec<String>) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-pub fn get_paths(parg: &str, string: &str) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+pub fn get_paths(parg: String, string: &str) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let paths: Vec<PathBuf> = if !parg.is_empty() {
-        glob(parg)
+        glob(&parg)
             .expect("Failed to read glob pattern")
             .filter_map(Result::ok)
             .collect()
