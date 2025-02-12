@@ -57,6 +57,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 });
                 println!("{:?}", &r);
                 if res.validate_lengths() {
+                if res.validate_lengths() && res.any_col_invalid() {
                     gasv.push(res);
                 }
             }

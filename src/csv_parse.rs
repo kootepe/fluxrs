@@ -56,7 +56,7 @@ impl EqualLen for GasData {
 }
 
 impl GasData {
-    pub fn all_invalid(&self) -> bool {
+    pub fn any_col_invalid(&self) -> bool {
         let invalids = [
             &self.secs.iter().all(|&x| x == ERROR_INT),
             &self.fsecs.iter().all(|&x| x == ERROR_FLOAT),
@@ -64,7 +64,7 @@ impl GasData {
             &self.gas.iter().all(|&x| x == ERROR_FLOAT),
             &self.diag.iter().all(|&x| x == ERROR_INT),
         ];
-        invalids.iter().any(|&x| *x == true)
+        invalids.iter().any(|&x| *x)
     }
 }
 
@@ -237,4 +237,74 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
         end_offset,
     };
     Ok(df)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_any_col_invalid() {
+        let valid_data = GasData {
+            header: csv::StringRecord::new(),
+            datetime: vec![Utc::now(), Utc::now(), Utc::now()],
+            secs: vec![1, 2, 3],
+            fsecs: vec![1.0, 2.0, 3.0],
+            nsecs: vec![1, 2, 3],
+            gas: vec![1.0, 2.0, 3.0],
+            diag: vec![1, 2, 3],
+        };
+        assert!(
+            !valid_data.any_col_invalid(),
+            "Expected valid data to return false"
+        )
+    }
+    #[test]
+    fn invalid_secs() {
+        let invalid_secs = GasData {
+            header: csv::StringRecord::new(),
+            datetime: vec![Utc::now(), Utc::now(), Utc::now()],
+            secs: vec![ERROR_INT; 3],
+            fsecs: vec![1.0, 2.0, 3.0],
+            nsecs: vec![1, 2, 3],
+            gas: vec![1.0, 2.0, 3.0],
+            diag: vec![1, 2, 3],
+        };
+        assert!(
+            invalid_secs.any_col_invalid(),
+            "Expected invalid secs column to return true"
+        )
+    }
+    #[test]
+    fn invalid_fsecs() {
+        let invalid_fsecs = GasData {
+            header: csv::StringRecord::new(),
+            datetime: vec![Utc::now(), Utc::now(), Utc::now()],
+            secs: vec![1, 2, 3],
+            fsecs: vec![ERROR_FLOAT; 3],
+            nsecs: vec![1, 2, 3],
+            gas: vec![1.0, 2.0, 3.0],
+            diag: vec![1, 2, 3],
+        };
+        assert!(
+            invalid_fsecs.any_col_invalid(),
+            "Expected invalid fsecs column to return true"
+        )
+    }
+    #[test]
+    fn invalid_multiple() {
+        let invalid_multiple = GasData {
+            header: csv::StringRecord::new(),
+            datetime: vec![Utc::now(), Utc::now(), Utc::now()],
+            secs: vec![ERROR_INT; 3],
+            fsecs: vec![ERROR_FLOAT; 3],
+            nsecs: vec![ERROR_INT; 3],
+            gas: vec![ERROR_FLOAT; 3],
+            diag: vec![ERROR_INT; 3],
+        };
+        assert!(
+            invalid_multiple.any_col_invalid(),
+            "Expected multiple invalid columns to return true"
+        )
+    }
 }
