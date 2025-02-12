@@ -3,13 +3,13 @@ use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
 use itertools::izip;
+use std::collections::HashMap;
 
 use csv::StringRecord;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
 use std::process;
-use std::time::{Duration, UNIX_EPOCH};
 
 const ERROR_INT: i64 = -9999;
 const ERROR_FLOAT: f64 = -9999.;
@@ -24,10 +24,11 @@ pub struct Cycle {
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
     pub end_time: chrono::DateTime<chrono::Utc>,
+    pub datetime_v: Vec<chrono::DateTime<chrono::Utc>>,
+    pub gas_v: Vec<f64>,
 }
 
-#[derive(Debug)]
-pub struct GasData {
+pub struct DailyGasData {
     pub header: StringRecord,
     pub datetime: Vec<DateTime<Utc>>,
     pub secs: Vec<i64>,
@@ -37,14 +38,25 @@ pub struct GasData {
     pub diag: Vec<i64>,
 }
 
+#[derive(Debug)]
+pub struct GasData {
+    pub header: StringRecord,
+    pub datetime: Vec<DateTime<Utc>>,
+    // pub secs: Vec<i64>,
+    // pub fsecs: Vec<f64>,
+    // pub nsecs: Vec<i64>,
+    pub gas: Vec<f64>,
+    pub diag: Vec<i64>,
+}
+
 impl EqualLen for GasData {
     fn validate_lengths(&self) -> bool {
         // check that all fields are equal length
         let lengths = [
             &self.datetime.len(),
-            &self.secs.len(),
-            &self.fsecs.len(),
-            &self.nsecs.len(),
+            // &self.secs.len(),
+            // &self.fsecs.len(),
+            // &self.nsecs.len(),
             &self.gas.len(),
             &self.diag.len(),
         ];
@@ -67,10 +79,7 @@ impl GasData {
     pub fn any_col_invalid(&self) -> bool {
         // create a list of booleans by checking all values in the vector, if all are equal to
         // error value, return true to the vector
-        let invalids: [&bool; 5] = [
-            &self.secs.iter().all(|&x| x == ERROR_INT),
-            &self.fsecs.iter().all(|&x| x == ERROR_FLOAT),
-            &self.nsecs.iter().all(|&x| x == ERROR_INT),
+        let invalids: [&bool; 2] = [
             &self.gas.iter().all(|&x| x == ERROR_FLOAT),
             &self.diag.iter().all(|&x| x == ERROR_INT),
         ];
@@ -80,6 +89,15 @@ impl GasData {
 
     pub fn summary(&self) {
         println!("dt: {} len: {}", self.datetime[0], self.diag.len());
+    }
+
+    pub fn sort(&mut self) {
+        let mut indices: Vec<usize> = (0..self.datetime.len()).collect();
+        indices.sort_by(|&i, &j| self.datetime[i].cmp(&self.datetime[j]));
+
+        self.datetime = indices.iter().map(|&i| self.datetime[i]).collect();
+        self.gas = indices.iter().map(|&i| self.gas[i]).collect();
+        self.diag = indices.iter().map(|&i| self.diag[i]).collect();
     }
 }
 
@@ -138,6 +156,19 @@ pub fn mk_rdr<P: AsRef<Path>>(filename: P) -> Result<csv::Reader<File>, Box<dyn 
     Ok(rdr)
 }
 
+pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
+    match Helsinki.timestamp_opt(sec, nsec as u32) {
+        LocalResult::Single(dt) => return dt.with_timezone(&Utc),
+        LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&Utc),
+        LocalResult::None => {
+            eprintln!("Impossible local time: sec={} nsec={}", sec, nsec);
+        }
+    };
+
+    // Default fallback timestamp if parsing fails
+    Utc.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
+}
+
 pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Error>> {
     let mut rdr = mk_rdr(filename)?;
     let skip = 4;
@@ -148,10 +179,7 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
 
     let mut gas: Vec<f64> = Vec::new();
     let mut diag: Vec<i64> = Vec::new();
-    let mut date: Vec<String> = Vec::new();
-    let mut time: Vec<String> = Vec::new();
-    //let mut ntime: Vec<f64> = Vec::new();
-    let mut fsecs: Vec<f64> = Vec::new();
+    let mut datetime: Vec<DateTime<Utc>> = Vec::new();
     let mut secs: Vec<i64> = Vec::new();
     let mut nsecs: Vec<i64> = Vec::new();
     let mut header = csv::StringRecord::new();
@@ -165,8 +193,6 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
         if i == 1 {
             continue;
         }
-        date.push(record[6].to_string());
-        time.push(record[7].to_string());
 
         if let Ok(val) = record[10].parse::<f64>() {
             gas.push(val)
@@ -176,6 +202,10 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
         if let Ok(val) = record[4].parse::<i64>() {
             diag.push(val)
         }
+        let sec = record[1].parse::<i64>()?;
+        let nsec = record[2].parse::<i64>()?;
+        let dt_utc = parse_secnsec_to_dt(sec, nsec);
+        datetime.push(dt_utc);
 
         if let Ok(val) = record[1].parse::<i64>() {
             secs.push(val)
@@ -183,30 +213,17 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
         if let Ok(val) = record[2].parse::<i64>() {
             nsecs.push(val)
         }
-        if let Ok(val) = record[1].parse::<f64>() {
-            fsecs.push(val)
-        } else {
-            println!("{}", &record[1]);
-            fsecs.push(ERROR_FLOAT)
-        }
     }
+    let mut indices: Vec<usize> = (0..datetime.len()).collect();
+    indices.sort_by(|&i, &j| datetime[i].cmp(&datetime[j]));
 
-    let datetime: Vec<DateTime<Utc>> = secs
-        .iter()
-        .zip(nsecs.iter())
-        .map(|(&sec, &nsec)| {
-            let d =
-                UNIX_EPOCH + Duration::from_secs(sec as u64) + Duration::from_nanos(nsec as u64);
-            DateTime::<Utc>::from(d) // Convert to DateTime<Utc>
-        })
-        .collect();
+    let datetime: Vec<chrono::DateTime<Utc>> = indices.iter().map(|&i| datetime[i]).collect();
+    let gas: Vec<f64> = indices.iter().map(|&i| gas[i]).collect();
+    let diag: Vec<i64> = indices.iter().map(|&i| diag[i]).collect();
 
     let df = GasData {
         header,
         datetime,
-        secs,
-        fsecs,
-        nsecs,
         gas,
         diag,
     };
@@ -273,9 +290,9 @@ mod tests {
         let valid_data = GasData {
             header: csv::StringRecord::new(),
             datetime: vec![Utc::now(), Utc::now(), Utc::now()],
-            secs: vec![1, 2, 3],
-            fsecs: vec![1.0, 2.0, 3.0],
-            nsecs: vec![1, 2, 3],
+            // secs: vec![1, 2, 3],
+            // fsecs: vec![1.0, 2.0, 3.0],
+            // nsecs: vec![1, 2, 3],
             gas: vec![1.0, 2.0, 3.0],
             diag: vec![1, 2, 3],
         };
@@ -289,9 +306,9 @@ mod tests {
         let invalid_secs = GasData {
             header: csv::StringRecord::new(),
             datetime: vec![Utc::now(), Utc::now(), Utc::now()],
-            secs: vec![ERROR_INT; 3],
-            fsecs: vec![1.0, 2.0, 3.0],
-            nsecs: vec![1, 2, 3],
+            // secs: vec![ERROR_INT; 3],
+            // fsecs: vec![1.0, 2.0, 3.0],
+            // nsecs: vec![1, 2, 3],
             gas: vec![1.0, 2.0, 3.0],
             diag: vec![1, 2, 3],
         };
@@ -305,9 +322,9 @@ mod tests {
         let invalid_fsecs = GasData {
             header: csv::StringRecord::new(),
             datetime: vec![Utc::now(), Utc::now(), Utc::now()],
-            secs: vec![1, 2, 3],
-            fsecs: vec![ERROR_FLOAT; 3],
-            nsecs: vec![1, 2, 3],
+            // secs: vec![1, 2, 3],
+            // fsecs: vec![ERROR_FLOAT; 3],
+            // nsecs: vec![1, 2, 3],
             gas: vec![1.0, 2.0, 3.0],
             diag: vec![1, 2, 3],
         };
@@ -321,9 +338,9 @@ mod tests {
         let invalid_multiple = GasData {
             header: csv::StringRecord::new(),
             datetime: vec![Utc::now(), Utc::now(), Utc::now()],
-            secs: vec![ERROR_INT; 3],
-            fsecs: vec![ERROR_FLOAT; 3],
-            nsecs: vec![ERROR_INT; 3],
+            // secs: vec![ERROR_INT; 3],
+            // fsecs: vec![ERROR_FLOAT; 3],
+            // nsecs: vec![ERROR_INT; 3],
             gas: vec![ERROR_FLOAT; 3],
             diag: vec![ERROR_INT; 3],
         };
