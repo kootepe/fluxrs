@@ -10,6 +10,9 @@ use std::path::Path;
 use std::process;
 use std::time::{Duration, UNIX_EPOCH};
 
+const ERROR_INT: i64 = -9999;
+const ERROR_FLOAT: f64 = -9999.;
+
 pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
 }
@@ -18,11 +21,11 @@ pub trait EqualLen {
 pub struct GasData {
     pub header: StringRecord,
     pub datetime: Vec<DateTime<Utc>>,
-    pub secs: Vec<u64>,
+    pub secs: Vec<i64>,
     pub fsecs: Vec<f64>,
-    pub nsecs: Vec<u64>,
+    pub nsecs: Vec<i64>,
     pub gas: Vec<f64>,
-    pub diag: Vec<u32>,
+    pub diag: Vec<i64>,
 }
 
 impl EqualLen for GasData {
@@ -52,7 +55,18 @@ impl EqualLen for GasData {
     }
 }
 
-impl GasData {}
+impl GasData {
+    pub fn all_invalid(&self) -> bool {
+        let invalids = [
+            &self.secs.iter().all(|&x| x == ERROR_INT),
+            &self.fsecs.iter().all(|&x| x == ERROR_FLOAT),
+            &self.nsecs.iter().all(|&x| x == ERROR_INT),
+            &self.gas.iter().all(|&x| x == ERROR_FLOAT),
+            &self.diag.iter().all(|&x| x == ERROR_INT),
+        ];
+        invalids.iter().any(|&x| *x == true)
+    }
+}
 
 #[derive(Debug)]
 pub struct TimeData {
@@ -93,7 +107,7 @@ pub fn mk_rdr<P: AsRef<Path>>(filename: P) -> Result<csv::Reader<File>, Box<dyn 
     let file = File::open(filename)?;
     let rdr = csv::ReaderBuilder::new()
         .delimiter(b'\t')
-        .has_headers(false)
+        .has_headers(true)
         .flexible(true)
         .from_reader(file);
     Ok(rdr)
@@ -108,13 +122,13 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
     }
 
     let mut gas: Vec<f64> = Vec::new();
-    let mut diag: Vec<u32> = Vec::new();
+    let mut diag: Vec<i64> = Vec::new();
     let mut date: Vec<String> = Vec::new();
     let mut time: Vec<String> = Vec::new();
     //let mut ntime: Vec<f64> = Vec::new();
     let mut fsecs: Vec<f64> = Vec::new();
-    let mut secs: Vec<u64> = Vec::new();
-    let mut nsecs: Vec<u64> = Vec::new();
+    let mut secs: Vec<i64> = Vec::new();
+    let mut nsecs: Vec<i64> = Vec::new();
     let mut header = csv::StringRecord::new();
 
     for (i, r) in rdr.records().enumerate() {
@@ -132,22 +146,23 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
         if let Ok(val) = record[10].parse::<f64>() {
             gas.push(val)
         } else {
-            gas.push(9999.)
+            gas.push(ERROR_FLOAT)
         }
-        if let Ok(val) = record[4].parse::<u32>() {
+        if let Ok(val) = record[4].parse::<i64>() {
             diag.push(val)
         }
 
-        if let Ok(val) = record[1].parse::<u64>() {
+        if let Ok(val) = record[1].parse::<i64>() {
             secs.push(val)
         }
-        if let Ok(val) = record[2].parse::<u64>() {
+        if let Ok(val) = record[2].parse::<i64>() {
             nsecs.push(val)
         }
         if let Ok(val) = record[1].parse::<f64>() {
             fsecs.push(val)
         } else {
-            fsecs.push(9999.)
+            println!("{}", &record[1]);
+            fsecs.push(ERROR_FLOAT)
         }
     }
 
@@ -155,7 +170,8 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
         .iter()
         .zip(nsecs.iter())
         .map(|(&sec, &nsec)| {
-            let d = UNIX_EPOCH + Duration::from_secs(sec) + Duration::from_nanos(nsec);
+            let d =
+                UNIX_EPOCH + Duration::from_secs(sec as u64) + Duration::from_nanos(nsec as u64);
             DateTime::<Utc>::from(d) // Convert to DateTime<Utc>
         })
         .collect();
