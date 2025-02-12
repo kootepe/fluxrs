@@ -1,6 +1,5 @@
 use std::error::Error;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod csv_parse;
 mod get_paths;
@@ -48,7 +47,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         }
     };
     let mut gasv: Vec<csv_parse::GasData> = Vec::new();
-    for path in &gaspaths {
+    for path in gaspaths {
         match csv_parse::read_gas_csv(&path) {
             Ok(res) => {
                 let r = stats::pearson_correlation(&res.fsecs, &res.gas).unwrap_or_else(|| {
@@ -66,20 +65,23 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
         };
     }
-    for path in &timepaths {
-        let times = match csv_parse::read_time_csv(&path) {
-            Ok(res) => Some(res),
+    let mut timev: Vec<csv_parse::TimeData> = Vec::new();
+    for path in timepaths {
+        match csv_parse::read_time_csv(&path) {
+            Ok(res) => {
                 if res.validate_lengths() {
                     timev.push(res);
                 }
+            }
             Err(err) => {
                 println!("Crashed with: {}, {:?}", err, &path);
-                None
+                return Err(err);
             }
         };
-        if let Some(df) = times {
-            println!("{:?}", df.start_time[0]);
-        }
     }
+    for g in gasv {
+        // println!("{:?}", g.fsecs)
+    }
+
     Ok(())
 }

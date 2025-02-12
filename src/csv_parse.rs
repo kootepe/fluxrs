@@ -1,11 +1,14 @@
+use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
-use chrono::NaiveDateTime;
-use chrono::Utc;
+use chrono::{NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Europe::Helsinki;
+
 use csv::StringRecord;
 use std::error::Error;
 use std::fs::File;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::Path;
+use std::process;
+use std::time::{Duration, UNIX_EPOCH};
 
 pub struct GasData {
     pub header: StringRecord,
@@ -171,18 +174,24 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
     let mut open_offset: Vec<u64> = Vec::new();
     let mut end_offset: Vec<u64> = Vec::new();
 
-    for (i, r) in rdr.records().enumerate() {
+    for r in rdr.records() {
         let record: &csv::StringRecord = &r?;
         chamber_id.push(record[0].to_owned());
 
-        if i < 10 {
-            println!("{}", &record[1]);
-        }
         match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
             Ok(naive_dt) => {
-                // BUG: doesnt remove the UTC offset, eg. just adds label for UTC offset
-                let datetime_utc: DateTime<Utc> = naive_dt.and_utc();
-                start_time.push(datetime_utc)
+                println!("File time: {:?}", naive_dt);
+                let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
+                    LocalResult::Single(dt) => dt.with_timezone(&Utc),
+                    LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
+                    LocalResult::None => {
+                        eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
+                        process::exit(1)
+                    }
+                };
+                println!("UTC  time: {:?}", dt_utc);
+                // let dt_utc = naive_dt.with_timezone(&Utc);
+                start_time.push(dt_utc)
             }
             Err(e) => println!("Failed to parse timestamp: {}", e),
         }
