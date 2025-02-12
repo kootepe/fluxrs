@@ -1,3 +1,4 @@
+use crate::csv_parse::EqualLen;
 use std::error::Error;
 use std::path::PathBuf;
 

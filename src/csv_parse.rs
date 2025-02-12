@@ -10,6 +10,10 @@ use std::path::Path;
 use std::process;
 use std::time::{Duration, UNIX_EPOCH};
 
+pub trait EqualLen {
+    fn validate_lengths(&self) -> bool;
+}
+
 pub struct GasData {
     pub header: StringRecord,
     pub datetime: Vec<DateTime<Utc>>,
@@ -20,8 +24,8 @@ pub struct GasData {
     pub diag: Vec<u32>,
 }
 
-impl GasData {
-    pub fn validate_lengths(&self) -> bool {
+impl EqualLen for GasData {
+    fn validate_lengths(&self) -> bool {
         // check that all fields are equal length
         let lengths = [
             &self.header.len(),
@@ -47,6 +51,8 @@ impl GasData {
     }
 }
 
+impl GasData {}
+
 pub struct TimeData {
     pub chamber_id: Vec<String>,
     pub start_time: Vec<DateTime<Utc>>,
@@ -55,8 +61,8 @@ pub struct TimeData {
     pub end_offset: Vec<u64>,
 }
 
-impl TimeData {
-    pub fn validate_lengths(&self) -> bool {
+impl EqualLen for TimeData {
+    fn validate_lengths(&self) -> bool {
         let lengths = [
             &self.chamber_id.len(),
             &self.start_time.len(),
@@ -78,6 +84,9 @@ impl TimeData {
         check
     }
 }
+
+impl TimeData {}
+
 pub fn mk_rdr<P: AsRef<Path>>(filename: P) -> Result<csv::Reader<File>, Box<dyn Error>> {
     let file = File::open(filename)?;
     let rdr = csv::ReaderBuilder::new()
