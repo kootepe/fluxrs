@@ -14,6 +14,7 @@ pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
 }
 
+#[derive(Debug)]
 pub struct GasData {
     pub header: StringRecord,
     pub datetime: Vec<DateTime<Utc>>,
@@ -53,6 +54,7 @@ impl EqualLen for GasData {
 
 impl GasData {}
 
+#[derive(Debug)]
 pub struct TimeData {
     pub chamber_id: Vec<String>,
     pub start_time: Vec<DateTime<Utc>>,
@@ -189,7 +191,6 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
 
         match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
             Ok(naive_dt) => {
-                println!("File time: {:?}", naive_dt);
                 let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
                     LocalResult::Single(dt) => dt.with_timezone(&Utc),
                     LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
@@ -198,8 +199,6 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
                         process::exit(1)
                     }
                 };
-                println!("UTC  time: {:?}", dt_utc);
-                // let dt_utc = naive_dt.with_timezone(&Utc);
                 start_time.push(dt_utc)
             }
             Err(e) => println!("Failed to parse timestamp: {}", e),
