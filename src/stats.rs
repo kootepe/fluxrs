@@ -35,7 +35,7 @@ impl LinReg {
     }
 }
 
-pub fn pearson_correlation(x: &Vec<f64>, y: &Vec<f64>) -> Option<f64> {
+pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     if x.len() < 5 {
         return None;
     }
