@@ -41,7 +41,6 @@ impl EqualLen for GasData {
     fn validate_lengths(&self) -> bool {
         // check that all fields are equal length
         let lengths = [
-            &self.header.len(),
             &self.datetime.len(),
             &self.secs.len(),
             &self.fsecs.len(),
@@ -66,14 +65,21 @@ impl EqualLen for GasData {
 
 impl GasData {
     pub fn any_col_invalid(&self) -> bool {
-        let invalids = [
+        // create a list of booleans by checking all values in the vector, if all are equal to
+        // error value, return true to the vector
+        let invalids: [&bool; 5] = [
             &self.secs.iter().all(|&x| x == ERROR_INT),
             &self.fsecs.iter().all(|&x| x == ERROR_FLOAT),
             &self.nsecs.iter().all(|&x| x == ERROR_INT),
             &self.gas.iter().all(|&x| x == ERROR_FLOAT),
             &self.diag.iter().all(|&x| x == ERROR_INT),
         ];
-        invalids.iter().any(|&x| *x)
+        let check = invalids.iter().any(|&x| *x);
+        check
+    }
+
+    pub fn summary(&self) {
+        println!("dt: {} len: {}", self.datetime[0], self.diag.len());
     }
 }
 
