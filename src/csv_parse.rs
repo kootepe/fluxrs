@@ -2,6 +2,7 @@ use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
+use itertools::izip;
 
 use csv::StringRecord;
 use std::error::Error;
@@ -109,7 +110,17 @@ impl EqualLen for TimeData {
     }
 }
 
-impl TimeData {}
+impl TimeData {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &DateTime<Utc>, &u64, &u64, &u64)> {
+        self.chamber_id
+            .iter()
+            .zip(&self.start_time)
+            .zip(&self.close_offset)
+            .zip(&self.open_offset)
+            .zip(&self.end_offset)
+            .map(|((((chamber, start), close), open), end)| (chamber, start, close, open, end))
+    }
+}
 
 pub fn mk_rdr<P: AsRef<Path>>(filename: P) -> Result<csv::Reader<File>, Box<dyn Error>> {
     let file = File::open(filename)?;
