@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use crate::csv_parse::EqualLen;
 use std::error::Error;
 use std::path::PathBuf;
@@ -47,18 +49,20 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             return Err(e);
         }
     };
-    let mut gasv: Vec<csv_parse::GasData> = Vec::new();
+    let mut all_gas = csv_parse::GasData {
+        header: csv::StringRecord::new(),
+        datetime: Vec::new(),
+        gas: Vec::new(),
+        diag: Vec::new(),
+    };
+    println!("Processing {} files.", gaspaths.len());
     for path in gaspaths {
         match csv_parse::read_gas_csv(&path) {
             Ok(res) => {
-                let r = stats::pearson_correlation(&res.fsecs, &res.gas).unwrap_or_else(|| {
-                    println!("{:?}", &path);
-                    0.0
-                });
-                println!("{:?}", &r);
-                if res.validate_lengths() {
-                if res.validate_lengths() && res.any_col_invalid() {
-                    gasv.push(res);
+                if res.validate_lengths() && !res.any_col_invalid() {
+                    all_gas.datetime.extend(res.datetime);
+                    all_gas.gas.extend(res.gas);
+                    all_gas.diag.extend(res.diag);
                 }
             }
             Err(err) => {
@@ -81,9 +85,55 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
         };
     }
-    for g in gasv {
-        // println!("{:?}", g.fsecs)
+    let mut cycles: Vec<csv_parse::Cycle> = Vec::new();
+
+    let mut r_vec: Vec<f64> = Vec::new();
+    println!("Sorting");
+    all_gas.sort(); // sort all_gas measurements by datetime
+    println!("Sorted");
+    for time in &timev {
+        for (chamber, start, close, open, end) in time.iter() {
+            println!("Processing cycle {}", &start);
+            let mut cycle = csv_parse::Cycle {
+                chamber_id: chamber.clone(),
+                start_time: *start,
+                close_time: *start + Duration::from_secs(*close) + Duration::from_secs(120),
+                open_time: *start + Duration::from_secs(*open) - Duration::from_secs(120),
+                end_time: *start + Duration::from_secs(*end),
+                datetime_v: Vec::new(),
+                gas_v: Vec::new(),
+            };
+            let st = &cycle.close_time;
+            let et = &cycle.open_time;
+            let start_younger_than_data = st < &all_gas.datetime[0];
+            let start_older_than_data = st > all_gas.datetime.last().unwrap();
+            if start_younger_than_data || start_older_than_data {
+                println!("Skipped");
+                continue;
+            }
+            let data: Vec<(f64, f64)> = all_gas
+                .datetime
+                .iter()
+                .zip(all_gas.gas.iter()) // Combine times and data
+                .filter(|(t, _)| *t >= st && *t <= et) // Filter timestamps in range
+                .map(|(t, d)| {
+                    cycle.datetime_v.push(*t); // save datetimes to cycle struct here
+                    cycle.gas_v.push(*d); // save gas data to cycle struct here
+                    (t.timestamp() as f64, *d)
+                }) // Convert datetime to seconds, collect f64
+                .collect();
+            let (x, y): (Vec<f64>, Vec<f64>) = data.into_iter().unzip();
+            if x.is_empty() || y.is_empty() {
+                continue;
+            } else {
+                let r = stats::pearson_correlation(&x, &cycle.gas_v).unwrap_or(0.0);
+                cycles.push(cycle);
+                // println!("{}", r);
+                r_vec.push(r)
+            }
+        }
     }
 
+    println!("Calculated {} r values", r_vec.len());
     Ok(())
 }
