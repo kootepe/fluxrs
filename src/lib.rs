@@ -56,7 +56,9 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     0.0
                 });
                 println!("{:?}", &r);
-                gasv.push(res);
+                if res.validate_lengths() {
+                    gasv.push(res);
+                }
             }
             Err(err) => {
                 println!("Crashed with: {}, {:?}", err, &path);
@@ -67,6 +69,9 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     for path in &timepaths {
         let times = match csv_parse::read_time_csv(&path) {
             Ok(res) => Some(res),
+                if res.validate_lengths() {
+                    timev.push(res);
+                }
             Err(err) => {
                 println!("Crashed with: {}, {:?}", err, &path);
                 None

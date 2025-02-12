@@ -17,12 +17,63 @@ pub struct GasData {
     pub diag: Vec<u32>,
 }
 
+impl GasData {
+    pub fn validate_lengths(&self) -> bool {
+        // check that all fields are equal length
+        let lengths = [
+            &self.header.len(),
+            &self.datetime.len(),
+            &self.secs.len(),
+            &self.fsecs.len(),
+            &self.nsecs.len(),
+            &self.gas.len(),
+            &self.diag.len(),
+        ];
+        let mut check: bool = true;
+
+        for vec_len in lengths.iter() {
+            let len = vec_len;
+            if vec_len != len {
+                check = false;
+                break;
+            } else {
+                continue;
+            };
+        }
+        check
+    }
+}
+
 pub struct TimeData {
     pub chamber_id: Vec<String>,
     pub start_time: Vec<DateTime<Utc>>,
     pub close_offset: Vec<u64>,
     pub open_offset: Vec<u64>,
     pub end_offset: Vec<u64>,
+}
+
+impl TimeData {
+    pub fn validate_lengths(&self) -> bool {
+        let lengths = [
+            &self.chamber_id.len(),
+            &self.start_time.len(),
+            &self.close_offset.len(),
+            &self.open_offset.len(),
+            &self.end_offset.len(),
+        ];
+        let mut check: bool = true;
+
+        for vec_len in lengths.iter() {
+            let len = vec_len;
+            if vec_len != len {
+                check = false;
+                break;
+            } else {
+                continue;
+            };
+        }
+        check
+    }
 }
 pub fn mk_rdr<P: AsRef<Path>>(filename: P) -> Result<csv::Reader<File>, Box<dyn Error>> {
     let file = File::open(filename)?;
