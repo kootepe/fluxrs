@@ -17,6 +17,14 @@ pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
 }
 
+pub struct Cycle {
+    pub chamber_id: String,
+    pub start_time: chrono::DateTime<chrono::Utc>,
+    pub close_time: chrono::DateTime<chrono::Utc>,
+    pub open_time: chrono::DateTime<chrono::Utc>,
+    pub end_time: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug)]
 pub struct GasData {
     pub header: StringRecord,
