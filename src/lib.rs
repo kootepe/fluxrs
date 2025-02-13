@@ -15,6 +15,8 @@ use structs::GasData;
 
 use std::collections::HashMap;
 
+const R_LIM: f64 = 0.99;
+
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,
     flux: Vec<f64>,
@@ -183,6 +185,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut r_vec: Vec<f64> = Vec::new();
     println!("Sorting");
     all_gas.sort(); // sort all_gas measurements by datetime
+    let first = all_gas.datetime[0];
+    let last = all_gas.datetime.last().unwrap();
     println!("Sorted");
     println!("Grouping.");
     let sorted_data = group_gas_data_by_date(&all_gas);
@@ -194,13 +198,13 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut no_data_for_day = false;
     let mut calced = Flux::new();
 
+    let mut skips = 0;
     for time in &timev {
         let mut i = 0.;
         for (chamber, start, close, open, end) in time.iter() {
-            if no_data_for_day && last_date == day {
+            // skip loop if gas data doesnt cover the time data
+            if start < &first || start > last {
                 continue;
-            } else {
-                no_data_for_day = false;
             }
             let leng = time.start_time.len();
             let even = i % 50.;
@@ -221,9 +225,16 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let st = cycle.start_time;
             let et = cycle.end_time;
             day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
-                                                     // println!("{}", day);
-                                                     // println!("{}", st);
-                                                     // println!("{}", et);
+            if no_data_for_day && last_date == day {
+                skips += 1;
+                continue;
+            } else {
+                if skips > 0 {
+                    println!("{}", skips);
+                }
+                skips = 0;
+                no_data_for_day = false;
+            }
             last_date = day.clone();
             let start_younger_than_data = st < all_gas.datetime[0];
             let start_older_than_data = st > *all_gas.datetime.last().unwrap();
@@ -235,33 +246,30 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             // let mut temp_dt_v: Vec<DateTime<Utc>> = Vec::new();
             // let mut temp_gas_v: Vec<f64> = Vec::new();
             if let Some(cur_data) = sorted_data.get(&day) {
-                let data: Vec<(f64, f64)> = cur_data
+                cur_data
                     .datetime
                     .iter()
                     .zip(cur_data.gas.iter()) // Combine times and data
                     .filter(|(t, _)| t >= &&st && t <= &&et) // Filter timestamps in range
-                    .map(|(t, d)| {
+                    .for_each(|(t, d)| {
                         cycle.dt_v.push(*t); // save datetimes to cycle struct here
                         cycle.gas_v.push(*d); // save gas data to cycle struct here
-                        (t.timestamp() as f64, *d)
-                    }) // Convert datetime to seconds, collect f64
-                    .collect();
+                    }); // Convert datetime to seconds, collect f64
                 cycle.get_calc_data();
                 if cycle.calc_dt_v.is_empty() || cycle.calc_gas_v.is_empty() {
                     continue;
                 }
                 cycle.calculate_r();
-                if cycle.r > 0.99 {
-                    println!("{}", cycle.r);
+                r_vec.push(cycle.r);
+                if cycle.r > R_LIM {
                     cycle.calculate_flux();
-                    r_vec.push(cycle.r);
                     calced.datetime.push(cycle.start_time);
                     calced.flux.push(cycle.flux);
                     calced.r.push(cycle.r);
                     calced.chamber_id.push(cycle.chamber_id);
                 }
             } else {
-                println!("No data found for {}", &day);
+                // println!("No data found for {}", &day);
                 no_data_for_day = true;
                 continue;
             }
@@ -269,7 +277,10 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     }
 
     println!("Calculated {} r values", r_vec.len());
-    println!("Calculated {} flux values", calced.datetime.len());
+    println!(
+        "Calculated {} flux values with r > {R_LIM}",
+        calced.datetime.len()
+    );
     match calced.write_to_csv("Testing.csv") {
         Ok(f) => f,
         Err(e) => println!("Problem writing file: {e}"),
