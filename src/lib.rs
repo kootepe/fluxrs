@@ -110,13 +110,14 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn build(args: &[String]) -> Result<Config, &'static str> {
-        let gas_path: String = match args.get(1) {
+    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
+        args.next();
+        let gas_path: String = match args.next() {
             Some(str) => str.clone(),
             None => String::new(), // returning empty string will prompt get paths to to ask
         };
 
-        let time_path: String = match args.get(2) {
+        let time_path: String = match args.next() {
             Some(str) => str.clone(),
             None => String::new(), // returning empty string will prompt get paths to to ask
         };
