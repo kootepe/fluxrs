@@ -1,12 +1,106 @@
+use csv::Writer;
+use std::fs::File;
 use std::time::Duration;
 
-use crate::csv_parse::EqualLen;
+use crate::structs::EqualLen;
 use std::error::Error;
 use std::path::PathBuf;
 
 mod csv_parse;
 mod get_paths;
 mod stats;
+mod structs;
+
+use structs::GasData;
+
+use std::collections::HashMap;
+
+pub struct Flux {
+    datetime: Vec<chrono::DateTime<chrono::Utc>>,
+    flux: Vec<f64>,
+    r: Vec<f64>,
+    chamber_id: Vec<String>,
+}
+
+impl Default for Flux {
+    fn default() -> Self {
+        Flux::new()
+    }
+}
+impl Flux {
+    pub fn new() -> Flux {
+        Flux {
+            datetime: Vec::new(),
+            flux: Vec::new(),
+            r: Vec::new(),
+            chamber_id: Vec::new(),
+        }
+    }
+
+    pub fn write_to_csv(&self, filename: &str) -> Result<(), Box<dyn Error>> {
+        // Ensure all vectors have the same length
+        assert!(
+            self.datetime.len() == self.flux.len()
+                && self.flux.len() == self.r.len()
+                && self.r.len() == self.chamber_id.len(),
+            "All vectors in Flux struct must have the same length"
+        );
+
+        let mut wtr = Writer::from_writer(File::create(filename)?);
+
+        // Write CSV Header
+        wtr.write_record(["datetime", "flux", "r", "chamber_id"])?;
+
+        // Write CSV Rows
+        for ((time, (flux, r)), chamber_id) in self
+            .datetime
+            .iter()
+            .zip(self.flux.iter().zip(self.r.iter()))
+            .zip(self.chamber_id.iter())
+        {
+            wtr.write_record(&[
+                time.to_rfc3339(),
+                flux.to_string(),
+                r.to_string(),
+                chamber_id.clone(),
+            ])?;
+        }
+
+        // Flush and Finish
+        wtr.flush()?;
+        println!("Data successfully written to {}", filename);
+        Ok(())
+    }
+}
+
+pub fn group_gas_data_by_date(gas_data: &GasData) -> HashMap<String, GasData> {
+    let mut grouped_data: HashMap<String, GasData> = HashMap::new();
+
+    for (dt, gas, diag) in gas_data
+        .datetime
+        .iter()
+        .zip(&gas_data.gas)
+        .zip(&gas_data.diag)
+        .map(|((dt, gas), diag)| (dt, gas, diag))
+    {
+        let date_key = dt.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+
+        // Get or insert the daily GasData entry
+        let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
+            header: gas_data.header.clone(),
+            datetime: Vec::new(),
+            gas: Vec::new(),
+            diag: Vec::new(),
+        });
+
+        // Add values to the daily entry
+        entry.datetime.push(*dt);
+        entry.gas.push(*gas);
+        entry.diag.push(*diag);
+    }
+
+    grouped_data
+}
 
 pub struct Config {
     pub gas_path: String,
@@ -49,7 +143,6 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             return Err(e);
         }
     };
-    let mut all_gas = csv_parse::GasData {
         header: csv::StringRecord::new(),
         datetime: Vec::new(),
         gas: Vec::new(),
