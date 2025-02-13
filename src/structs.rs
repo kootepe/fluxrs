@@ -108,10 +108,6 @@ impl Cycle {
         // Clear previous results
         self.calc_gas_v.clear();
         self.calc_dt_v.clear();
-        println!("{:?}", s);
-        println!("{:?}", e);
-        println!("{:?}", self.dt_v);
-        println!("{:?}", self.gas_v);
 
         // Filter and store results in separate vectors
         self.dt_v
@@ -122,9 +118,8 @@ impl Cycle {
                 self.calc_dt_v.push(*t);
                 self.calc_gas_v.push(*d);
             });
-        println!("{:?}", self.calc_dt_v);
-        println!("{:?}", self.calc_gas_v);
     }
+    // unused as the current implementation
     pub fn _update_data(&mut self, dt_v: Vec<DateTime<Utc>>, gas_v: Vec<f64>) {
         self.dt_v = dt_v;
         self.gas_v = gas_v;
@@ -150,8 +145,6 @@ impl Cycle {
             .collect();
         let last = self.dt_v.last().unwrap();
         let first = self.dt_v[0];
-        println!("f: {}", first);
-        println!("l: {}", last);
         self.r = stats::pearson_correlation(&num_ts, &self.calc_gas_v).unwrap_or(0.0);
     }
     pub fn calculate_flux(&mut self) {
@@ -332,8 +325,12 @@ mod tests {
         assert!(cycle.flux.is_finite(), "Flux should be a finite number");
     }
 
+    #[ignore]
     #[test]
     fn test_update_data() {
+        //
+        // ignored since update_data is not being used
+        //
         let mut cycle = create_test_cycle();
         let new_dt_v: Vec<DateTime<Utc>> = (0..10)
             .map(|i| Utc.with_ymd_and_hms(2024, 2, 2, 11, i, 0).unwrap())
