@@ -1,11 +1,11 @@
 pub struct LinReg {
-    pub intercept: f64,
+    pub _intercept: f64,
     pub slope: f64,
 }
 
 impl LinReg {
-    pub fn calculate(&self, x: f64) -> f64 {
-        self.intercept + self.slope * x
+    pub fn _calculate(&self, x: f64) -> f64 {
+        self._intercept + self.slope * x
     }
 
     pub fn train(x: &[f64], y: &[f64]) -> Self {
