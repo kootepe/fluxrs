@@ -8,9 +8,11 @@ impl LinReg {
         self.intercept + self.slope * x
     }
 
-    pub fn train(input: &[(f64, f64)]) -> Self {
-        let x: Vec<f64> = input.iter().map(|pairs| pairs.0).collect();
-        let y: Vec<f64> = input.iter().map(|pairs| pairs.1).collect();
+    pub fn train(x: &[f64], y: &[f64]) -> Self {
+        assert!(
+            x.len() == y.len(),
+            "Input vectors x and y must have the same length"
+        );
 
         let avg_x: f64 = x.iter().sum::<f64>() / x.len() as f64;
         let x_differences_to_average: Vec<f64> = x.iter().map(|value| avg_x - value).collect();
@@ -31,7 +33,10 @@ impl LinReg {
         let slope = ss_xy / ss_xx;
         let intercept = avg_y - slope * avg_x;
 
-        Self { intercept, slope }
+        Self {
+            _intercept: intercept,
+            slope,
+        }
     }
 }
 
