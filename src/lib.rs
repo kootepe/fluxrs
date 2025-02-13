@@ -143,6 +143,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             return Err(e);
         }
     };
+    let mut all_gas = structs::GasData {
         header: csv::StringRecord::new(),
         datetime: Vec::new(),
         gas: Vec::new(),
@@ -164,7 +165,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
         };
     }
-    let mut timev: Vec<csv_parse::TimeData> = Vec::new();
+    let mut timev: Vec<structs::TimeData> = Vec::new();
     for path in timepaths {
         match csv_parse::read_time_csv(&path) {
             Ok(res) => {
@@ -178,55 +179,100 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             }
         };
     }
-    let mut cycles: Vec<csv_parse::Cycle> = Vec::new();
 
     let mut r_vec: Vec<f64> = Vec::new();
     println!("Sorting");
     all_gas.sort(); // sort all_gas measurements by datetime
     println!("Sorted");
+    println!("Grouping.");
+    let sorted_data = group_gas_data_by_date(&all_gas);
+    println!("Grouped.");
+
+    // initiate variables
+    let mut last_date = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
+    let mut day = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
+    let mut no_data_for_day = false;
+    let mut calced = Flux::new();
+
     for time in &timev {
+        let mut i = 0.;
         for (chamber, start, close, open, end) in time.iter() {
-            println!("Processing cycle {}", &start);
-            let mut cycle = csv_parse::Cycle {
-                chamber_id: chamber.clone(),
-                start_time: *start,
-                close_time: *start + Duration::from_secs(*close) + Duration::from_secs(120),
-                open_time: *start + Duration::from_secs(*open) - Duration::from_secs(120),
-                end_time: *start + Duration::from_secs(*end),
-                datetime_v: Vec::new(),
-                gas_v: Vec::new(),
-            };
-            let st = &cycle.close_time;
-            let et = &cycle.open_time;
-            let start_younger_than_data = st < &all_gas.datetime[0];
-            let start_older_than_data = st > all_gas.datetime.last().unwrap();
-            if start_younger_than_data || start_older_than_data {
-                println!("Skipped");
-                continue;
-            }
-            let data: Vec<(f64, f64)> = all_gas
-                .datetime
-                .iter()
-                .zip(all_gas.gas.iter()) // Combine times and data
-                .filter(|(t, _)| *t >= st && *t <= et) // Filter timestamps in range
-                .map(|(t, d)| {
-                    cycle.datetime_v.push(*t); // save datetimes to cycle struct here
-                    cycle.gas_v.push(*d); // save gas data to cycle struct here
-                    (t.timestamp() as f64, *d)
-                }) // Convert datetime to seconds, collect f64
-                .collect();
-            let (x, y): (Vec<f64>, Vec<f64>) = data.into_iter().unzip();
-            if x.is_empty() || y.is_empty() {
+            if no_data_for_day && last_date == day {
                 continue;
             } else {
-                let r = stats::pearson_correlation(&x, &cycle.gas_v).unwrap_or(0.0);
-                cycles.push(cycle);
-                // println!("{}", r);
-                r_vec.push(r)
+                no_data_for_day = false;
+            }
+            let leng = time.start_time.len();
+            let even = i % 50.;
+            if even == 0. {
+                // println!("Processed {i}/{leng}.")
+            }
+            i += 1.;
+            // println!("Processing cycle {}", &start);
+            let mut cycle = structs::CycleBuilder::new()
+                .chamber_id(chamber)
+                .start_time(*start)
+                .close_offset(*close) // 1 hour
+                .open_offset(*open) // 30 minutes
+                .end_offset(*end) // 2 hours
+                .build()
+                .expect("Failed to build Cycle");
+
+            let st = cycle.start_time;
+            let et = cycle.end_time;
+            day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+                                                     // println!("{}", day);
+                                                     // println!("{}", st);
+                                                     // println!("{}", et);
+            last_date = day.clone();
+            let start_younger_than_data = st < all_gas.datetime[0];
+            let start_older_than_data = st > *all_gas.datetime.last().unwrap();
+            if start_younger_than_data || start_older_than_data {
+                // println!("Skipped");
+                continue;
+            }
+
+            // let mut temp_dt_v: Vec<DateTime<Utc>> = Vec::new();
+            // let mut temp_gas_v: Vec<f64> = Vec::new();
+            if let Some(cur_data) = sorted_data.get(&day) {
+                let data: Vec<(f64, f64)> = cur_data
+                    .datetime
+                    .iter()
+                    .zip(cur_data.gas.iter()) // Combine times and data
+                    .filter(|(t, _)| t >= &&st && t <= &&et) // Filter timestamps in range
+                    .map(|(t, d)| {
+                        cycle.dt_v.push(*t); // save datetimes to cycle struct here
+                        cycle.gas_v.push(*d); // save gas data to cycle struct here
+                        (t.timestamp() as f64, *d)
+                    }) // Convert datetime to seconds, collect f64
+                    .collect();
+                cycle.get_calc_data();
+                if cycle.calc_dt_v.is_empty() || cycle.calc_gas_v.is_empty() {
+                    continue;
+                }
+                cycle.calculate_r();
+                if cycle.r > 0.99 {
+                    println!("{}", cycle.r);
+                    cycle.calculate_flux();
+                    r_vec.push(cycle.r);
+                    calced.datetime.push(cycle.start_time);
+                    calced.flux.push(cycle.flux);
+                    calced.r.push(cycle.r);
+                    calced.chamber_id.push(cycle.chamber_id);
+                }
+            } else {
+                println!("No data found for {}", &day);
+                no_data_for_day = true;
+                continue;
             }
         }
     }
 
     println!("Calculated {} r values", r_vec.len());
+    println!("Calculated {} flux values", calced.datetime.len());
+    match calced.write_to_csv("Testing.csv") {
+        Ok(f) => f,
+        Err(e) => println!("Problem writing file: {e}"),
+    }
     Ok(())
 }
