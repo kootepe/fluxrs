@@ -108,6 +108,10 @@ impl Cycle {
         // Clear previous results
         self.calc_gas_v.clear();
         self.calc_dt_v.clear();
+        println!("{:?}", s);
+        println!("{:?}", e);
+        println!("{:?}", self.dt_v);
+        println!("{:?}", self.gas_v);
 
         // Filter and store results in separate vectors
         self.dt_v
@@ -118,10 +122,14 @@ impl Cycle {
                 self.calc_dt_v.push(*t);
                 self.calc_gas_v.push(*d);
             });
+        println!("{:?}", self.calc_dt_v);
+        println!("{:?}", self.calc_gas_v);
     }
     pub fn _update_data(&mut self, dt_v: Vec<DateTime<Utc>>, gas_v: Vec<f64>) {
         self.dt_v = dt_v;
         self.gas_v = gas_v;
+        println!("{:?}", self.dt_v);
+        println!("{:?}", self.gas_v);
 
         // Automatically run the calculation
         self.get_calc_data();
@@ -248,5 +256,101 @@ impl TimeData {
             .zip(&self.open_offset)
             .zip(&self.end_offset)
             .map(|((((chamber, start), close), open), end)| (chamber, start, close, open, end))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn create_test_cycle() -> Cycle {
+        let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
+        let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
+        let close_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 10, 0).unwrap();
+        let open_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 20, 0).unwrap();
+        let end_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 30, 0).unwrap();
+        let dt_v = (0..30)
+            .map(|i| Utc.with_ymd_and_hms(2024, 2, 1, 10, i, 0).unwrap())
+            .collect();
+        let gas_v = (0..30).map(|i| i as f64 * 1.5 + 10.0).collect();
+
+        Cycle {
+            chamber_id: "test_chamber".to_string(),
+            start_time,
+            close_time,
+            open_time,
+            end_time,
+            r: 0.0,
+            flux: 0.0,
+            dt_v,
+            gas_v,
+            calc_gas_v: Vec::new(),
+            calc_dt_v: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_get_calc_data() {
+        let mut cycle = create_test_cycle();
+        cycle.get_calc_data();
+        assert!(
+            !cycle.calc_dt_v.is_empty(),
+            "Filtered timestamps should not be empty"
+        );
+        assert_eq!(
+            cycle.calc_dt_v.len(),
+            cycle.calc_gas_v.len(),
+            "Timestamps and gas values lengths should match"
+        );
+    }
+
+    #[test]
+    fn test_calculate_slope() {
+        let mut cycle = create_test_cycle();
+        cycle.get_calc_data();
+        let slope = cycle.calculate_slope();
+        assert!(slope.is_finite(), "Slope should be a finite number");
+    }
+
+    #[test]
+    fn test_calculate_r() {
+        let mut cycle = create_test_cycle();
+        cycle.get_calc_data();
+        cycle.calculate_r();
+        assert!(
+            (0.0..=1.0).contains(&cycle.r),
+            "Correlation coefficient should be between 0 and 1"
+        );
+    }
+
+    #[test]
+    fn test_calculate_flux() {
+        let mut cycle = create_test_cycle();
+        cycle.get_calc_data();
+        cycle.calculate_flux();
+        assert!(cycle.flux.is_finite(), "Flux should be a finite number");
+    }
+
+    #[test]
+    fn test_update_data() {
+        let mut cycle = create_test_cycle();
+        let new_dt_v: Vec<DateTime<Utc>> = (0..10)
+            .map(|i| Utc.with_ymd_and_hms(2024, 2, 2, 11, i, 0).unwrap())
+            .collect();
+        let new_gas_v: Vec<f64> = (0..10).map(|i| (i as f64) * 2.0 + 5.0).collect();
+        cycle._update_data(new_dt_v.clone(), new_gas_v.clone());
+        assert_eq!(
+            cycle.dt_v, new_dt_v,
+            "Updated timestamps should match the input"
+        );
+        assert_eq!(
+            cycle.gas_v, new_gas_v,
+            "Updated gas values should match the input"
+        );
+        assert!(
+            !cycle.calc_dt_v.is_empty(),
+            "Calculated timestamps should not be empty after update"
+        );
     }
 }
