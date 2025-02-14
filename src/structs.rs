@@ -74,8 +74,8 @@ impl CycleBuilder {
         Ok(Cycle {
             chamber_id: chamber,
             start_time: start,
-            close_time: start + Duration::from_secs(close) + Duration::from_secs(120),
-            open_time: start + Duration::from_secs(open) - Duration::from_secs(120),
+            close_time: start + Duration::from_secs(close),
+            open_time: start + Duration::from_secs(open),
             end_time: start + Duration::from_secs(end),
             flux: 0.,
             r: 0.,
