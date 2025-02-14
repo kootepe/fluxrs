@@ -1,6 +1,5 @@
 use csv::Writer;
 use std::fs::File;
-use std::time::Duration;
 
 use crate::structs::EqualLen;
 use std::error::Error;
@@ -15,7 +14,7 @@ use structs::GasData;
 
 use std::collections::HashMap;
 
-const R_LIM: f64 = 0.99;
+const R_LIM: f64 = 0.999;
 
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,
@@ -146,12 +145,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             return Err(e);
         }
     };
-    let mut all_gas = structs::GasData {
-        header: csv::StringRecord::new(),
-        datetime: Vec::new(),
-        gas: Vec::new(),
-        diag: Vec::new(),
-    };
+    let mut all_gas = structs::GasData::new();
     println!("Processing {} files.", gaspaths.len());
     for path in gaspaths {
         match csv_parse::read_gas_csv(&path) {
@@ -183,11 +177,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         };
     }
 
-    let mut r_vec: Vec<f64> = Vec::new();
     println!("Sorting");
     all_gas.sort(); // sort all_gas measurements by datetime
-    let first = all_gas.datetime[0];
-    let last = all_gas.datetime.last().unwrap();
     println!("Sorted");
     println!("Grouping.");
     let sorted_data = group_gas_data_by_date(&all_gas);
@@ -198,22 +189,16 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut day = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
     let mut no_data_for_day = false;
     let mut calced = Flux::new();
+    let first = all_gas.datetime[0];
+    let last = all_gas.datetime.last().unwrap();
+    let mut r_vec: Vec<f64> = Vec::new();
 
-    let mut skips = 0;
-    for time in &timev {
-        let mut i = 0.;
+    for time in timev {
         for (chamber, start, close, open, end) in time.iter() {
             // skip loop if gas data doesnt cover the time data
             if start < &first || start > last {
                 continue;
             }
-            let leng = time.start_time.len();
-            let even = i % 50.;
-            if even == 0. {
-                // println!("Processed {i}/{leng}.")
-            }
-            i += 1.;
-            // println!("Processing cycle {}", &start);
             let mut cycle = structs::CycleBuilder::new()
                 .chamber_id(chamber)
                 .start_time(*start)
@@ -227,25 +212,17 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let et = cycle.end_time;
             day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
             if no_data_for_day && last_date == day {
-                skips += 1;
                 continue;
             } else {
-                if skips > 0 {
-                    println!("{}", skips);
-                }
-                skips = 0;
                 no_data_for_day = false;
             }
             last_date = day.clone();
             let start_younger_than_data = st < all_gas.datetime[0];
             let start_older_than_data = st > *all_gas.datetime.last().unwrap();
             if start_younger_than_data || start_older_than_data {
-                // println!("Skipped");
                 continue;
             }
 
-            // let mut temp_dt_v: Vec<DateTime<Utc>> = Vec::new();
-            // let mut temp_gas_v: Vec<f64> = Vec::new();
             if let Some(cur_data) = sorted_data.get(&day) {
                 cur_data
                     .datetime
@@ -260,7 +237,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 if cycle.calc_dt_v.is_empty() || cycle.calc_gas_v.is_empty() {
                     continue;
                 }
-                cycle.calculate_r();
+                cycle.find_highest_r_window();
                 r_vec.push(cycle.r);
                 if cycle.r > R_LIM {
                     cycle.calculate_flux();
@@ -270,7 +247,6 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     calced.chamber_id.push(cycle.chamber_id);
                 }
             } else {
-                // println!("No data found for {}", &day);
                 no_data_for_day = true;
                 continue;
             }
