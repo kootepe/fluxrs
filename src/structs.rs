@@ -81,6 +81,7 @@ impl CycleBuilder {
             lag_s: 0,
             flux: 0.,
             r: 0.,
+            diag_v: Vec::new(),
             dt_v: Vec::new(),
             gas_v: Vec::new(),
             calc_gas_v: Vec::new(),
@@ -99,11 +100,15 @@ pub struct Cycle {
     pub flux: f64,
     pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
     pub gas_v: Vec<f64>,
+    pub diag_v: Vec<i64>,
     pub calc_gas_v: Vec<f64>,
     pub calc_dt_v: Vec<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Cycle {
+    pub fn check_diag(&mut self) -> bool {
+        self.diag_v.iter().sum::<i64>() != 0
+    }
     pub fn adjust_open_time(&mut self) {
         self.open_time += chrono::TimeDelta::seconds(self.lag_s)
     }
@@ -341,6 +346,7 @@ mod tests {
             lag_s: 0,
             r: 0.0,
             flux: 0.0,
+            diag_v: Vec::new(),
             dt_v,
             gas_v,
             calc_gas_v: Vec::new(),

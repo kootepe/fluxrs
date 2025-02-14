@@ -228,10 +228,12 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     .datetime
                     .iter()
                     .zip(cur_data.gas.iter()) // Combine times and data
-                    .filter(|(t, _)| t >= &&st && t <= &&et) // Filter timestamps in range
-                    .for_each(|(t, d)| {
+                    .zip(cur_data.diag.iter()) // Combine times and data
+                    .filter(|((t, _), _)| t >= &&st && t <= &&et) // Filter timestamps in range
+                    .for_each(|((t, d), dg)| {
                         cycle.dt_v.push(*t); // save datetimes to cycle struct here
                         cycle.gas_v.push(*d); // save gas data to cycle struct here
+                        cycle.diag_v.push(*dg); // save gas data to cycle struct here
                     }); // Convert datetime to seconds, collect f64
                 cycle.get_calc_data();
                 if cycle.calc_dt_v.is_empty() || cycle.calc_gas_v.is_empty() {
