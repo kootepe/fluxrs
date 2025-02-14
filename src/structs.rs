@@ -104,8 +104,8 @@ pub struct Cycle {
 }
 
 impl Cycle {
-    pub fn adjust_close_time(&mut self) {
-        self.close_time += chrono::TimeDelta::seconds(self.lag_s)
+    pub fn adjust_open_time(&mut self) {
+        self.open_time += chrono::TimeDelta::seconds(self.lag_s)
     }
     pub fn find_highest_r_window(&mut self) {
         if self.dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
@@ -433,38 +433,38 @@ mod tests {
         );
     }
     #[test]
-    fn test_adjust_close_time() {
+    fn test_adjust_open_time() {
         let mut cycle = create_test_cycle();
-        let original_close_time = cycle.close_time;
-        cycle.adjust_close_time();
-        let expected_time = original_close_time + chrono::Duration::seconds(cycle.lag_s as i64);
+        let original_open_time = cycle.open_time;
+        cycle.adjust_open_time();
+        let expected_time = original_open_time + chrono::Duration::seconds(cycle.lag_s as i64);
         assert_eq!(
-            cycle.close_time, expected_time,
+            cycle.open_time, expected_time,
             "Close time should be adjusted by lag_s seconds"
         );
     }
 
     #[test]
-    fn test_adjust_close_time_zero_lag() {
+    fn test_adjust_open_time_zero_lag() {
         let mut cycle = create_test_cycle();
         cycle.lag_s = 0;
-        let original_close_time = cycle.close_time;
-        cycle.adjust_close_time();
+        let original_open_time = cycle.open_time;
+        cycle.adjust_open_time();
         assert_eq!(
-            cycle.close_time, original_close_time,
+            cycle.open_time, original_open_time,
             "Close time should remain unchanged when lag_s is zero"
         );
     }
 
     #[test]
-    fn test_adjust_close_time_negative_lag() {
+    fn test_adjust_open_time_negative_lag() {
         let mut cycle = create_test_cycle();
         cycle.lag_s = -15;
-        let original_close_time = cycle.close_time;
-        cycle.adjust_close_time();
-        let expected_time = original_close_time - chrono::Duration::seconds(15);
+        let original_open_time = cycle.open_time;
+        cycle.adjust_open_time();
+        let expected_time = original_open_time - chrono::Duration::seconds(15);
         assert_eq!(
-            cycle.close_time, expected_time,
+            cycle.open_time, expected_time,
             "Close time should be adjusted backwards by lag_s seconds"
         );
     }
