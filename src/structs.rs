@@ -1,6 +1,5 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
-use std::time::Duration;
 
 use csv::StringRecord;
 
@@ -18,9 +17,9 @@ pub trait EqualLen {
 pub struct CycleBuilder {
     chamber_id: Option<String>,
     start_time: Option<DateTime<Utc>>,
-    close_offset: Option<u64>,
-    open_offset: Option<u64>,
-    end_offset: Option<u64>,
+    close_offset: Option<i64>,
+    open_offset: Option<i64>,
+    end_offset: Option<i64>,
 }
 
 impl CycleBuilder {
@@ -48,19 +47,19 @@ impl CycleBuilder {
     }
 
     /// Set the close offset (seconds from start)
-    pub fn close_offset(mut self, offset: u64) -> Self {
+    pub fn close_offset(mut self, offset: i64) -> Self {
         self.close_offset = Some(offset);
         self
     }
 
     /// Set the open offset (seconds from start)
-    pub fn open_offset(mut self, offset: u64) -> Self {
+    pub fn open_offset(mut self, offset: i64) -> Self {
         self.open_offset = Some(offset);
         self
     }
 
     /// Set the end offset (seconds from start)
-    pub fn end_offset(mut self, offset: u64) -> Self {
+    pub fn end_offset(mut self, offset: i64) -> Self {
         self.end_offset = Some(offset);
         self
     }
@@ -76,9 +75,10 @@ impl CycleBuilder {
         Ok(Cycle {
             chamber_id: chamber,
             start_time: start,
-            close_time: start + Duration::from_secs(close),
-            open_time: start + Duration::from_secs(open),
-            end_time: start + Duration::from_secs(end),
+            close_time: start + chrono::Duration::seconds(close),
+            open_time: start + chrono::Duration::seconds(open),
+            end_time: start + chrono::Duration::seconds(end),
+            lag_s: 0,
             flux: 0.,
             r: 0.,
             dt_v: Vec::new(),
@@ -94,6 +94,7 @@ pub struct Cycle {
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
     pub end_time: chrono::DateTime<chrono::Utc>,
+    pub lag_s: i64,
     pub r: f64,
     pub flux: f64,
     pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
@@ -103,6 +104,9 @@ pub struct Cycle {
 }
 
 impl Cycle {
+    pub fn adjust_close_time(&mut self) {
+        self.close_time += chrono::TimeDelta::seconds(self.lag_s)
+    }
     pub fn find_highest_r_window(&mut self) {
         if self.dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
             return;
@@ -271,9 +275,9 @@ impl GasData {
 pub struct TimeData {
     pub chamber_id: Vec<String>,
     pub start_time: Vec<DateTime<Utc>>,
-    pub close_offset: Vec<u64>,
-    pub open_offset: Vec<u64>,
-    pub end_offset: Vec<u64>,
+    pub close_offset: Vec<i64>,
+    pub open_offset: Vec<i64>,
+    pub end_offset: Vec<i64>,
 }
 
 impl EqualLen for TimeData {
@@ -301,7 +305,7 @@ impl EqualLen for TimeData {
 }
 
 impl TimeData {
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &DateTime<Utc>, &u64, &u64, &u64)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &DateTime<Utc>, &i64, &i64, &i64)> {
         self.chamber_id
             .iter()
             .zip(&self.start_time)
@@ -334,6 +338,7 @@ mod tests {
             close_time,
             open_time,
             end_time,
+            lag_s: 0,
             r: 0.0,
             flux: 0.0,
             dt_v,
@@ -425,6 +430,42 @@ mod tests {
         assert!(
             !cycle.calc_dt_v.is_empty(),
             "Filtered data should not be empty"
+        );
+    }
+    #[test]
+    fn test_adjust_close_time() {
+        let mut cycle = create_test_cycle();
+        let original_close_time = cycle.close_time;
+        cycle.adjust_close_time();
+        let expected_time = original_close_time + chrono::Duration::seconds(cycle.lag_s as i64);
+        assert_eq!(
+            cycle.close_time, expected_time,
+            "Close time should be adjusted by lag_s seconds"
+        );
+    }
+
+    #[test]
+    fn test_adjust_close_time_zero_lag() {
+        let mut cycle = create_test_cycle();
+        cycle.lag_s = 0;
+        let original_close_time = cycle.close_time;
+        cycle.adjust_close_time();
+        assert_eq!(
+            cycle.close_time, original_close_time,
+            "Close time should remain unchanged when lag_s is zero"
+        );
+    }
+
+    #[test]
+    fn test_adjust_close_time_negative_lag() {
+        let mut cycle = create_test_cycle();
+        cycle.lag_s = -15;
+        let original_close_time = cycle.close_time;
+        cycle.adjust_close_time();
+        let expected_time = original_close_time - chrono::Duration::seconds(15);
+        assert_eq!(
+            cycle.close_time, expected_time,
+            "Close time should be adjusted backwards by lag_s seconds"
         );
     }
 }
