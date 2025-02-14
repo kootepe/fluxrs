@@ -186,14 +186,12 @@ impl Cycle {
             .collect();
         stats::LinReg::train(&num_ts, &self.calc_gas_v).slope
     }
-    pub fn calculate_r(&mut self) {
+    pub fn _calculate_r(&mut self) {
         let num_ts: Vec<f64> = self
             .calc_dt_v
             .iter()
             .map(|dt| dt.timestamp() as f64)
             .collect();
-        let last = self.dt_v.last().unwrap();
-        let first = self.dt_v[0];
         self.r = stats::pearson_correlation(&num_ts, &self.calc_gas_v).unwrap_or(0.0);
     }
     pub fn calculate_flux(&mut self) {
