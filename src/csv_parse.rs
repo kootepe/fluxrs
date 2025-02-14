@@ -104,9 +104,9 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
     // chamber_id,start_time,close_offset,open_offset,end_offset
     let mut chamber_id: Vec<String> = Vec::new();
     let mut start_time: Vec<DateTime<Utc>> = Vec::new();
-    let mut close_offset: Vec<u64> = Vec::new();
-    let mut open_offset: Vec<u64> = Vec::new();
-    let mut end_offset: Vec<u64> = Vec::new();
+    let mut close_offset: Vec<i64> = Vec::new();
+    let mut open_offset: Vec<i64> = Vec::new();
+    let mut end_offset: Vec<i64> = Vec::new();
 
     for r in rdr.records() {
         let record: &csv::StringRecord = &r?;
@@ -126,13 +126,13 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
             }
             Err(e) => println!("Failed to parse timestamp: {}", e),
         }
-        if let Ok(val) = record[2].parse::<u64>() {
+        if let Ok(val) = record[2].parse::<i64>() {
             close_offset.push(val)
         }
-        if let Ok(val) = record[3].parse::<u64>() {
+        if let Ok(val) = record[3].parse::<i64>() {
             open_offset.push(val)
         }
-        if let Ok(val) = record[4].parse::<u64>() {
+        if let Ok(val) = record[4].parse::<i64>() {
             end_offset.push(val)
         }
     }
