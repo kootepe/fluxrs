@@ -8,6 +8,8 @@ use crate::stats;
 
 pub const ERROR_INT: i64 = -9999;
 pub const ERROR_FLOAT: f64 = -9999.;
+pub const MIN_WINDOW_SIZE: usize = 120;
+pub const WINDOW_INCREMENT: usize = 10;
 
 pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
@@ -101,6 +103,53 @@ pub struct Cycle {
 }
 
 impl Cycle {
+    pub fn find_highest_r_window(&mut self) {
+        if self.dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+            return;
+        }
+
+        let mut highest_r = f64::MIN;
+        let mut step: usize = 0;
+
+        // let mut cur_window = min_window_size;
+        let data_len = self.calc_dt_v.len();
+        let mut range_end = MIN_WINDOW_SIZE;
+        let mut range_st = 0;
+        let mut range_en = 0;
+
+        while step + MIN_WINDOW_SIZE <= data_len {
+            range_end += step;
+
+            if range_end > data_len {
+                range_end = data_len
+            }
+            let window_dt: Vec<f64> = self.calc_dt_v[step..range_end]
+                .iter()
+                .map(|dt| dt.timestamp() as f64)
+                .collect();
+            let window_gas = &self.gas_v[step..range_end];
+
+            let r = stats::pearson_correlation(&window_dt, window_gas).unwrap_or(0.0);
+
+            if r > highest_r {
+                range_st = step;
+                range_en = range_end;
+                highest_r = r;
+            }
+            if step == 0 {
+                step += WINDOW_INCREMENT;
+            }
+            if range_end >= data_len {
+                range_end = MIN_WINDOW_SIZE;
+                step += WINDOW_INCREMENT;
+            }
+        }
+
+        self.r = highest_r;
+        self.calc_dt_v = self.calc_dt_v[range_st..range_en].to_vec();
+        self.calc_gas_v = self.calc_gas_v[range_st..range_en].to_vec();
+    }
+
     pub fn get_calc_data(&mut self) {
         let s = self.close_time;
         let e = self.open_time;
