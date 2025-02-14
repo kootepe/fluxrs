@@ -228,7 +228,20 @@ impl EqualLen for GasData {
     }
 }
 
+impl Default for GasData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl GasData {
+    pub fn new() -> GasData {
+        GasData {
+            header: csv::StringRecord::new(),
+            datetime: Vec::new(),
+            gas: Vec::new(),
+            diag: Vec::new(),
+        }
+    }
     pub fn any_col_invalid(&self) -> bool {
         // create a list of booleans by checking all values in the vector, if all are equal to
         // error value, return true to the vector
@@ -357,7 +370,7 @@ mod tests {
     fn test_calculate_r() {
         let mut cycle = create_test_cycle();
         cycle.get_calc_data();
-        cycle.calculate_r();
+        cycle._calculate_r();
         assert!(
             (0.0..=1.0).contains(&cycle.r),
             "Correlation coefficient should be between 0 and 1"
