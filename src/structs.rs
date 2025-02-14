@@ -410,4 +410,21 @@ mod tests {
             "Calculated timestamps should not be empty after update"
         );
     }
+    #[test]
+    fn test_find_highest_r_window_valid() {
+        let mut cycle = create_test_cycle();
+        cycle.calc_dt_v = cycle.dt_v.clone();
+        cycle.calc_gas_v = cycle.gas_v.clone();
+        cycle.find_highest_r_window();
+        assert!(cycle.r.is_finite(), "R value should be finite");
+        assert_eq!(
+            cycle.calc_dt_v.len(),
+            cycle.calc_gas_v.len(),
+            "Timestamps and gas values should match"
+        );
+        assert!(
+            !cycle.calc_dt_v.is_empty(),
+            "Filtered data should not be empty"
+        );
+    }
 }
