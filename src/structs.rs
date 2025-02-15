@@ -130,7 +130,8 @@ impl<'a> Cycle<'a> {
         self.gas_v
             .iter()
             .enumerate() // Pair with index
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap()) // Find max by value
+            // NOTE: IMPLEMENT BETTER NAN FILTERING TO THE ACTUAL STRUCT
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)) // Find max by value
             .and_then(|(idx, _)| self.dt_v.get(idx).cloned()) // Get timestamp if index exists
     }
     pub fn check_diag(&mut self) -> bool {
