@@ -2,3 +2,5 @@
 /data
 *.DAT
 .jukit
+images/
+*.png
