@@ -135,9 +135,10 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let str: &str = "gas";
     let gaspaths: Vec<PathBuf> = match get_paths::get_paths(config.gas_path, str) {
         Ok(vec) => {
-            if vec.is_empty() {
+            if !vec.is_empty() {
                 vec
             } else {
+                println!("No gas data found.");
                 process::exit(1)
             }
         }
