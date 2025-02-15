@@ -2,12 +2,14 @@ use chrono::prelude::DateTime;
 use chrono::Utc;
 
 use csv::StringRecord;
+use std::error::Error;
 
+use crate::gas_plot;
 use crate::stats;
 
 pub const ERROR_INT: i64 = -9999;
 pub const ERROR_FLOAT: f64 = -9999.;
-pub const MIN_WINDOW_SIZE: usize = 180;
+pub const MIN_WINDOW_SIZE: usize = 240;
 pub const WINDOW_INCREMENT: usize = 10;
 
 pub trait EqualLen {
