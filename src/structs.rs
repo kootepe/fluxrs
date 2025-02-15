@@ -108,6 +108,23 @@ pub struct Cycle<'a> {
 }
 
 impl<'a> Cycle<'a> {
+    pub fn to_html_row(&self) -> Result<String, Box<dyn Error>> {
+        let plot_path = gas_plot::draw_gas_plot(self)?; // Call your plot function and get the path
+        Ok(format!(
+            "<tr>\
+                <td>{}</td>\
+                <td>{}</td>\
+                <td>{}</td>\
+                <td>{:.4}</td>\
+                <td>{:.4}</td>\
+            </tr>",
+            self.chamber_id,
+            self.start_time.to_rfc3339(),
+            self.lag_s,
+            self.r,
+            self.flux
+        ))
+    }
     pub fn get_peak_datetime(&self) -> Option<DateTime<Utc>> {
         // Find the index of the highest gas value
         self.gas_v
