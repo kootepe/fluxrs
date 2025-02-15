@@ -10,11 +10,13 @@ use std::path::PathBuf;
 mod csv_parse;
 mod gas_plot;
 mod get_paths;
+mod html_report;
 mod stats;
 mod structs;
 use structs::GasData;
 
 use std::collections::HashMap;
+use std::io::Write; // Import Write trait
 
 const R_LIM: f64 = 0.999;
 
@@ -202,6 +204,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let first = all_gas.datetime[0];
     let last = all_gas.datetime.last().unwrap();
     let mut r_vec: Vec<f64> = Vec::new();
+    let mut cycle_vec: Vec<structs::Cycle> = Vec::new();
 
     for time in &timev {
         for (chamber, start, close, open, end) in time.iter() {
@@ -221,6 +224,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
             let st = cycle.start_time;
             let et = cycle.end_time;
             day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+
+            // skip measurements if there no data for that day
             if no_data_for_day && last_date == day {
                 continue;
             } else {
@@ -233,6 +238,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 continue;
             }
 
+            // iterate over the data to create a single cycle struct
             if let Some(cur_data) = sorted_data.get(&day) {
                 cur_data
                     .datetime
@@ -251,32 +257,44 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 }
                 cycle.find_highest_r_window();
                 r_vec.push(cycle.r);
+                cycle.calculate_flux();
                 if cycle.r > R_LIM {
-                    cycle.calculate_flux();
                     calced.datetime.push(cycle.start_time);
                     calced.flux.push(cycle.flux);
                     calced.r.push(cycle.r);
                     calced.chamber_id.push(cycle.chamber_id);
-                    match draw_gas_plot(cycle) {
-                        Ok(val) => val,
-                        Err(e) => println!("Failed to plot."),
-                    };
+                    // match draw_gas_plot(&cycle) {
+                    //     Ok(val) => val,
+                    //     Err(e) => {
+                    //         println!("Failed to plot. Error {e}");
+                    //         "images/".to_owned()
+                    //     }
+                    // };
                 }
             } else {
                 no_data_for_day = true;
                 continue;
             }
+            cycle_vec.push(cycle);
         }
     }
 
     println!("Calculated {} r values", r_vec.len());
     println!(
-        "Calculated  flux values with r > {R_LIM}",
-        // calced.datetime.len()
+        "Calculated {}  flux values with r > {R_LIM}",
+        calced.datetime.len()
     );
     match calced.write_to_csv("Testing.csv") {
         Ok(f) => f,
         Err(e) => println!("Problem writing file: {e}"),
+    }
+    // match calced.write_to_html_file("html_data.html") {
+    //     Ok(f) => f,
+    //     Err(e) => println!("Problem writing file: {e}"),
+    // }
+    match html_report::write_cycles_to_html(&cycle_vec) {
+        Ok(val) => val,
+        Err(e) => println!("Error {e}"),
     }
     Ok(())
 }
