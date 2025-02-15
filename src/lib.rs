@@ -132,7 +132,13 @@ impl Config {
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let str: &str = "gas";
     let gaspaths: Vec<PathBuf> = match get_paths::get_paths(config.gas_path, str) {
-        Ok(vec) => vec,
+        Ok(vec) => {
+            if vec.is_empty() {
+                vec
+            } else {
+                process::exit(1)
+            }
+        }
         Err(e) => {
             println!("{}", e);
             return Err(e);
