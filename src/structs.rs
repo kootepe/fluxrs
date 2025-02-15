@@ -9,7 +9,9 @@ use crate::stats;
 
 pub const ERROR_INT: i64 = -9999;
 pub const ERROR_FLOAT: f64 = -9999.;
+// the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: usize = 240;
+// how many seconds to increment the moving window searching for max r
 pub const WINDOW_INCREMENT: usize = 10;
 
 pub trait EqualLen {
@@ -80,7 +82,8 @@ impl<'a> CycleBuilder<'a> {
             close_time: start + chrono::Duration::seconds(close),
             open_time: start + chrono::Duration::seconds(open),
             end_time: start + chrono::Duration::seconds(end),
-            lag_s: 0,
+            lag_s: 0.,
+            max_idx: 0.,
             flux: 0.,
             r: 0.,
             diag_v: Vec::new(),
@@ -97,7 +100,8 @@ pub struct Cycle<'a> {
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
     pub end_time: chrono::DateTime<chrono::Utc>,
-    pub lag_s: i64,
+    pub lag_s: f64,
+    pub max_idx: f64,
     pub r: f64,
     pub flux: f64,
     pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
@@ -125,20 +129,59 @@ impl<'a> Cycle<'a> {
             self.flux
         ))
     }
-    pub fn get_peak_datetime(&self) -> Option<DateTime<Utc>> {
-        // Find the index of the highest gas value
-        self.gas_v
+    pub fn get_peak_datetime(&mut self) -> Option<DateTime<Utc>> {
+        // Find the index of the highest gas value in the last 120 elements
+        let len = self.gas_v.len();
+        if len < 120 {
+            return None; // Return None if there aren't 120 elements
+        }
+
+        let start_index = len.saturating_sub(120); // Get the start index for the last 120 elements
+
+        let max_idx = self.gas_v[start_index..] // Take the last 120 elements
             .iter()
-            .enumerate() // Pair with index
-            // NOTE: IMPLEMENT BETTER NAN FILTERING TO THE ACTUAL STRUCT
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)) // Find max by value
-            .and_then(|(idx, _)| self.dt_v.get(idx).cloned()) // Get timestamp if index exists
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(idx, _)| start_index + idx); // Adjust index to original vector
+
+        if let Some(idx) = max_idx {
+            if let Some(peak_time) = self.dt_v.get(idx).cloned() {
+                self.max_idx =
+                    (self.start_time + chrono::TimeDelta::seconds(idx as i64)).timestamp() as f64;
+                self.lag_s = self.max_idx - self.open_time.timestamp() as f64;
+                return Some(peak_time);
+            }
+        }
+
+        None
+        // Find the index of the highest gas value
+        // let max_idx = self
+        //     .gas_v
+        //     .iter()
+        //     .enumerate() // Pair with index
+        //     .rev()
+        //     .take(120)
+        //     // NOTE: IMPLEMENT BETTER NAN FILTERING TO THE ACTUAL STRUCT
+        //     .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)) // Find max by value
+        //     .and_then(|(idx, _)| self.dt_v.get(idx).cloned());
+        // // self.max_idx = max_idx.unwrap().timestamp() as f64;
+        //
+        // // self.lag_s = self.max_idx - self.close_time.timestamp() as f64;
+        // if let Some(idx) = max_idx {
+        //     if let Some(peak_time) = self.dt_v.get(idx).cloned() {
+        //         self.max_idx = idx as f64;
+        //         self.lag_s = peak_time.timestamp() as f64 - self.close_time.timestamp() as f64;
+        //         return Some(peak_time);
+        //     }
+        // }
+        //
+        // max_idx
     }
     pub fn check_diag(&mut self) -> bool {
         self.diag_v.iter().sum::<i64>() != 0
     }
     pub fn adjust_open_time(&mut self) {
-        self.open_time += chrono::TimeDelta::seconds(self.lag_s)
+        self.open_time += chrono::TimeDelta::seconds(self.lag_s as i64)
     }
     pub fn find_highest_r_window(&mut self) {
         if self.dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
@@ -371,7 +414,8 @@ mod tests {
             close_time,
             open_time,
             end_time,
-            lag_s: 0,
+            lag_s: 0.,
+            max_idx: 0.,
             r: 0.0,
             flux: 0.0,
             diag_v: Vec::new(),
@@ -481,7 +525,7 @@ mod tests {
     #[test]
     fn test_adjust_open_time_zero_lag() {
         let mut cycle = create_test_cycle();
-        cycle.lag_s = 0;
+        cycle.lag_s = 0.;
         let original_open_time = cycle.open_time;
         cycle.adjust_open_time();
         assert_eq!(
@@ -493,7 +537,7 @@ mod tests {
     #[test]
     fn test_adjust_open_time_negative_lag() {
         let mut cycle = create_test_cycle();
-        cycle.lag_s = -15;
+        cycle.lag_s = -15.;
         let original_open_time = cycle.open_time;
         cycle.adjust_open_time();
         let expected_time = original_open_time - chrono::Duration::seconds(15);
