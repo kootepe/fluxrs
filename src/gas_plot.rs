@@ -3,11 +3,17 @@ use plotters::element::DashedPathElement;
 use plotters::prelude::*;
 use std::error::Error;
 
-pub fn draw_gas_plot(cycle: Cycle) -> Result<(), Box<dyn Error>> {
+pub const PLOT_HEIGHT: u32 = 50;
+pub const PLOT_WIDTH: u32 = PLOT_HEIGHT * 2;
+
+pub fn draw_gas_plot(cycle: &Cycle) -> Result<String, Box<dyn Error>> {
     let name = cycle.start_time.to_string();
     let mut root = String::from("images/");
     root.push_str(&name);
+    root.retain(|c| !r#"()-,".;:' "#.contains(c));
     root.push_str(".png");
+    let mut wpath = String::from("html/");
+    wpath.push_str(&root);
     let time_data: Vec<f64> = cycle.dt_v.iter().map(|x| x.timestamp() as f64).collect();
     let calc_time_data: Vec<f64> = cycle
         .calc_dt_v
@@ -20,8 +26,21 @@ pub fn draw_gas_plot(cycle: Cycle) -> Result<(), Box<dyn Error>> {
     let cxmax = calc_time_data.last().unwrap();
     let mut closet = Vec::new();
     let gas_data = &cycle.gas_v;
-    let ymin = *gas_data.iter().min_by(|a, b| a.total_cmp(b)).unwrap();
-    let ymax = *gas_data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+    // let ymin = *gas_data.iter().min_by(|a, b| a.total_cmp(b)).unwrap();
+    // let ymax = *gas_data.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+    let ymin = cycle
+        .gas_v
+        .iter()
+        .cloned()
+        .filter(|v| !v.is_nan())
+        .fold(f64::INFINITY, f64::min);
+    let ymax = cycle
+        .gas_v
+        .iter()
+        .cloned()
+        .filter(|v| !v.is_nan())
+        .fold(f64::NEG_INFINITY, f64::max);
+
     let datetime_idx = cycle.get_peak_datetime().unwrap().timestamp() as f64;
     closet.push((datetime_idx, ymax));
     closet.push((datetime_idx, ymin));
@@ -36,7 +55,7 @@ pub fn draw_gas_plot(cycle: Cycle) -> Result<(), Box<dyn Error>> {
         filled: true,
         stroke_width: 5,
     };
-    let root_area = SVGBackend::new(&root, (87, 50)).into_drawing_area();
+    let root_area = BitMapBackend::new(&wpath, (PLOT_WIDTH, PLOT_HEIGHT)).into_drawing_area();
     root_area.fill(&WHITE).unwrap();
 
     let xra = xmax - xmin;
@@ -59,26 +78,6 @@ pub fn draw_gas_plot(cycle: Cycle) -> Result<(), Box<dyn Error>> {
     ctx.draw_series(data.iter().map(|point| Cross::new(*point, 1, col.mix(0.6))))
         .unwrap();
     ctx.draw_series(std::iter::once(DashedPathElement::new(closet, 11, 5, RED)))?;
-    // ctx.draw_series(
-    //     rect.iter()
-    //         .map(|point| Rectangle::new(*point, col.mix(0.6))),
-    // )
-    // .unwrap();
-    ctx.draw_series(std::iter::once(Rectangle::new(rect, style)))?;
-    // ctx.draw_series(closet.iter().map(|point| Circle::new(*point, 5, RED)))
-    //     .unwrap();
-    // ctx.draw_series(closet.iter().map(|(x, y)| {
-    //     EmptyElement::at((*x, *y)) // Use the guest coordinate system with EmptyElement
-    //     + Circle::new((0, 0), 10, BLUE) // Use backend coordinates with the rest
-    //     + Cross::new((4, 4), 3, RED)
-    //     + Pixel::new((4, -4), RED)
-    //     + TriangleMarker::new((-4, -4), 4, RED)
-    // }))
-    // .unwrap();
-    // root_area.draw(
-    //     &(EmptyElement::at((ymin as i32, xmax as i32))
-    //         + Circle::new((-5, -10), 6, RED)),
-    // )?;
-    // calced_v.push(cycle)
-    Ok(())
+    // ctx.draw_series(std::iter::once(Rectangle::new(rect, style)))?;
+    Ok(root.clone())
 }
