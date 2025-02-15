@@ -1,15 +1,17 @@
 use csv::Writer;
+use gas_plot::draw_gas_plot;
 use std::fs::File;
+use std::process;
 
 use crate::structs::EqualLen;
 use std::error::Error;
 use std::path::PathBuf;
 
 mod csv_parse;
+mod gas_plot;
 mod get_paths;
 mod stats;
 mod structs;
-
 use structs::GasData;
 
 use std::collections::HashMap;
@@ -200,7 +202,7 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let last = all_gas.datetime.last().unwrap();
     let mut r_vec: Vec<f64> = Vec::new();
 
-    for time in timev {
+    for time in &timev {
         for (chamber, start, close, open, end) in time.iter() {
             // skip loop if gas data doesnt cover the time data
             if start < &first || start > last {
@@ -254,6 +256,10 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                     calced.flux.push(cycle.flux);
                     calced.r.push(cycle.r);
                     calced.chamber_id.push(cycle.chamber_id);
+                    match draw_gas_plot(cycle) {
+                        Ok(val) => val,
+                        Err(e) => println!("Failed to plot."),
+                    };
                 }
             } else {
                 no_data_for_day = true;
@@ -264,8 +270,8 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 
     println!("Calculated {} r values", r_vec.len());
     println!(
-        "Calculated {} flux values with r > {R_LIM}",
-        calced.datetime.len()
+        "Calculated  flux values with r > {R_LIM}",
+        // calced.datetime.len()
     );
     match calced.write_to_csv("Testing.csv") {
         Ok(f) => f,
