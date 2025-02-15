@@ -7,7 +7,7 @@ use crate::stats;
 
 pub const ERROR_INT: i64 = -9999;
 pub const ERROR_FLOAT: f64 = -9999.;
-pub const MIN_WINDOW_SIZE: usize = 120;
+pub const MIN_WINDOW_SIZE: usize = 180;
 pub const WINDOW_INCREMENT: usize = 10;
 
 pub trait EqualLen {
@@ -106,6 +106,14 @@ pub struct Cycle<'a> {
 }
 
 impl<'a> Cycle<'a> {
+    pub fn get_peak_datetime(&self) -> Option<DateTime<Utc>> {
+        // Find the index of the highest gas value
+        self.gas_v
+            .iter()
+            .enumerate() // Pair with index
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap()) // Find max by value
+            .and_then(|(idx, _)| self.dt_v.get(idx).cloned()) // Get timestamp if index exists
+    }
     pub fn check_diag(&mut self) -> bool {
         self.diag_v.iter().sum::<i64>() != 0
     }
