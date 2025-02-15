@@ -14,15 +14,15 @@ pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
 }
 
-pub struct CycleBuilder {
-    chamber_id: Option<String>,
+pub struct CycleBuilder<'a> {
+    chamber_id: Option<&'a str>,
     start_time: Option<DateTime<Utc>>,
     close_offset: Option<i64>,
     open_offset: Option<i64>,
     end_offset: Option<i64>,
 }
 
-impl CycleBuilder {
+impl<'a> CycleBuilder<'a> {
     /// Create a new CycleBuilder
     pub fn new() -> Self {
         Self {
@@ -35,8 +35,8 @@ impl CycleBuilder {
     }
 
     /// Set the chamber ID
-    pub fn chamber_id(mut self, id: &str) -> Self {
-        self.chamber_id = Some(id.to_string());
+    pub fn chamber_id(mut self, id: &'a str) -> Self {
+        self.chamber_id = Some(id);
         self
     }
 
@@ -65,7 +65,7 @@ impl CycleBuilder {
     }
 
     /// Build the Cycle struct
-    pub fn build(self) -> Result<Cycle, &'static str> {
+    pub fn build(self) -> Result<Cycle<'a>, &'static str> {
         let start = self.start_time.ok_or("Start time is required")?;
         let chamber = self.chamber_id.ok_or("Chamber ID is required")?;
         let close = self.close_offset.ok_or("Close offset is required")?;
@@ -89,8 +89,8 @@ impl CycleBuilder {
         })
     }
 }
-pub struct Cycle {
-    pub chamber_id: String,
+pub struct Cycle<'a> {
+    pub chamber_id: &'a str,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
@@ -105,7 +105,7 @@ pub struct Cycle {
     pub calc_dt_v: Vec<chrono::DateTime<chrono::Utc>>,
 }
 
-impl Cycle {
+impl<'a> Cycle<'a> {
     pub fn check_diag(&mut self) -> bool {
         self.diag_v.iter().sum::<i64>() != 0
     }
@@ -326,7 +326,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn create_test_cycle() -> Cycle {
+    fn create_test_cycle<'a>() -> Cycle<'a> {
         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
         let close_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 10, 0).unwrap();
@@ -338,7 +338,7 @@ mod tests {
         let gas_v = (0..30).map(|i| i as f64 * 1.5 + 10.0).collect();
 
         Cycle {
-            chamber_id: "test_chamber".to_string(),
+            chamber_id: "test_chamber",
             start_time,
             close_time,
             open_time,

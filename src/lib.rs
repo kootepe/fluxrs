@@ -16,20 +16,21 @@ use std::collections::HashMap;
 
 const R_LIM: f64 = 0.999;
 
-pub struct Flux {
+pub struct Flux<'a> {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,
     flux: Vec<f64>,
     r: Vec<f64>,
-    chamber_id: Vec<String>,
+    chamber_id: Vec<&'a str>,
 }
 
-impl Default for Flux {
+#[allow(clippy::needless_lifetimes)]
+impl<'a> Default for Flux<'a> {
     fn default() -> Self {
         Flux::new()
     }
 }
-impl Flux {
-    pub fn new() -> Flux {
+impl<'a> Flux<'a> {
+    pub fn new() -> Flux<'a> {
         Flux {
             datetime: Vec::new(),
             flux: Vec::new(),
@@ -63,7 +64,7 @@ impl Flux {
                 time.to_rfc3339(),
                 flux.to_string(),
                 r.to_string(),
-                chamber_id.clone(),
+                chamber_id.to_string(),
             ])?;
         }
 
