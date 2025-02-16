@@ -82,10 +82,16 @@ impl<'a> CycleBuilder<'a> {
             close_time: start + chrono::Duration::seconds(close),
             open_time: start + chrono::Duration::seconds(open),
             end_time: start + chrono::Duration::seconds(end),
+            close_offset: close,
+            open_offset: open,
+            end_offset: end,
+            calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
+            calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
             lag_s: 0.,
             max_idx: 0.,
             flux: 0.,
             r: 0.,
+            total_r: 0.,
             diag_v: Vec::new(),
             dt_v: Vec::new(),
             gas_v: Vec::new(),
@@ -100,9 +106,15 @@ pub struct Cycle<'a> {
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
     pub end_time: chrono::DateTime<chrono::Utc>,
+    pub close_offset: i64,
+    pub open_offset: i64,
+    pub end_offset: i64,
     pub lag_s: f64,
     pub max_idx: f64,
+    pub calc_range_start: f64,
+    pub calc_range_end: f64,
     pub r: f64,
+    pub total_r: f64,
     pub flux: f64,
     pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
     pub gas_v: Vec<f64>,
@@ -111,9 +123,11 @@ pub struct Cycle<'a> {
     pub calc_dt_v: Vec<chrono::DateTime<chrono::Utc>>,
 }
 
+#[allow(clippy::needless_lifetimes)]
+// #[allow(needless_lifetimes)]
 impl<'a> Cycle<'a> {
-    pub fn to_html_row(&self) -> Result<String, Box<dyn Error>> {
-        let plot_path = gas_plot::draw_gas_plot(self)?; // Call your plot function and get the path
+    pub fn _to_html_row(&self) -> Result<String, Box<dyn Error>> {
+        let _plot_path = gas_plot::draw_gas_plot(self)?; // Call your plot function and get the path
         Ok(format!(
             "<tr>\
                 <td>{}</td>\
@@ -136,7 +150,9 @@ impl<'a> Cycle<'a> {
             return None; // Return None if there aren't 120 elements
         }
 
-        let start_index = len.saturating_sub(120); // Get the start index for the last 120 elements
+        // NOTE: maybe look around the lag adjusted open time?
+        // right now just looks for max in the last 240 secs
+        let start_index = len.saturating_sub(240); // Get the start index for the last 240 elements
 
         let max_idx = self.gas_v[start_index..] // Take the last 120 elements
             .iter()
@@ -154,41 +170,24 @@ impl<'a> Cycle<'a> {
         }
 
         None
-        // Find the index of the highest gas value
-        // let max_idx = self
-        //     .gas_v
-        //     .iter()
-        //     .enumerate() // Pair with index
-        //     .rev()
-        //     .take(120)
-        //     // NOTE: IMPLEMENT BETTER NAN FILTERING TO THE ACTUAL STRUCT
-        //     .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)) // Find max by value
-        //     .and_then(|(idx, _)| self.dt_v.get(idx).cloned());
-        // // self.max_idx = max_idx.unwrap().timestamp() as f64;
-        //
-        // // self.lag_s = self.max_idx - self.close_time.timestamp() as f64;
-        // if let Some(idx) = max_idx {
-        //     if let Some(peak_time) = self.dt_v.get(idx).cloned() {
-        //         self.max_idx = idx as f64;
-        //         self.lag_s = peak_time.timestamp() as f64 - self.close_time.timestamp() as f64;
-        //         return Some(peak_time);
-        //     }
-        // }
-        //
-        // max_idx
     }
+
     pub fn check_diag(&mut self) -> bool {
         self.diag_v.iter().sum::<i64>() != 0
     }
+
     pub fn adjust_open_time(&mut self) {
-        self.open_time += chrono::TimeDelta::seconds(self.lag_s as i64)
+        self.open_time = self.start_time
+            + chrono::TimeDelta::seconds(self.lag_s as i64)
+            + chrono::TimeDelta::seconds(self.lag_s as i64)
     }
+
     pub fn find_highest_r_window(&mut self) {
-        if self.dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+        if self.calc_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
             return;
         }
 
-        let mut highest_r = f64::MIN;
+        let mut max_r = f64::MIN;
         let mut step: usize = 0;
 
         // let mut cur_window = min_window_size;
@@ -196,6 +195,7 @@ impl<'a> Cycle<'a> {
         let mut range_end = MIN_WINDOW_SIZE;
         let mut range_st = 0;
         let mut range_en = 0;
+        // let mut window_dt: Vec<f64> = Vec::new();
 
         while step + MIN_WINDOW_SIZE <= data_len {
             range_end += step;
@@ -207,14 +207,22 @@ impl<'a> Cycle<'a> {
                 .iter()
                 .map(|dt| dt.timestamp() as f64)
                 .collect();
-            let window_gas = &self.gas_v[step..range_end];
+            if (range_end - step) > window_dt.len() {
+                // missing data points
+                continue;
+            }
+            let window_gas = &self.calc_gas_v[step..range_end];
 
             let r = stats::pearson_correlation(&window_dt, window_gas).unwrap_or(0.0);
+            if range_end == data_len {
+                // calculate total_r from the whole length of the measurement
+                self.total_r = r;
+            }
 
-            if r > highest_r {
+            if r > max_r {
                 range_st = step;
                 range_en = range_end;
-                highest_r = r;
+                max_r = r;
             }
             if step == 0 {
                 step += WINDOW_INCREMENT;
@@ -225,12 +233,18 @@ impl<'a> Cycle<'a> {
             }
         }
 
-        self.r = highest_r;
+        self.r = max_r;
+        self.calc_range_start = self.calc_dt_v[range_st].timestamp() as f64;
+        self.calc_range_end = self.calc_dt_v[range_en - 1].timestamp() as f64;
         self.calc_dt_v = self.calc_dt_v[range_st..range_en].to_vec();
         self.calc_gas_v = self.calc_gas_v[range_st..range_en].to_vec();
     }
 
     pub fn get_calc_data(&mut self) {
+        self.close_time =
+            self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
+        self.open_time =
+            self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
         let s = self.close_time;
         let e = self.open_time;
 
@@ -266,13 +280,9 @@ impl<'a> Cycle<'a> {
             .collect();
         stats::LinReg::train(&num_ts, &self.calc_gas_v).slope
     }
-    pub fn _calculate_r(&mut self) {
-        let num_ts: Vec<f64> = self
-            .calc_dt_v
-            .iter()
-            .map(|dt| dt.timestamp() as f64)
-            .collect();
-        self.r = stats::pearson_correlation(&num_ts, &self.calc_gas_v).unwrap_or(0.0);
+    pub fn calculate_total_r(&mut self) {
+        let num_ts: Vec<f64> = self.dt_v.iter().map(|dt| dt.timestamp() as f64).collect();
+        self.total_r = stats::pearson_correlation(&num_ts, &self.gas_v).unwrap_or(0.0);
     }
     pub fn calculate_flux(&mut self) {
         let slope = self.calculate_slope();
@@ -401,6 +411,9 @@ mod tests {
         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
         let close_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 10, 0).unwrap();
+        let close_offset = 20;
+        let open_offset = 60;
+        let end_offset = 100;
         let open_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 20, 0).unwrap();
         let end_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 30, 0).unwrap();
         let dt_v = (0..30)
@@ -414,9 +427,15 @@ mod tests {
             close_time,
             open_time,
             end_time,
+            close_offset,
+            open_offset,
+            end_offset,
+            calc_range_end: close_time.timestamp() as f64,
+            calc_range_start: open_time.timestamp() as f64,
             lag_s: 0.,
             max_idx: 0.,
             r: 0.0,
+            total_r: 0.0,
             flux: 0.0,
             diag_v: Vec::new(),
             dt_v,
@@ -453,7 +472,7 @@ mod tests {
     fn test_calculate_r() {
         let mut cycle = create_test_cycle();
         cycle.get_calc_data();
-        cycle._calculate_r();
+        cycle.calculate_total_r();
         assert!(
             (0.0..=1.0).contains(&cycle.r),
             "Correlation coefficient should be between 0 and 1"
