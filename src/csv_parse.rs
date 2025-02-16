@@ -49,6 +49,30 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
     let mut nsecs: Vec<i64> = Vec::new();
     let mut header = csv::StringRecord::new();
 
+    if let Some(result) = rdr.records().next() {
+        header = result?;
+    }
+    let gas_col = "CH4";
+    let diag_col = "DIAG";
+    let secs_col = "SECONDS";
+    let nsecs_col = "NANOSECONDS";
+
+    let idx_gas = header
+        .iter()
+        .position(|h| h == gas_col)
+        .ok_or("Column not found")?;
+    let idx_diag = header
+        .iter()
+        .position(|h| h == diag_col)
+        .ok_or("Column not found")?;
+    let idx_secs = header
+        .iter()
+        .position(|h| h == secs_col)
+        .ok_or("Column not found")?;
+    let idx_nsecs = header
+        .iter()
+        .position(|h| h == nsecs_col)
+        .ok_or("Column not found")?;
     for (i, r) in rdr.records().enumerate() {
         let record: &csv::StringRecord = &r?;
         if i == 0 {
@@ -59,23 +83,23 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
             continue;
         }
 
-        if let Ok(val) = record[10].parse::<f64>() {
+        if let Ok(val) = record[idx_gas].parse::<f64>() {
             gas.push(val)
         } else {
             gas.push(structs::ERROR_FLOAT)
         }
-        if let Ok(val) = record[4].parse::<i64>() {
+        if let Ok(val) = record[idx_diag].parse::<i64>() {
             diag.push(val)
         }
-        let sec = record[1].parse::<i64>()?;
-        let nsec = record[2].parse::<i64>()?;
+        let sec = record[idx_secs].parse::<i64>()?;
+        let nsec = record[idx_nsecs].parse::<i64>()?;
         let dt_utc = parse_secnsec_to_dt(sec, nsec);
         datetime.push(dt_utc);
 
-        if let Ok(val) = record[1].parse::<i64>() {
+        if let Ok(val) = record[idx_secs].parse::<i64>() {
             secs.push(val)
         }
-        if let Ok(val) = record[2].parse::<i64>() {
+        if let Ok(val) = record[idx_nsecs].parse::<i64>() {
             nsecs.push(val)
         }
     }
