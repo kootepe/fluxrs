@@ -255,8 +255,11 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
                 if cycle.calc_dt_v.is_empty() || cycle.calc_gas_v.is_empty() {
                     continue;
                 }
+                cycle.get_peak_datetime();
+                cycle.get_calc_data();
                 cycle.find_highest_r_window();
                 r_vec.push(cycle.r);
+                // cycle.get_calc_data();
                 cycle.calculate_flux();
                 if cycle.r > R_LIM {
                     calced.datetime.push(cycle.start_time);
@@ -297,4 +300,15 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
         Err(e) => println!("Error {e}"),
     }
     Ok(())
+}
+
+pub fn exit_with_help() {
+    let help = String::from(
+        r#"Usage, remember quotes:
+    fluxrs "<gas path glob>" "<time path glob>"
+Example:
+    fluxrs "data/24*.DAT" "time_data/24*""#,
+    );
+    println!("{help}");
+    process::exit(1)
 }
