@@ -5,7 +5,7 @@ Usage:
 ```
 fluxrs "<gas path glob>" "<time path glob>"
 eg.
-fluxrs "data/24*.DAT" "time_data/24*""#,
+fluxrs "data/24*.DAT" "time_data/24*",
 ```
 
 Roadmap, mostly just for myself so I won't sidetrack too much.
