@@ -1,43 +1,31 @@
 use std::env;
 use std::process;
 
+use fluxrs::myapp;
 use fluxrs::Config;
 
-fn main() {
+fn main() -> eframe::Result {
     let inputs = env::args();
     let config = Config::build(inputs).unwrap_or_else(|err| {
         println!("Parsing problem {err}");
         process::exit(1)
     });
-    let native_options = eframe::NativeOptions::default();
-    eframe::run_native(
-        "My egui App",
-        native_options,
-        Box::new(|cc| Ok(Box::new(MyEguiApp::new(cc)))),
-    );
+
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_inner_size([350.0, 200.0]),
+        ..Default::default()
+    };
 
     // NOTE: I dont think this error will ever happen since they are being handled in run?
-    if let Err(e) = fluxrs::run(config) {
-        println!("App error: {e}.")
-    }
-}
-#[derive(Default)]
-struct MyEguiApp {}
+    // if let Err(e) = fluxrs::run(config) {
+    //     println!("App error: {e}.")
+    // }
+    let mut data = fluxrs::run(config).unwrap();
 
-impl MyEguiApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
-        // Restore app state using cc.storage (requires the "persistence" feature).
-        // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
-        // for e.g. egui::PaintCallback.
-        Self::default()
-    }
-}
-
-impl eframe::App for MyEguiApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("Hello World!");
-        });
-    }
+    let app = myapp::MyApp::new(&mut data[10]);
+    eframe::run_native(
+        "My Plot App",
+        Default::default(),
+        Box::new(|_cc| Ok(Box::new(app))),
+    )
 }
