@@ -18,15 +18,15 @@ pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
 }
 
-pub struct CycleBuilder<'a> {
-    chamber_id: Option<&'a str>,
+pub struct CycleBuilder {
+    chamber_id: Option<String>,
     start_time: Option<DateTime<Utc>>,
     close_offset: Option<i64>,
     open_offset: Option<i64>,
     end_offset: Option<i64>,
 }
 
-impl<'a> CycleBuilder<'a> {
+impl CycleBuilder {
     /// Create a new CycleBuilder
     pub fn new() -> Self {
         Self {
@@ -39,7 +39,7 @@ impl<'a> CycleBuilder<'a> {
     }
 
     /// Set the chamber ID
-    pub fn chamber_id(mut self, id: &'a str) -> Self {
+    pub fn chamber_id(mut self, id: String) -> Self {
         self.chamber_id = Some(id);
         self
     }
@@ -69,7 +69,7 @@ impl<'a> CycleBuilder<'a> {
     }
 
     /// Build the Cycle struct
-    pub fn build(self) -> Result<Cycle<'a>, &'static str> {
+    pub fn build(self) -> Result<Cycle, &'static str> {
         let start = self.start_time.ok_or("Start time is required")?;
         let chamber = self.chamber_id.ok_or("Chamber ID is required")?;
         let close = self.close_offset.ok_or("Close offset is required")?;
@@ -100,8 +100,8 @@ impl<'a> CycleBuilder<'a> {
         })
     }
 }
-pub struct Cycle<'a> {
-    pub chamber_id: &'a str,
+pub struct Cycle {
+    pub chamber_id: String,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
@@ -125,7 +125,7 @@ pub struct Cycle<'a> {
 
 #[allow(clippy::needless_lifetimes)]
 // #[allow(needless_lifetimes)]
-impl<'a> Cycle<'a> {
+impl Cycle {
     pub fn _to_html_row(&self) -> Result<String, Box<dyn Error>> {
         let _plot_path = gas_plot::draw_gas_plot(self)?; // Call your plot function and get the path
         Ok(format!(
@@ -142,6 +142,9 @@ impl<'a> Cycle<'a> {
             self.r,
             self.flux
         ))
+    }
+    pub fn dt_v_as_float(&self) -> Vec<f64> {
+        self.dt_v.iter().map(|x| x.timestamp() as f64).collect()
     }
     pub fn get_peak_datetime(&mut self) -> Option<DateTime<Utc>> {
         // Find the index of the highest gas value in the last 120 elements
@@ -407,7 +410,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
-    fn create_test_cycle<'a>() -> Cycle<'a> {
+    fn create_test_cycle() -> Cycle {
         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
         let close_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 10, 0).unwrap();
@@ -422,7 +425,7 @@ mod tests {
         let gas_v = (0..30).map(|i| i as f64 * 1.5 + 10.0).collect();
 
         Cycle {
-            chamber_id: "test_chamber",
+            chamber_id: String::from("test_chamber"),
             start_time,
             close_time,
             open_time,
