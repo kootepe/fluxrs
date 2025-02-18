@@ -12,7 +12,7 @@ pub const ERROR_FLOAT: f64 = -9999.;
 // the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: usize = 240;
 // how many seconds to increment the moving window searching for max r
-pub const WINDOW_INCREMENT: usize = 10;
+pub const WINDOW_INCREMENT: usize = 1;
 
 pub trait EqualLen {
     fn validate_lengths(&self) -> bool;

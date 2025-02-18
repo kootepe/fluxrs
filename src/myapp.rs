@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::structs::Cycle;
+use crate::structs::{Cycle, CycleBuilder};
 use eframe::egui::{show_tooltip_at, Color32, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui};
 use egui_plot::{
     ClosestElem, Corner, HLine, Legend, Line, MarkerShape, Plot, PlotItem, PlotPoint, PlotPoints,
@@ -9,6 +9,7 @@ use egui_plot::{
 
 #[derive(Default)]
 pub struct MyApp {
+    cycles: Vec<Cycle>,
     gas_plot: Vec<[f64; 2]>, // Add a vecxy tor of values to your struct
     lag_idx: f64,            // Add a vecxy tor of values to your struct
     close_idx: f64,
@@ -21,10 +22,44 @@ pub struct MyApp {
     max_y: f64,
     min_y: f64,
     min_calc_area_range: f64,
+    index: usize,
 }
 
 impl MyApp {
-    pub fn new(cycle: &mut Cycle) -> Self {
+    pub fn update_cycle(&mut self, index: usize) {
+        let cycle = &self.cycles[index];
+        self.gas_plot = cycle
+            .dt_v_as_float()
+            .iter()
+            .copied()
+            .zip(cycle.gas_v.iter().copied())
+            .map(|(x, y)| [x, y])
+            .collect();
+
+        self.lag_idx = cycle.max_idx;
+        self.close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
+        self.open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
+        self.open_offset = cycle.open_offset as f64;
+        self.close_offset = cycle.close_offset as f64;
+        self.start_time_idx = cycle.start_time.timestamp() as f64;
+        self.calc_range_end = cycle.calc_range_end;
+        self.calc_range_start = cycle.calc_range_start;
+        self.min_y = cycle
+            .gas_v
+            .iter()
+            .copied()
+            .filter(|v| !v.is_nan())
+            .fold(f64::INFINITY, f64::min);
+        self.max_y = cycle
+            .gas_v
+            .iter()
+            .copied()
+            .filter(|v| !v.is_nan())
+            .fold(f64::NEG_INFINITY, f64::max);
+    }
+
+    pub fn new(cycles: Vec<Cycle>) -> Self {
+        let cycle = &cycles[0];
         let gas_plot: Vec<[f64; 2]> = cycle
             .dt_v_as_float()
             .iter()
@@ -59,6 +94,7 @@ impl MyApp {
         // let min_y;
         let min_calc_area_range = 120.;
         Self {
+            cycles,
             gas_plot,
             lag_idx,
             close_idx,
@@ -71,6 +107,7 @@ impl MyApp {
             max_y,
             min_y,
             min_calc_area_range,
+            index: 0,
         }
     }
 }
@@ -127,23 +164,28 @@ impl eframe::App for MyApp {
                 .width(600.)
                 .height(350.)
                 .legend(Legend::default().position(Corner::LeftTop));
+            if ui.button("Prev measurement").clicked() {
+                if self.index > 0 && self.index < self.cycles.len() {
+                    self.index -= 1;
+                }
+                self.update_cycle(self.index);
+            }
+            if ui.button("Next measurement").clicked() {
+                if self.index >= 0 && self.index < self.cycles.len() {
+                    self.index += 1;
+                }
+                self.update_cycle(self.index);
+            }
 
             let mut lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
 
-            let calc_area_range = self.calc_range_end - self.calc_range_start;
+            let calc_area_range =
+                self.cycles[self.index].calc_range_end - self.cycles[self.index].calc_range_start;
 
             // let right_polygon_rect = Rect::from_min_max(
-            //     Pos2::new(self.calc_range_start as f32, self.min_y as f32),
-            //     Pos2::new((self.calc_range_start + 30.0) as f32, self.max_y as f32),
+            //     Pos2::new(self.cycles[self.index].calc_range_start as f32, self.min_y as f32),
+            //     Pos2::new((self.cycles[self.index].calc_range_start + 30.0) as f32, self.max_y as f32),
             // );
-            let left_polygon_rect = Rect::from_min_max(
-                Pos2::new(self.calc_range_start as f32, self.min_y as f32),
-                Pos2::new((self.calc_range_start + 30.0) as f32, self.max_y as f32),
-            );
-            let main_polygon_rect = Rect::from_min_max(
-                Pos2::new(self.calc_range_start as f32, self.min_y as f32),
-                Pos2::new((self.calc_range_end) as f32, self.max_y as f32),
-            );
             let left_id = Id::new("left_test");
             let main_id = Id::new("main_area");
             let right_id = Id::new("right_area");
@@ -157,22 +199,25 @@ impl eframe::App for MyApp {
                 );
                 let x_max = self.lag_idx;
                 let x_close = self.close_idx;
+
                 let max_vl = VLine::new(x_max)
                     .name("Lagtime")
                     .width(2.0)
                     .allow_hover(true);
+
                 let close_vl = VLine::new(x_close)
                     .name("Close time")
                     .width(2.0)
                     .allow_hover(true);
+
                 let drag_panel_width = 40.;
                 let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
                 let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
                 let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
 
                 let main_polygon = create_polygon(
-                    self.calc_range_start + drag_panel_width,
-                    self.calc_range_end - drag_panel_width,
+                    self.cycles[self.index].calc_range_start + drag_panel_width,
+                    self.cycles[self.index].calc_range_end - drag_panel_width,
                     self.min_y,
                     self.max_y,
                     calc_area_color,
@@ -182,8 +227,8 @@ impl eframe::App for MyApp {
                 );
 
                 let left_polygon = create_polygon(
-                    self.calc_range_start,
-                    self.calc_range_start + drag_panel_width,
+                    self.cycles[self.index].calc_range_start,
+                    self.cycles[self.index].calc_range_start + drag_panel_width,
                     self.min_y,
                     self.max_y,
                     calc_area_adjust_color,
@@ -193,8 +238,8 @@ impl eframe::App for MyApp {
                 );
 
                 let right_polygon = create_polygon(
-                    self.calc_range_end - drag_panel_width,
-                    self.calc_range_end,
+                    self.cycles[self.index].calc_range_end - drag_panel_width,
+                    self.cycles[self.index].calc_range_end,
                     self.min_y,
                     self.max_y,
                     calc_area_adjust_color,
@@ -215,39 +260,40 @@ impl eframe::App for MyApp {
                     // Handle dragging
                     let inside_left = is_inside_polygon(
                         pointer_pos,
-                        self.calc_range_start,
-                        self.calc_range_start + drag_panel_width,
+                        self.cycles[self.index].calc_range_start,
+                        self.cycles[self.index].calc_range_start + drag_panel_width,
                         self.min_y,
                         self.max_y,
                     );
                     let inside_right = is_inside_polygon(
                         pointer_pos,
-                        self.calc_range_end - drag_panel_width,
-                        self.calc_range_end,
+                        self.cycles[self.index].calc_range_end - drag_panel_width,
+                        self.cycles[self.index].calc_range_end,
                         self.min_y,
                         self.max_y,
                     );
                     let inside_main = is_inside_polygon(
                         pointer_pos,
-                        self.calc_range_start + drag_panel_width,
-                        self.calc_range_end - drag_panel_width,
+                        self.cycles[self.index].calc_range_start + drag_panel_width,
+                        self.cycles[self.index].calc_range_end - drag_panel_width,
                         self.min_y,
                         self.max_y,
                     );
 
                     let at_min_area = calc_area_range as i64 == self.min_calc_area_range as i64;
-                    let after_close = self.calc_range_start >= self.close_idx;
-                    let before_open = self.calc_range_end <= self.open_idx;
+                    let after_close = self.cycles[self.index].calc_range_start >= self.close_idx;
+                    let before_open = self.cycles[self.index].calc_range_end <= self.open_idx;
                     let in_bounds = after_close && before_open;
                     let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-                    let at_start = self.calc_range_start == self.close_idx;
-                    let at_end = self.calc_range_end == self.open_idx;
-                    let range_len = self.calc_range_end - self.calc_range_start;
+                    let at_start = self.cycles[self.index].calc_range_start == self.close_idx;
+                    let at_end = self.cycles[self.index].calc_range_end == self.open_idx;
+                    let range_len = self.cycles[self.index].calc_range_end
+                        - self.cycles[self.index].calc_range_start;
                     let cycle_len = self.open_idx - self.close_idx;
 
                     if range_len > cycle_len {
-                        self.calc_range_start = self.close_idx;
-                        self.calc_range_end = self.open_idx;
+                        self.cycles[self.index].calc_range_start = self.close_idx;
+                        self.cycles[self.index].calc_range_end = self.open_idx;
                     }
                     if inside_left {
                         handle_drag_polygon(plot_ui, self, true);
@@ -257,8 +303,8 @@ impl eframe::App for MyApp {
                     }
 
                     if inside_main && in_bounds && dragged && !at_start && !at_end {
-                        self.calc_range_start += drag_delta.x as f64;
-                        self.calc_range_end += drag_delta.x as f64;
+                        self.cycles[self.index].calc_range_start += drag_delta.x as f64;
+                        self.cycles[self.index].calc_range_end += drag_delta.x as f64;
                     }
 
                     let distance = (self.lag_idx - pointer_pos.x).abs();
@@ -270,14 +316,19 @@ impl eframe::App for MyApp {
                         lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
                         self.close_idx = self.start_time_idx + self.close_offset + lag_s;
                         self.open_idx = self.start_time_idx + self.open_offset + lag_s;
-                        // if self.open_idx == self.calc_range_end {
-                        //     self.calc_range_start -= drag_delta.x as f64;
+                        self.cycles[self.index].lag_s = lag_s;
+                        self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].find_highest_r_window();
+                        println!("{:?}", self.cycles[self.index].calc_range_start)
+                        // self.update_cycle(self.index);
+                        // if self.open_idx == self.cycles[self.index].calc_range_end {
+                        //     self.cycles[self.index].calc_range_start -= drag_delta.x as f64;
                         // }
                     }
                     limit_to_bounds(plot_ui, self)
                 }
             });
-            // println!("{}", calc_area_range);
+            println!("{}", calc_area_range);
             plot_rect = Some(inner.response.rect);
         });
     }
@@ -323,27 +374,17 @@ fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
 
     // println!("{}", drag_delta);
     if at_start && positive_drag && !at_min_area {
-        // println!("1");
         app.calc_range_start += drag_delta.x as f64;
-        app.calc_range_end += drag_delta.x as f64;
         return;
     }
 
     if at_end && negative_drag && !at_min_area {
-        // println!("2");
-        app.calc_range_start += drag_delta.x as f64;
-        app.calc_range_end += drag_delta.x as f64;
-        return;
-    }
-    if at_end && negative_drag && !at_min_area {
-        // println!("3");
-        app.calc_range_start += drag_delta.x as f64;
         app.calc_range_end += drag_delta.x as f64;
         return;
     }
 
     if app.calc_range_start < app.close_idx {
-        // println!("4");
+        println!("4");
         let diff = (app.calc_range_start - app.close_idx).abs();
         app.calc_range_start = app.close_idx;
         if app.calc_range_end < app.open_idx {
@@ -352,7 +393,6 @@ fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
         return;
     }
     if app.calc_range_end > app.open_idx {
-        // println!("5");
         let diff = (app.calc_range_end - app.open_idx).abs();
         app.calc_range_end = app.open_idx;
         if app.calc_range_start > app.close_idx {
@@ -365,10 +405,8 @@ fn handle_drag_polygon(plot_ui: &mut PlotUi, app: &mut MyApp, is_left: bool) {
     let delta = plot_ui.pointer_coordinate_drag_delta();
     let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
     let calc_area_range = app.calc_range_end - app.calc_range_start;
-    // println!("dragging polygon");
 
     if is_left && app.calc_range_start > app.close_idx && dragged {
-        // println!("test");
         // do nothing if at min length and trying to make it smaller
         if calc_area_range <= app.min_calc_area_range && delta.x > 0. {
             let diff = app.min_calc_area_range - calc_area_range;

@@ -22,7 +22,7 @@ fn main() -> eframe::Result {
     // }
     let mut data = fluxrs::run(config).unwrap();
 
-    let app = myapp::MyApp::new(&mut data[10]);
+    let app = myapp::MyApp::new(data);
     eframe::run_native(
         "My Plot App",
         Default::default(),
