@@ -1,5 +1,7 @@
+use std::any::Any;
+
 use crate::structs::Cycle;
-use eframe::egui::{show_tooltip_at, Color32, Id, PointerButton, Sense, Stroke, Ui};
+use eframe::egui::{show_tooltip_at, Color32, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui};
 use egui_plot::{
     ClosestElem, Corner, HLine, Legend, Line, MarkerShape, Plot, PlotItem, PlotPoint, PlotPoints,
     PlotUi, Points, Polygon, VLine,
@@ -18,6 +20,7 @@ pub struct MyApp {
     calc_range_end: f64,
     max_y: f64,
     min_y: f64,
+    min_calc_area_range: f64,
 }
 
 impl MyApp {
@@ -54,6 +57,7 @@ impl MyApp {
 
         // let max_y;
         // let min_y;
+        let min_calc_area_range = 120.;
         Self {
             gas_plot,
             lag_idx,
@@ -66,63 +70,10 @@ impl MyApp {
             calc_range_start,
             max_y,
             min_y,
+            min_calc_area_range,
         }
     }
 }
-
-// impl eframe::App for MyApp {
-//     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-//         egui::CentralPanel::default().show(ctx, |ui| {
-//             let my_plot = Plot::new("My Plot").legend(egui_plot::Legend::default());
-//
-//             my_plot.show(ui, |plot_ui| {
-//                 let calc_area_range = self.calc_range_end - self.calc_range_start;
-//
-//                 let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 64);
-//                 let calc_area_stroke_color = Color32::from_rgb(64, 242, 106);
-//
-//                 let main_polygon = create_polygon(
-//                     self.calc_range_start,
-//                     self.calc_range_end,
-//                     self.min_y,
-//                     self.max_y,
-//                     calc_area_color,
-//                     calc_area_stroke_color,
-//                     "main_area",
-//                 );
-//
-//                 let left_polygon = create_polygon(
-//                     self.calc_range_start,
-//                     self.calc_range_start + (calc_area_range * 0.15),
-//                     self.min_y,
-//                     self.max_y,
-//                     calc_area_color,
-//                     calc_area_stroke_color,
-//                     "left_area",
-//                 );
-//
-//                 let right_polygon = create_polygon(
-//                     self.calc_range_end - (calc_area_range * 0.15),
-//                     self.calc_range_end,
-//                     self.min_y,
-//                     self.max_y,
-//                     calc_area_color,
-//                     calc_area_stroke_color,
-//                     "right_area",
-//                 );
-//
-//                 // Draw polygons
-//                 plot_ui.polygon(main_polygon);
-//                 plot_ui.polygon(left_polygon);
-//                 plot_ui.polygon(right_polygon);
-//
-//                 // Handle dragging
-//                 handle_drag_polygon(plot_ui, Id::new("left_area"), self, true);
-//                 handle_drag_polygon(plot_ui, Id::new("right_area"), self, false);
-//             });
-//         });
-//     }
-// }
 
 fn create_polygon(
     start_x: f64,
@@ -132,6 +83,7 @@ fn create_polygon(
     color: Color32,
     stroke: Color32,
     id: &str,
+    idd: Id,
 ) -> Polygon {
     Polygon::new(PlotPoints::from(vec![
         [start_x, min_y],
@@ -144,19 +96,7 @@ fn create_polygon(
     .fill_color(color)
     .stroke(Stroke::new(2.0, stroke))
     .allow_hover(true)
-}
-
-fn handle_drag_polygon(plot_ui: &mut PlotUi, id: Id, app: &mut MyApp, is_left: bool) {
-    println!("Dragging: {:?}", id);
-    if plot_ui.response().hovered() && plot_ui.response().dragged_by(PointerButton::Primary) {
-        if let Some(delta) = Some(plot_ui.pointer_coordinate_drag_delta()) {
-            if is_left {
-                app.calc_range_start += delta.x as f64; // Adjust left boundary
-            } else {
-                app.calc_range_end += delta.x as f64; // Adjust right boundary
-            }
-        }
-    }
+    .id(idd)
 }
 
 impl eframe::App for MyApp {
@@ -189,6 +129,25 @@ impl eframe::App for MyApp {
                 .legend(Legend::default().position(Corner::LeftTop));
 
             let mut lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
+
+            let calc_area_range = self.calc_range_end - self.calc_range_start;
+
+            // let right_polygon_rect = Rect::from_min_max(
+            //     Pos2::new(self.calc_range_start as f32, self.min_y as f32),
+            //     Pos2::new((self.calc_range_start + 30.0) as f32, self.max_y as f32),
+            // );
+            let left_polygon_rect = Rect::from_min_max(
+                Pos2::new(self.calc_range_start as f32, self.min_y as f32),
+                Pos2::new((self.calc_range_start + 30.0) as f32, self.max_y as f32),
+            );
+            let main_polygon_rect = Rect::from_min_max(
+                Pos2::new(self.calc_range_start as f32, self.min_y as f32),
+                Pos2::new((self.calc_range_end) as f32, self.max_y as f32),
+            );
+            let left_id = Id::new("left_test");
+            let main_id = Id::new("main_area");
+            let right_id = Id::new("right_area");
+
             let inner = my_plot.show(ui, |plot_ui| {
                 plot_ui.points(
                     Points::new(PlotPoints::from(self.gas_plot.clone()))
@@ -206,159 +165,126 @@ impl eframe::App for MyApp {
                     .name("Close time")
                     .width(2.0)
                     .allow_hover(true);
+                let drag_panel_width = 40.;
                 let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
+                let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
                 let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
-                let calc_area_range = self.calc_range_end - self.calc_range_start;
-                // let calc_area = Polygon::new(PlotPoints::from(vec![
-                //     [self.calc_range_start, self.min_y],
-                //     [self.calc_range_start, self.max_y],
-                //     [self.calc_range_end, self.max_y],
-                //     [self.calc_range_end, self.min_y],
-                // ]))
-                // .name("Calc area")
-                // .width(2.0)
-                // .fill_color(calc_area_color)
-                // .stroke(Stroke::new(2., calc_area_stroke_color))
-                // .allow_hover(true);
-                //
-                // let calc_area_s = Polygon::new(PlotPoints::from(vec![
-                //     [self.calc_range_start, self.min_y],
-                //     [self.calc_range_start, self.max_y],
-                //     [self.calc_range_start + (calc_area_range * 0.15), self.max_y],
-                //     [self.calc_range_start + (calc_area_range * 0.15), self.min_y],
-                // ]))
-                // .name("Calc area")
-                // .fill_color(calc_area_color)
-                // .stroke(Stroke::new(2., calc_area_stroke_color))
-                // .allow_hover(true);
-                //
-                // let calc_area_e = Polygon::new(PlotPoints::from(vec![
-                //     [self.calc_range_end - (calc_area_range * 0.15), self.min_y],
-                //     [self.calc_range_end - (calc_area_range * 0.15), self.max_y],
-                //     [self.calc_range_end, self.max_y],
-                //     [self.calc_range_end, self.min_y],
-                // ]))
-                // .name("Calc area")
-                // .fill_color(calc_area_color)
-                // .stroke(Stroke::new(2., calc_area_stroke_color))
-                // .allow_hover(true);
 
                 let main_polygon = create_polygon(
-                    self.calc_range_start,
-                    self.calc_range_end,
+                    self.calc_range_start + drag_panel_width,
+                    self.calc_range_end - drag_panel_width,
                     self.min_y,
                     self.max_y,
                     calc_area_color,
                     calc_area_stroke_color,
-                    "main_area",
+                    "Move",
+                    main_id,
                 );
 
                 let left_polygon = create_polygon(
                     self.calc_range_start,
-                    self.calc_range_start + (calc_area_range * 0.15),
+                    self.calc_range_start + drag_panel_width,
                     self.min_y,
                     self.max_y,
-                    calc_area_color,
+                    calc_area_adjust_color,
                     calc_area_stroke_color,
-                    "left_area",
+                    "Extend left",
+                    left_id,
                 );
 
                 let right_polygon = create_polygon(
-                    self.calc_range_end - (calc_area_range * 0.15),
+                    self.calc_range_end - drag_panel_width,
                     self.calc_range_end,
                     self.min_y,
                     self.max_y,
-                    calc_area_color,
+                    calc_area_adjust_color,
                     calc_area_stroke_color,
-                    "right_area",
+                    "Extend right",
+                    right_id,
                 );
 
                 // Draw polygons
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
-
-                // Handle dragging
-                handle_drag_polygon(plot_ui, Id::new("left_area"), self, true);
-                handle_drag_polygon(plot_ui, Id::new("right_area"), self, false);
-
-                let sense = Sense::drag();
-
                 plot_ui.vline(max_vl);
                 plot_ui.vline(close_vl);
-                // let response = plot_ui.polygon(calc_area);
-                // plot_ui.polygon(calc_area_s);
-                // plot_ui.polygon(calc_area_e);
-                let drag_delta = plot_ui.pointer_coordinate_drag_delta();
-                let clicked_id = plot_ui.response();
-                let polygon_id = Id::new("area");
 
-                println!("{:?}", plot_ui.pointer_coordinate_drag_delta());
-                println!("{:?}", clicked_id.id);
-                println!("{:?}", clicked_id.rect);
-                // let response = ui.interact(response.rect, polygon_id, sense);
                 if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
-                    let distance = (self.lag_idx - pointer_pos.x).abs();
-                    println!("{}", distance);
-
-                    let dragging = plot_ui.response().dragged_by(PointerButton::Primary);
-
-                    let is_inside_polygon = is_inside_polygon(
+                    let drag_delta = plot_ui.pointer_coordinate_drag_delta();
+                    // Handle dragging
+                    let inside_left = is_inside_polygon(
                         pointer_pos,
                         self.calc_range_start,
+                        self.calc_range_start + drag_panel_width,
+                        self.min_y,
+                        self.max_y,
+                    );
+                    let inside_right = is_inside_polygon(
+                        pointer_pos,
+                        self.calc_range_end - drag_panel_width,
                         self.calc_range_end,
                         self.min_y,
                         self.max_y,
                     );
+                    let inside_main = is_inside_polygon(
+                        pointer_pos,
+                        self.calc_range_start + drag_panel_width,
+                        self.calc_range_end - drag_panel_width,
+                        self.min_y,
+                        self.max_y,
+                    );
 
-                    if distance <= threshold && dragging {
+                    let at_min_area = calc_area_range as i64 == self.min_calc_area_range as i64;
+                    let after_close = self.calc_range_start >= self.close_idx;
+                    let before_open = self.calc_range_end <= self.open_idx;
+                    let in_bounds = after_close && before_open;
+                    let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
+                    let at_start = self.calc_range_start == self.close_idx;
+                    let at_end = self.calc_range_end == self.open_idx;
+                    let range_len = self.calc_range_end - self.calc_range_start;
+                    let cycle_len = self.open_idx - self.close_idx;
+
+                    if range_len > cycle_len {
+                        self.calc_range_start = self.close_idx;
+                        self.calc_range_end = self.open_idx;
+                    }
+                    if inside_left {
+                        handle_drag_polygon(plot_ui, self, true);
+                    }
+                    if inside_right {
+                        handle_drag_polygon(plot_ui, self, false);
+                    }
+
+                    if inside_main && in_bounds && dragged && !at_start && !at_end {
+                        self.calc_range_start += drag_delta.x as f64;
+                        self.calc_range_end += drag_delta.x as f64;
+                    }
+
+                    let distance = (self.lag_idx - pointer_pos.x).abs();
+
+                    // let dragging = plot_ui.response().dragged_by(PointerButton::Primary);
+
+                    if distance <= threshold && dragged && !inside_right {
                         self.lag_idx += drag_delta.x as f64;
                         lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
                         self.close_idx = self.start_time_idx + self.close_offset + lag_s;
-                    }
-
-                    if let Some((x, y, _)) =
-                        find_nearest_point(&self.gas_plot, pointer_pos, threshold)
-                    {
-                        // Draw crosshair at nearest point
-                        plot_ui.points(
-                            Points::new([x, y])
-                                .name("Highlighter")
-                                .radius(2.)
-                                .color(egui::Color32::RED)
-                                .shape(MarkerShape::Circle),
-                        );
-                    }
-                    // let mut previous_position = pointer_pos;
-                    let distance_start = (self.calc_range_start - pointer_pos.x).abs();
-                    println!("rect: {}", distance_start);
-                    println!("threshold: {}", threshold);
-                    if (is_inside_polygon && dragging) || (distance_start <= threshold && dragging)
-                    {
-                        threshold = 1000.;
-                        self.calc_range_start += drag_delta.x as f64;
-                        self.calc_range_end += drag_delta.x as f64;
-                        println!("range: {}", calc_area_range);
-                        println!("Inside rect");
-                        // if pointer_pos.x < self.close_idx {
-                        //     self.calc_range_start = self.close_idx;
-                        // } else {
-                        //     self.calc_range_start = pointer_pos.x;
-                        //     self.calc_range_end = pointer_pos.x + calc_area_range;
-                        // }
-                        // if self.calc_range_end > self.open_idx {
-                        //     self.calc_range_end = self.open_idx;
+                        self.open_idx = self.start_time_idx + self.open_offset + lag_s;
+                        // if self.open_idx == self.calc_range_end {
+                        //     self.calc_range_start -= drag_delta.x as f64;
                         // }
                     }
+                    limit_to_bounds(plot_ui, self)
                 }
             });
+            // println!("{}", calc_area_range);
             plot_rect = Some(inner.response.rect);
         });
     }
 }
 // WARN: BETTER FUNCTION FOR FINDING NEAREST
 // when zoomed the elements get activated pretty far away
-fn find_nearest_point(
+fn _find_nearest_point(
     points: &Vec<[f64; 2]>,
     pos: egui_plot::PlotPoint,
     threshold: f64,
@@ -381,20 +307,82 @@ fn is_inside_polygon(
 ) -> bool {
     point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
 }
+fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
+    let calc_area_range = (app.calc_range_end - app.calc_range_start);
+    let drag_delta = plot_ui.pointer_coordinate_drag_delta();
+    let at_min_area = calc_area_range as i64 == app.min_calc_area_range as i64;
+    // let after_close = app.calc_range_start >= app.close_idx;
+    // let before_open = app.calc_range_end <= app.open_idx;
+    // let in_bounds = after_close && before_open;
+    // let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
+    let at_start = app.calc_range_start <= app.close_idx;
+    let at_end = app.calc_range_end >= app.open_idx;
+    let positive_drag = drag_delta.x > 0.;
+    let negative_drag = drag_delta.x < 0.;
+    let max_len = app.open_idx - app.close_idx;
 
-// fn calc_area_polygon(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Polygon {
-//     let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
-//     let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
-//     let pts = vec![
-//         PlotPoint::new(min_x, min_y),
-//         PlotPoint::new(min_x, max_y),
-//         PlotPoint::new(max_x, max_y),
-//         PlotPoint::new(max_x, min_y),
-//     ];
-//     // let plot_pts = PlotPoints::new(pts);
-//     Polygon::new(PlotPoints::Owned(pts))
-//         .name("Calc area")
-//         .fill_color(calc_area_color)
-//         .stroke(Stroke::new(2., calc_area_stroke_color))
-//         .allow_hover(true)
-// }
+    // println!("{}", drag_delta);
+    if at_start && positive_drag && !at_min_area {
+        // println!("1");
+        app.calc_range_start += drag_delta.x as f64;
+        app.calc_range_end += drag_delta.x as f64;
+        return;
+    }
+
+    if at_end && negative_drag && !at_min_area {
+        // println!("2");
+        app.calc_range_start += drag_delta.x as f64;
+        app.calc_range_end += drag_delta.x as f64;
+        return;
+    }
+    if at_end && negative_drag && !at_min_area {
+        // println!("3");
+        app.calc_range_start += drag_delta.x as f64;
+        app.calc_range_end += drag_delta.x as f64;
+        return;
+    }
+
+    if app.calc_range_start < app.close_idx {
+        // println!("4");
+        let diff = (app.calc_range_start - app.close_idx).abs();
+        app.calc_range_start = app.close_idx;
+        if app.calc_range_end < app.open_idx {
+            app.calc_range_end += diff;
+        }
+        return;
+    }
+    if app.calc_range_end > app.open_idx {
+        // println!("5");
+        let diff = (app.calc_range_end - app.open_idx).abs();
+        app.calc_range_end = app.open_idx;
+        if app.calc_range_start > app.close_idx {
+            app.calc_range_start -= diff;
+        }
+        return;
+    }
+}
+fn handle_drag_polygon(plot_ui: &mut PlotUi, app: &mut MyApp, is_left: bool) {
+    let delta = plot_ui.pointer_coordinate_drag_delta();
+    let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
+    let calc_area_range = app.calc_range_end - app.calc_range_start;
+    // println!("dragging polygon");
+
+    if is_left && app.calc_range_start > app.close_idx && dragged {
+        // println!("test");
+        // do nothing if at min length and trying to make it smaller
+        if calc_area_range <= app.min_calc_area_range && delta.x > 0. {
+            let diff = app.min_calc_area_range - calc_area_range;
+            app.calc_range_start -= diff;
+            return;
+        }
+        app.calc_range_start += delta.x as f64; // Adjust left boundary
+    } else if !is_left && app.calc_range_end < app.open_idx && dragged {
+        // do nothing if at min length and trying to make it smaller
+        if calc_area_range < app.min_calc_area_range && delta.x < 0. {
+            let diff = app.min_calc_area_range - calc_area_range;
+            app.calc_range_end += diff;
+            return;
+        }
+        app.calc_range_end += delta.x as f64; // Adjust right boundary
+    }
+}
