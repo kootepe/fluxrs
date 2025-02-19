@@ -155,7 +155,8 @@ impl eframe::App for MyApp {
             });
         });
         egui::SidePanel::left("my_left_panel").show(ctx, |ui| {
-            ui.label("Hello World!");
+            let flux = format!("{:.4}", self.cycles[self.index].flux);
+            ui.label(flux);
         });
         let mut threshold = 20.;
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -164,16 +165,19 @@ impl eframe::App for MyApp {
                 .width(600.)
                 .height(350.)
                 .legend(Legend::default().position(Corner::LeftTop));
-            if ui.button("Prev measurement").clicked() {
-                if self.index > 0 && self.index < self.cycles.len() {
-                    self.index -= 1;
-                }
+
+            let prev_clicked = ui.button("Prev measurement").clicked();
+            let next_clicked = ui.button("Next measurement").clicked();
+
+            if prev_clicked && self.index > 0 {
+                // Prevent underflow
+                self.index -= 1;
                 self.update_cycle(self.index);
             }
-            if ui.button("Next measurement").clicked() {
-                if self.index >= 0 && self.index < self.cycles.len() {
-                    self.index += 1;
-                }
+
+            if next_clicked && self.index + 1 < self.cycles.len() {
+                // Ensure valid index
+                self.index += 1;
                 self.update_cycle(self.index);
             }
 
@@ -297,14 +301,21 @@ impl eframe::App for MyApp {
                     }
                     if inside_left {
                         handle_drag_polygon(plot_ui, self, true);
+                        self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].calculate_flux();
                     }
                     if inside_right {
                         handle_drag_polygon(plot_ui, self, false);
+                        self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].calculate_flux();
                     }
+                    println!("aa: {}", self.calc_range_start);
 
                     if inside_main && in_bounds && dragged && !at_start && !at_end {
                         self.cycles[self.index].calc_range_start += drag_delta.x as f64;
                         self.cycles[self.index].calc_range_end += drag_delta.x as f64;
+                        self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].calculate_flux();
                     }
 
                     let distance = (self.lag_idx - pointer_pos.x).abs();
@@ -312,6 +323,7 @@ impl eframe::App for MyApp {
                     // let dragging = plot_ui.response().dragged_by(PointerButton::Primary);
 
                     if distance <= threshold && dragged && !inside_right {
+                        println!("New range!");
                         self.lag_idx += drag_delta.x as f64;
                         lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
                         self.close_idx = self.start_time_idx + self.close_offset + lag_s;
@@ -319,6 +331,7 @@ impl eframe::App for MyApp {
                         self.cycles[self.index].lag_s = lag_s;
                         self.cycles[self.index].get_calc_data();
                         self.cycles[self.index].find_highest_r_window();
+                        self.cycles[self.index].calculate_flux();
                         println!("{:?}", self.cycles[self.index].calc_range_start)
                         // self.update_cycle(self.index);
                         // if self.open_idx == self.cycles[self.index].calc_range_end {
@@ -359,44 +372,45 @@ fn is_inside_polygon(
     point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
 }
 fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
-    let calc_area_range = (app.calc_range_end - app.calc_range_start);
+    let calc_area_range =
+        (app.cycles[app.index].calc_range_end - app.cycles[app.index].calc_range_start);
     let drag_delta = plot_ui.pointer_coordinate_drag_delta();
     let at_min_area = calc_area_range as i64 == app.min_calc_area_range as i64;
-    // let after_close = app.calc_range_start >= app.close_idx;
-    // let before_open = app.calc_range_end <= app.open_idx;
+    // let after_close = app.cycles[app.index].calc_range_start >= app.close_idx;
+    // let before_open = app.cycles[app.index].calc_range_end <= app.open_idx;
     // let in_bounds = after_close && before_open;
     // let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-    let at_start = app.calc_range_start <= app.close_idx;
-    let at_end = app.calc_range_end >= app.open_idx;
+    let at_start = app.cycles[app.index].calc_range_start <= app.close_idx;
+    let at_end = app.cycles[app.index].calc_range_end >= app.open_idx;
     let positive_drag = drag_delta.x > 0.;
     let negative_drag = drag_delta.x < 0.;
     let max_len = app.open_idx - app.close_idx;
 
     // println!("{}", drag_delta);
     if at_start && positive_drag && !at_min_area {
-        app.calc_range_start += drag_delta.x as f64;
+        app.cycles[app.index].calc_range_start += drag_delta.x as f64;
         return;
     }
 
     if at_end && negative_drag && !at_min_area {
-        app.calc_range_end += drag_delta.x as f64;
+        app.cycles[app.index].calc_range_end += drag_delta.x as f64;
         return;
     }
 
-    if app.calc_range_start < app.close_idx {
+    if app.cycles[app.index].calc_range_start < app.close_idx {
         println!("4");
-        let diff = (app.calc_range_start - app.close_idx).abs();
-        app.calc_range_start = app.close_idx;
-        if app.calc_range_end < app.open_idx {
-            app.calc_range_end += diff;
+        let diff = (app.cycles[app.index].calc_range_start - app.close_idx).abs();
+        app.cycles[app.index].calc_range_start = app.close_idx;
+        if app.cycles[app.index].calc_range_end < app.open_idx {
+            app.cycles[app.index].calc_range_end += diff;
         }
         return;
     }
-    if app.calc_range_end > app.open_idx {
-        let diff = (app.calc_range_end - app.open_idx).abs();
-        app.calc_range_end = app.open_idx;
-        if app.calc_range_start > app.close_idx {
-            app.calc_range_start -= diff;
+    if app.cycles[app.index].calc_range_end > app.open_idx {
+        let diff = (app.cycles[app.index].calc_range_end - app.open_idx).abs();
+        app.cycles[app.index].calc_range_end = app.open_idx;
+        if app.cycles[app.index].calc_range_start > app.close_idx {
+            app.cycles[app.index].calc_range_start -= diff;
         }
         return;
     }
@@ -404,23 +418,32 @@ fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
 fn handle_drag_polygon(plot_ui: &mut PlotUi, app: &mut MyApp, is_left: bool) {
     let delta = plot_ui.pointer_coordinate_drag_delta();
     let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-    let calc_area_range = app.calc_range_end - app.calc_range_start;
+    let calc_area_range =
+        app.cycles[app.index].calc_range_end - app.cycles[app.index].calc_range_start;
+    // println!("Dragging.");
+    // println!("{}", delta);
 
-    if is_left && app.calc_range_start > app.close_idx && dragged {
+    if is_left && app.cycles[app.index].calc_range_start > app.close_idx && dragged {
         // do nothing if at min length and trying to make it smaller
         if calc_area_range <= app.min_calc_area_range && delta.x > 0. {
             let diff = app.min_calc_area_range - calc_area_range;
-            app.calc_range_start -= diff;
+            app.cycles[app.index].calc_range_start -= diff;
             return;
         }
-        app.calc_range_start += delta.x as f64; // Adjust left boundary
-    } else if !is_left && app.calc_range_end < app.open_idx && dragged {
+        println!("moving left.");
+        println!("b: {}", app.cycles[app.index].calc_range_start);
+        app.cycles[app.index].calc_range_start += delta.x as f64; // Adjust left boundary
+        println!("a: {}", app.cycles[app.index].calc_range_start);
+    } else if !is_left && app.cycles[app.index].calc_range_end < app.open_idx && dragged {
         // do nothing if at min length and trying to make it smaller
         if calc_area_range < app.min_calc_area_range && delta.x < 0. {
             let diff = app.min_calc_area_range - calc_area_range;
-            app.calc_range_end += diff;
+            app.cycles[app.index].calc_range_end += diff;
             return;
         }
-        app.calc_range_end += delta.x as f64; // Adjust right boundary
+        println!("moving right.");
+        println!("a: {}", app.cycles[app.index].calc_range_start);
+        app.cycles[app.index].calc_range_end += delta.x as f64; // Adjust right boundary
+        println!("b: {}", app.cycles[app.index].calc_range_start);
     }
 }

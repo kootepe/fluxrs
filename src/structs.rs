@@ -244,12 +244,12 @@ impl Cycle {
     }
 
     pub fn get_calc_data(&mut self) {
-        self.close_time =
-            self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
-        self.open_time =
-            self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
-        let s = self.close_time;
-        let e = self.open_time;
+        // self.close_time =
+        //     self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
+        // self.open_time =
+        //     self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+        let s = self.calc_range_start;
+        let e = self.calc_range_end;
 
         // Clear previous results
         self.calc_gas_v.clear();
@@ -259,7 +259,7 @@ impl Cycle {
         self.dt_v
             .iter()
             .zip(self.gas_v.iter()) // Pair timestamps with gas values
-            .filter(|(t, _)| *t >= &s && *t <= &e) // Filter by time range
+            .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
             .for_each(|(t, d)| {
                 self.calc_dt_v.push(*t);
                 self.calc_gas_v.push(*d);
