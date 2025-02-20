@@ -133,7 +133,7 @@ pub fn write_cycles_to_html(cycles: &[structs::Cycle]) -> Result<(), Box<dyn Err
                 cycle.start_time.to_rfc3339().replace("+00:00", ""),
                 cycle.lag_s,
                 cycle.r,
-                cycle.total_r,
+                cycle.calc_r,
                 if diag_sum == 0 { 1 } else { 0 },
                 cycle.flux,
                 plot_path
@@ -141,7 +141,7 @@ pub fn write_cycles_to_html(cycles: &[structs::Cycle]) -> Result<(), Box<dyn Err
             if diag_sum != 0 {
                 row = row.replace("greenyellow", "salmon");
             }
-            if cycle.total_r < 0.99 {
+            if cycle.calc_r < 0.99 {
                 row = row.replace("greenyellow", "yellow");
             }
             html.push_str(&row);

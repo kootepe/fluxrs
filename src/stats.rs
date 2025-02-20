@@ -48,9 +48,9 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
         return None;
     }
     if x.len() != y.len() {
-        println!("Vectors not the same length");
         println!("x_len: {}", x.len());
         println!("y_len: {}", y.len());
+        println!("Vectors not the same length");
         return None;
     }
     if x.is_empty() {

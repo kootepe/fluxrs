@@ -1,5 +1,6 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
+use std::{thread, time};
 
 use csv::StringRecord;
 use std::error::Error;
@@ -12,7 +13,7 @@ pub const ERROR_FLOAT: f64 = -9999.;
 // the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: usize = 240;
 // how many seconds to increment the moving window searching for max r
-pub const WINDOW_INCREMENT: usize = 1;
+pub const WINDOW_INCREMENT: usize = 5;
 
 pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
@@ -91,12 +92,15 @@ impl CycleBuilder {
             max_idx: 0.,
             flux: 0.,
             r: 0.,
-            total_r: 0.,
+            calc_r: 0.,
+            measurement_r: 0.,
             diag_v: Vec::new(),
             dt_v: Vec::new(),
             gas_v: Vec::new(),
             calc_gas_v: Vec::new(),
             calc_dt_v: Vec::new(),
+            measurement_gas_v: Vec::new(),
+            measurement_dt_v: Vec::new(),
         })
     }
 }
@@ -114,13 +118,16 @@ pub struct Cycle {
     pub calc_range_start: f64,
     pub calc_range_end: f64,
     pub r: f64,
-    pub total_r: f64,
+    pub calc_r: f64,
+    pub measurement_r: f64,
     pub flux: f64,
     pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
     pub gas_v: Vec<f64>,
     pub diag_v: Vec<i64>,
     pub calc_gas_v: Vec<f64>,
     pub calc_dt_v: Vec<chrono::DateTime<chrono::Utc>>,
+    pub measurement_gas_v: Vec<f64>,
+    pub measurement_dt_v: Vec<chrono::DateTime<chrono::Utc>>,
 }
 
 #[allow(clippy::needless_lifetimes)]
@@ -157,7 +164,7 @@ impl Cycle {
         // right now just looks for max in the last 240 secs
         let start_index = len.saturating_sub(240); // Get the start index for the last 240 elements
 
-        let max_idx = self.gas_v[start_index..] // Take the last 120 elements
+        let max_idx = self.gas_v[start_index..] // Take the last x elements
             .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
@@ -165,9 +172,11 @@ impl Cycle {
 
         if let Some(idx) = max_idx {
             if let Some(peak_time) = self.dt_v.get(idx).cloned() {
-                self.max_idx =
+                let max_idxx =
                     (self.start_time + chrono::TimeDelta::seconds(idx as i64)).timestamp() as f64;
-                self.lag_s = self.max_idx - self.open_time.timestamp() as f64;
+                self.lag_s = max_idxx - (self.open_time.timestamp() as f64);
+                // self.open_time = self.start_time
+                //     + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
                 return Some(peak_time);
             }
         }
@@ -181,12 +190,92 @@ impl Cycle {
 
     pub fn adjust_open_time(&mut self) {
         self.open_time = self.start_time
-            + chrono::TimeDelta::seconds(self.lag_s as i64)
+            + chrono::TimeDelta::seconds(self.open_offset)
             + chrono::TimeDelta::seconds(self.lag_s as i64)
     }
 
+    // pub fn calculate_measurement_r(&mut self) {
+    //     self.close_time =
+    //         self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
+    //     self.open_time =
+    //         self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+    //     let s = self.close_time;
+    //     let e = self.end_time;
+    // }
+
+    pub fn calculate_calc_r(&mut self) {
+        let s = self.calc_range_start;
+        let e = self.calc_range_end;
+        let mut dt_v: Vec<_> = Vec::new();
+        let mut gas_v: Vec<_> = Vec::new();
+
+        self.dt_v
+            .iter()
+            .zip(self.gas_v.iter()) // Pair timestamps with gas values
+            .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
+            .for_each(|(t, d)| {
+                dt_v.push(*t);
+                gas_v.push(*d);
+            });
+        // let dt_vv = dt_v.iter().map(|x| x.timestamp() as f64).collect();
+        let dt_vv: Vec<f64> = dt_v.iter().map(|x| x.timestamp() as f64).collect();
+        let gas_vv = gas_v;
+        self.calc_r = stats::pearson_correlation(&dt_vv, &gas_vv).unwrap_or(0.0);
+    }
+    pub fn find_highest_r_window_disp(&mut self) {
+        // println!("Finding highest r");
+        if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+            println!("Short data");
+            return;
+        }
+
+        let max_window = self.measurement_gas_v.len();
+        let mut max_r = f64::MIN;
+
+        let mut start_idx = 0;
+        let mut end_idx = 0;
+
+        let dt_v: Vec<f64> = self
+            .measurement_dt_v
+            .iter()
+            .map(|dt| dt.timestamp() as f64)
+            .collect();
+        let gas_v = &self.measurement_gas_v;
+        let mut best_window_y = Vec::new();
+
+        for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
+            for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
+                let end = start + win_size;
+                let x_win = &dt_v[start..end];
+                let y_win = &gas_v[start..end];
+                let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
+                if r > max_r {
+                    // range_st = step;
+                    // range_en = range_end;
+                    max_r = r;
+
+                    start_idx = start;
+                    end_idx = end;
+                    best_window_y = y_win.to_vec();
+                }
+            }
+        }
+
+        // println!("s: {}", start_idx);
+        // println!("e: {}", end_idx);
+        // println!("l: {}", self.measurement_dt_v.len());
+        self.calc_r = max_r;
+        self.calc_range_start = self.measurement_dt_v[start_idx].timestamp() as f64;
+        self.calc_range_end = self.measurement_dt_v[end_idx - 1].timestamp() as f64;
+        self.calc_dt_v = self.measurement_dt_v[start_idx..end_idx].to_vec();
+        self.calc_gas_v = best_window_y;
+        // self.calc_dt_v = self.calc_dt_v[range_st..range_en].to_vec();
+        // self.calc_gas_v = self.calc_gas_v[range_st..range_en].to_vec();
+    }
+
     pub fn find_highest_r_window(&mut self) {
-        if self.calc_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+        println!("Finding highest r");
+        if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
             return;
         }
 
@@ -194,7 +283,7 @@ impl Cycle {
         let mut step: usize = 0;
 
         // let mut cur_window = min_window_size;
-        let data_len = self.calc_dt_v.len();
+        let data_len = self.measurement_dt_v.len();
         let mut range_end = MIN_WINDOW_SIZE;
         let mut range_st = 0;
         let mut range_en = 0;
@@ -206,7 +295,9 @@ impl Cycle {
             if range_end > data_len {
                 range_end = data_len
             }
-            let window_dt: Vec<f64> = self.calc_dt_v[step..range_end]
+            println!("stp: {}", step);
+            println!("len: {}", (range_end - step));
+            let window_dt: Vec<f64> = self.measurement_dt_v[step..range_end]
                 .iter()
                 .map(|dt| dt.timestamp() as f64)
                 .collect();
@@ -214,12 +305,12 @@ impl Cycle {
                 // missing data points
                 continue;
             }
-            let window_gas = &self.calc_gas_v[step..range_end];
+            let window_gas = &self.measurement_gas_v[step..range_end];
 
             let r = stats::pearson_correlation(&window_dt, window_gas).unwrap_or(0.0);
             if range_end == data_len {
                 // calculate total_r from the whole length of the measurement
-                self.total_r = r;
+                self.measurement_r = r;
             }
 
             if r > max_r {
@@ -265,6 +356,28 @@ impl Cycle {
                 self.calc_gas_v.push(*d);
             });
     }
+    pub fn get_measurement_data(&mut self) {
+        let close_time =
+            self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
+        let open_time =
+            self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+        let s = close_time.timestamp() as f64;
+        let e = open_time.timestamp() as f64;
+
+        // Clear previous results
+        self.measurement_gas_v.clear();
+        self.measurement_dt_v.clear();
+
+        // Filter and store results in separate vectors
+        self.dt_v
+            .iter()
+            .zip(self.gas_v.iter()) // Pair timestamps with gas values
+            .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
+            .for_each(|(t, d)| {
+                self.measurement_dt_v.push(*t);
+                self.measurement_gas_v.push(*d);
+            });
+    }
     // unused as the current implementation
     pub fn _update_data(&mut self, dt_v: Vec<DateTime<Utc>>, gas_v: Vec<f64>) {
         self.dt_v = dt_v;
@@ -283,9 +396,15 @@ impl Cycle {
             .collect();
         stats::LinReg::train(&num_ts, &self.calc_gas_v).slope
     }
-    pub fn calculate_total_r(&mut self) {
-        let num_ts: Vec<f64> = self.dt_v.iter().map(|dt| dt.timestamp() as f64).collect();
-        self.total_r = stats::pearson_correlation(&num_ts, &self.gas_v).unwrap_or(0.0);
+    pub fn calculate_measurement_r(&mut self) {
+        self.get_calc_data();
+        let num_ts: Vec<f64> = self
+            .measurement_dt_v
+            .iter()
+            .map(|dt| dt.timestamp() as f64)
+            .collect();
+        self.measurement_r =
+            stats::pearson_correlation(&num_ts, &self.measurement_gas_v).unwrap_or(0.0);
     }
     pub fn calculate_flux(&mut self) {
         let slope = self.calculate_slope();
@@ -438,13 +557,16 @@ mod tests {
             lag_s: 0.,
             max_idx: 0.,
             r: 0.0,
-            total_r: 0.0,
+            calc_r: 0.0,
+            measurement_r: 0.0,
             flux: 0.0,
             diag_v: Vec::new(),
             dt_v,
             gas_v,
             calc_gas_v: Vec::new(),
             calc_dt_v: Vec::new(),
+            measurement_gas_v: Vec::new(),
+            measurement_dt_v: Vec::new(),
         }
     }
 
@@ -475,7 +597,7 @@ mod tests {
     fn test_calculate_r() {
         let mut cycle = create_test_cycle();
         cycle.get_calc_data();
-        cycle.calculate_total_r();
+        cycle.calculate_measurement_r();
         assert!(
             (0.0..=1.0).contains(&cycle.r),
             "Correlation coefficient should be between 0 and 1"

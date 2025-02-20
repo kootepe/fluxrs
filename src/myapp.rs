@@ -1,16 +1,20 @@
+use chrono::{DateTime, Utc};
 use std::any::Any;
 
 use crate::structs::{Cycle, CycleBuilder};
-use eframe::egui::{show_tooltip_at, Color32, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui};
+use eframe::egui::{
+    show_tooltip_at, Button, Color32, Id, PointerButton, Pos2, Rect, Sense, Stroke, Ui,
+};
 use egui_plot::{
-    ClosestElem, Corner, HLine, Legend, Line, MarkerShape, Plot, PlotItem, PlotPoint, PlotPoints,
-    PlotUi, Points, Polygon, VLine,
+    AxisHints, ClosestElem, Corner, GridInput, GridMark, HLine, Legend, Line, MarkerShape, Plot,
+    PlotItem, PlotPoint, PlotPoints, PlotUi, Points, Polygon, VLine,
 };
 
 #[derive(Default)]
 pub struct MyApp {
     cycles: Vec<Cycle>,
     gas_plot: Vec<[f64; 2]>, // Add a vecxy tor of values to your struct
+    lag_plot: Vec<[f64; 2]>, // Add a vecxy tor of values to your struct
     lag_idx: f64,            // Add a vecxy tor of values to your struct
     close_idx: f64,
     open_offset: f64,
@@ -23,6 +27,8 @@ pub struct MyApp {
     min_y: f64,
     min_calc_area_range: f64,
     index: usize,
+    lag_vec: Vec<f64>,
+    start_vec: Vec<f64>,
 }
 
 impl MyApp {
@@ -36,9 +42,10 @@ impl MyApp {
             .map(|(x, y)| [x, y])
             .collect();
 
-        self.lag_idx = cycle.max_idx;
+        self.lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
         self.close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
-        self.open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
+        self.open_idx =
+            cycle.start_time.timestamp() as f64 + cycle.open_offset as f64 + cycle.lag_s;
         self.open_offset = cycle.open_offset as f64;
         self.close_offset = cycle.close_offset as f64;
         self.start_time_idx = cycle.start_time.timestamp() as f64;
@@ -56,6 +63,19 @@ impl MyApp {
             .copied()
             .filter(|v| !v.is_nan())
             .fold(f64::NEG_INFINITY, f64::max);
+        self.lag_vec = self.cycles.iter().map(|x| x.lag_s).collect();
+        self.start_vec = self
+            .cycles
+            .iter()
+            .map(|x| x.start_time.timestamp() as f64)
+            .collect();
+        self.lag_plot = self
+            .start_vec
+            .iter()
+            .copied() // Copy each f64 from the iterator
+            .zip(self.lag_vec.iter().copied()) // Iterate and copy gas_v
+            .map(|(x, y)| [x, y]) // Convert each tuple into an array
+            .collect();
     }
 
     pub fn new(cycles: Vec<Cycle>) -> Self {
@@ -67,7 +87,7 @@ impl MyApp {
             .zip(cycle.gas_v.iter().copied()) // Iterate and copy gas_v
             .map(|(x, y)| [x, y]) // Convert each tuple into an array
             .collect();
-        let lag_idx = cycle.max_idx;
+        let lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
         let close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
         let open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
         let open_offset = cycle.open_offset as f64;
@@ -93,6 +113,17 @@ impl MyApp {
         // let max_y;
         // let min_y;
         let min_calc_area_range = 120.;
+        let lag_vec: Vec<f64> = cycles.iter().map(|x| x.lag_s).collect();
+        let start_vec: Vec<f64> = cycles
+            .iter()
+            .map(|x| x.start_time.timestamp() as f64)
+            .collect();
+        let lag_plot: Vec<[f64; 2]> = start_vec
+            .iter()
+            .copied() // Copy each f64 from the iterator
+            .zip(lag_vec.iter().copied()) // Iterate and copy gas_v
+            .map(|(x, y)| [x, y]) // Convert each tuple into an array
+            .collect();
         Self {
             cycles,
             gas_plot,
@@ -108,6 +139,9 @@ impl MyApp {
             min_y,
             min_calc_area_range,
             index: 0,
+            lag_vec,
+            start_vec,
+            lag_plot,
         }
     }
 }
@@ -154,20 +188,149 @@ impl eframe::App for MyApp {
                 );
             });
         });
+        // for (_text_style, font_id) in style.text_styles.iter_mut() {
+        //     font_id.size = 24 // whatever size you want here
+        // }
         egui::SidePanel::left("my_left_panel").show(ctx, |ui| {
-            let flux = format!("{:.4}", self.cycles[self.index].flux);
+            let lag = format!("lag s: {}", self.cycles[self.index].lag_s);
+            ui.label(lag);
+            let total_r = format!("calc r: {:.6}", self.cycles[self.index].calc_r);
+            ui.label(total_r);
+            let measurement_r = format!(
+                "measurement_r: {:.6}",
+                self.cycles[self.index].measurement_r
+            );
+            ui.label(measurement_r);
+            let flux = format!("flux: {:.6}", self.cycles[self.index].flux);
             ui.label(flux);
+            let datetime = format!("datetime: {}", self.cycles[self.index].start_time);
+            ui.label(datetime);
         });
         let mut threshold = 20.;
         egui::CentralPanel::default().show(ctx, |ui| {
-            let my_plot = Plot::new("My Plot")
+            ui.style_mut().text_styles.insert(
+                egui::TextStyle::Button,
+                egui::FontId::new(14.0, eframe::epaint::FontFamily::Proportional),
+            );
+            let x_axis_formatter_gas =
+                |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
+                    // let timestamp = x as i64;
+                    let timestamp = mark.value as i64; // Extract value from GridMark
+                    DateTime::from_timestamp(timestamp, 0)
+                        .map(|dt| dt.format("%H:%M").to_string())
+                        .unwrap_or_else(|| "Invalid".to_string())
+                };
+            let x_axis_formatter_lag =
+                |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
+                    // let timestamp = x as i64;
+                    let timestamp = mark.value as i64; // Extract value from GridMark
+                    DateTime::from_timestamp(timestamp, 0)
+                        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| "Invalid".to_string())
+                };
+            // let x_axis_spacer =
+            //     |mark: GridInput, _range: &std::ops::RangeInclusive<f64>| -> String {
+            //         // let timestamp = x as i64;
+            //         // let timestamp = mark.value as i64; // Extract value from GridMark
+            //         DateTime::from_timestamp(timestamp, 0)
+            //             .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+            //             .unwrap_or_else(|| "Invalid".to_string())
+            //     };
+            // ctx.set_pixels_per_point(1.1);
+
+            let x_grid_spacer_gas = |range: GridInput| -> Vec<GridMark> {
+                let (min, max) = range.bounds;
+                let step = 300.0;
+                let mut grid_marks = Vec::new();
+                let mut current = min;
+
+                // Generate grid marks at intervals of `step`
+                while current <= max {
+                    grid_marks.push(GridMark {
+                        value: current,  // Set the full range
+                        step_size: step, // Keep step size consistent
+                    });
+
+                    current += step; // Move to next tick position
+                }
+                grid_marks
+            };
+            let x_grid_spacer_lag = |range: GridInput| -> Vec<GridMark> {
+                let (min, max) = range.bounds;
+                let step = 691200.0;
+                let mut grid_marks = Vec::new();
+                let mut current = min;
+
+                // Generate grid marks at intervals of `step`
+                while current <= max {
+                    grid_marks.push(GridMark {
+                        value: current,  // Set the full range
+                        step_size: step, // Keep step size consistent
+                    });
+
+                    current += step; // Move to next tick position
+                }
+                println!("gridmark count: {}", grid_marks.len());
+                grid_marks
+            };
+
+            let gas_plot = Plot::new("Data plot")
+                // .x_grid_spacer(x_grid_spacer_gas)
+                .x_axis_formatter(x_axis_formatter_gas) // Custom date formatting
                 .allow_drag(false)
                 .width(600.)
                 .height(350.)
                 .legend(Legend::default().position(Corner::LeftTop));
 
-            let prev_clicked = ui.button("Prev measurement").clicked();
-            let next_clicked = ui.button("Next measurement").clicked();
+            let lag_plot = Plot::new("Lag plot")
+                // .x_grid_spacer(x_grid_spacer_lag)
+                .x_axis_formatter(x_axis_formatter_lag) // Custom date formatting
+                .allow_drag(false)
+                .width(600.)
+                .height(350.)
+                .legend(Legend::default().position(Corner::LeftTop));
+
+            let mut prev_clicked = false;
+            let mut next_clicked = false;
+            let mut highest_r = false;
+            let mut find_lag = false;
+            let mut find_bad = false;
+
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
+                next_clicked = ui.add(egui::Button::new("Next measurement")).clicked();
+            });
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+                highest_r = ui.add(egui::Button::new("Find r")).clicked();
+                find_lag = ui.add(egui::Button::new("Find lag")).clicked();
+                find_bad = ui.add(egui::Button::new("Find bad")).clicked();
+            });
+            ui.add_space(10.);
+
+            if find_bad {
+                let mut idx = self.index + 1;
+
+                while idx < self.cycles.len() - 1 && self.cycles[idx].measurement_r > 0.98 {
+                    idx += 1;
+                }
+
+                self.index = idx;
+
+                // Prevent overflow by clamping index
+                if self.index >= self.cycles.len() {
+                    self.index = self.cycles.len() - 1;
+                }
+
+                self.update_cycle(self.index);
+            }
+
+            if find_lag {
+                self.cycles[self.index].get_peak_datetime();
+            }
+
+            if highest_r {
+                self.cycles[self.index].find_highest_r_window_disp();
+            }
 
             if prev_clicked && self.index > 0 {
                 // Prevent underflow
@@ -181,7 +344,8 @@ impl eframe::App for MyApp {
                 self.update_cycle(self.index);
             }
 
-            let mut lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
+            // let mut lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
+            let mut lag_s = self.cycles[self.index].lag_s;
 
             let calc_area_range =
                 self.cycles[self.index].calc_range_end - self.cycles[self.index].calc_range_start;
@@ -194,15 +358,18 @@ impl eframe::App for MyApp {
             let main_id = Id::new("main_area");
             let right_id = Id::new("right_area");
 
-            let inner = my_plot.show(ui, |plot_ui| {
+            let inner = gas_plot.show(ui, |plot_ui| {
                 plot_ui.points(
                     Points::new(PlotPoints::from(self.gas_plot.clone()))
                         .name("CH4")
                         .shape(MarkerShape::Circle)
                         .radius(2.),
                 );
-                let x_max = self.lag_idx;
-                let x_close = self.close_idx;
+                // let x_max = self..start_time
+                //     + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+                let x_max: f64 = self.start_time_idx + self.open_offset + lag_s;
+
+                let x_close = self.start_time_idx + self.close_offset + lag_s;
 
                 let max_vl = VLine::new(x_max)
                     .name("Lagtime")
@@ -218,7 +385,18 @@ impl eframe::App for MyApp {
                 let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
                 let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
                 let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
+                let close_line_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
 
+                // let close_line = create_polygon(
+                //     x_max - 5.,
+                //     x_max + 5.,
+                //     self.min_y,
+                //     self.max_y,
+                //     close_line_color,
+                //     close_line_color,
+                //     "Close_time",
+                //     left_id,
+                // );
                 let main_polygon = create_polygon(
                     self.cycles[self.index].calc_range_start + drag_panel_width,
                     self.cycles[self.index].calc_range_end - drag_panel_width,
@@ -256,6 +434,7 @@ impl eframe::App for MyApp {
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
+                // plot_ui.polygon(close_line);
                 plot_ui.vline(max_vl);
                 plot_ui.vline(close_vl);
 
@@ -283,8 +462,14 @@ impl eframe::App for MyApp {
                         self.min_y,
                         self.max_y,
                     );
+                    let inside_lag = is_inside_polygon(
+                        pointer_pos,
+                        x_max - 20.,
+                        x_max + 20.,
+                        f64::NEG_INFINITY,
+                        f64::INFINITY,
+                    );
 
-                    let at_min_area = calc_area_range as i64 == self.min_calc_area_range as i64;
                     let after_close = self.cycles[self.index].calc_range_start >= self.close_idx;
                     let before_open = self.cycles[self.index].calc_range_end <= self.open_idx;
                     let in_bounds = after_close && before_open;
@@ -301,38 +486,41 @@ impl eframe::App for MyApp {
                     }
                     if inside_left {
                         handle_drag_polygon(plot_ui, self, true);
+                        // self.cycles[self.index].get_calc_data();
                         self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].calculate_calc_r();
                         self.cycles[self.index].calculate_flux();
                     }
                     if inside_right {
                         handle_drag_polygon(plot_ui, self, false);
                         self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].calculate_calc_r();
                         self.cycles[self.index].calculate_flux();
                     }
-                    println!("aa: {}", self.calc_range_start);
 
                     if inside_main && in_bounds && dragged && !at_start && !at_end {
                         self.cycles[self.index].calc_range_start += drag_delta.x as f64;
                         self.cycles[self.index].calc_range_end += drag_delta.x as f64;
                         self.cycles[self.index].get_calc_data();
+                        self.cycles[self.index].calculate_calc_r();
                         self.cycles[self.index].calculate_flux();
                     }
 
-                    let distance = (self.lag_idx - pointer_pos.x).abs();
-
-                    // let dragging = plot_ui.response().dragged_by(PointerButton::Primary);
-
-                    if distance <= threshold && dragged && !inside_right {
+                    if inside_lag && dragged && !inside_right {
                         println!("New range!");
                         self.lag_idx += drag_delta.x as f64;
                         lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
+                        lag_s = lag_s.round();
                         self.close_idx = self.start_time_idx + self.close_offset + lag_s;
                         self.open_idx = self.start_time_idx + self.open_offset + lag_s;
                         self.cycles[self.index].lag_s = lag_s;
-                        self.cycles[self.index].get_calc_data();
-                        self.cycles[self.index].find_highest_r_window();
+                        self.cycles[self.index].get_measurement_data();
+                        self.cycles[self.index].calculate_measurement_r();
+                        println!("New window");
+                        self.cycles[self.index].find_highest_r_window_disp();
                         self.cycles[self.index].calculate_flux();
-                        println!("{:?}", self.cycles[self.index].calc_range_start)
+                        self.update_cycle(self.index);
+                        // println!("{:?}", self.cycles[self.index].calc_range_start)
                         // self.update_cycle(self.index);
                         // if self.open_idx == self.cycles[self.index].calc_range_end {
                         //     self.cycles[self.index].calc_range_start -= drag_delta.x as f64;
@@ -341,7 +529,120 @@ impl eframe::App for MyApp {
                     limit_to_bounds(plot_ui, self)
                 }
             });
-            println!("{}", calc_area_range);
+            let mut selected_point: Option<[f64; 2]> = Some(self.lag_plot[self.index]); // Store the selected point
+            let lags = lag_plot.show(ui, |plot_ui| {
+                let x_range = self
+                    .lag_plot
+                    .iter()
+                    .map(|p| p[0])
+                    .fold(f64::INFINITY, f64::min)
+                    ..self
+                        .lag_plot
+                        .iter()
+                        .map(|p| p[0])
+                        .fold(f64::NEG_INFINITY, f64::max);
+                let y_range = self
+                    .lag_plot
+                    .iter()
+                    .map(|p| p[1])
+                    .fold(f64::INFINITY, f64::min)
+                    ..self
+                        .lag_plot
+                        .iter()
+                        .map(|p| p[1])
+                        .fold(f64::NEG_INFINITY, f64::max);
+
+                let points = self.lag_plot.clone(); // Clone to avoid borrowing issues
+                let plot_points = PlotPoints::from(points.clone());
+
+                // First, get pointer position
+                let pointer_pos = plot_ui.pointer_coordinate();
+
+                // Render the points
+                plot_ui.points(
+                    Points::new(plot_points)
+                        .name("Lag")
+                        .shape(MarkerShape::Circle)
+                        .radius(2.),
+                );
+
+                // Find and display the nearest point
+                if let Some(pointer) = pointer_pos {
+                    let norm_x = |x: f64| (x - x_range.start) / (x_range.end - x_range.start);
+                    let norm_y = |y: f64| (y - y_range.start) / (y_range.end - y_range.start);
+                    if let Some(closest) = points.iter().min_by(|a, b| {
+                        let dist_a = ((norm_x(a[0]) - norm_x(pointer.x)).powi(2)
+                            + (norm_y(a[1]) - norm_y(pointer.y)).powi(2))
+                        .sqrt();
+                        let dist_b = ((norm_x(b[0]) - norm_x(pointer.x)).powi(2)
+                            + (norm_y(b[1]) - norm_y(pointer.y)).powi(2))
+                        .sqrt();
+                        // let dist_a =
+                        //     ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
+                        // let dist_b =
+                        //     ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
+                        dist_a.partial_cmp(&dist_b).unwrap()
+                    }) {
+                        // if let Some(closest) = points.iter().min_by(|a, b| {
+                        //     let dist_a =
+                        //         ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
+                        //     let dist_b =
+                        //         ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
+                        //     dist_a.partial_cmp(&dist_b).unwrap()
+                        // }) {
+                        // Check if the user clicked
+                        if plot_ui.response().clicked() {
+                            for (i, c) in self.cycles.iter().enumerate() {
+                                if c.start_time.timestamp() as f64 == closest[0] {
+                                    self.index = i;
+                                }
+                            }
+                            selected_point = Some(*closest);
+                            self.update_cycle(self.index);
+                        }
+                    }
+                    if let Some(selected) = selected_point {
+                        plot_ui.points(
+                            Points::new(PlotPoints::from(vec![selected]))
+                                .name("Selected Point")
+                                .shape(MarkerShape::Diamond)
+                                .radius(5.0) // Larger marker for highlight
+                                .color(egui::Color32::GREEN), // Highlighted color
+                        );
+                    }
+                }
+            });
+
+            // let lags = lag_plot.show(ui, |plot_ui| {
+            //     let pts = self.lag_plot.clone();
+            //     let plot_points = PlotPoints::from(pts.clone());
+            //     let response = plot_ui.points(
+            //         Points::new(PlotPoints::from(plot_points))
+            //             .name("Lag")
+            //             .shape(MarkerShape::Circle)
+            //             .radius(2.),
+            //     );
+            //     if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
+            //         println!("{}", pointer_pos.x);
+            //     }
+            //     if let Some(pointer) = plot_ui.pointer_coordinate() {
+            //         let closest_point = pts.iter().min_by(|a, b| {
+            //             let dist_a =
+            //                 ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
+            //             let dist_b =
+            //                 ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
+            //             dist_a.partial_cmp(&dist_b).unwrap()
+            //         });
+            //
+            //         if let Some(closest) = closest_point {
+            //             ui.label(format!(
+            //                 "Nearest Point: ({:.2}, {:.2})",
+            //                 closest[0], closest[1]
+            //             ));
+            //         }
+            //     }
+            // });
+            // println!("{}", calc_area_range);
             plot_rect = Some(inner.response.rect);
         });
     }
