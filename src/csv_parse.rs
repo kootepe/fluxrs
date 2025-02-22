@@ -42,7 +42,8 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
         rdr.records().next();
     }
 
-    let mut gas: Vec<f64> = Vec::new();
+    let mut ch4: Vec<f64> = Vec::new();
+    let mut co2: Vec<f64> = Vec::new();
     let mut diag: Vec<i64> = Vec::new();
     let mut datetime: Vec<DateTime<Utc>> = Vec::new();
     let mut secs: Vec<i64> = Vec::new();
@@ -52,14 +53,19 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
     if let Some(result) = rdr.records().next() {
         header = result?;
     }
-    let gas_col = "CH4";
+    let ch4_col = "CH4";
+    let co2_col = "CO2";
     let diag_col = "DIAG";
     let secs_col = "SECONDS";
     let nsecs_col = "NANOSECONDS";
 
-    let idx_gas = header
+    let idx_ch4 = header
         .iter()
-        .position(|h| h == gas_col)
+        .position(|h| h == ch4_col)
+        .ok_or("Column not found")?;
+    let idx_co2 = header
+        .iter()
+        .position(|h| h == co2_col)
         .ok_or("Column not found")?;
     let idx_diag = header
         .iter()
@@ -83,10 +89,15 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
             continue;
         }
 
-        if let Ok(val) = record[idx_gas].parse::<f64>() {
-            gas.push(val)
+        if let Ok(val) = record[idx_ch4].parse::<f64>() {
+            ch4.push(val)
         } else {
-            gas.push(structs::ERROR_FLOAT)
+            ch4.push(structs::ERROR_FLOAT)
+        }
+        if let Ok(val) = record[idx_co2].parse::<f64>() {
+            co2.push(val)
+        } else {
+            co2.push(structs::ERROR_FLOAT)
         }
         if let Ok(val) = record[idx_diag].parse::<i64>() {
             diag.push(val)
@@ -107,7 +118,7 @@ pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Erro
     indices.sort_by(|&i, &j| datetime[i].cmp(&datetime[j]));
 
     let datetime: Vec<chrono::DateTime<Utc>> = indices.iter().map(|&i| datetime[i]).collect();
-    let gas: Vec<f64> = indices.iter().map(|&i| gas[i]).collect();
+    let gas: Vec<f64> = indices.iter().map(|&i| ch4[i]).collect();
     let diag: Vec<i64> = indices.iter().map(|&i| diag[i]).collect();
 
     let df = GasData {
