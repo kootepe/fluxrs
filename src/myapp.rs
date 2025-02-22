@@ -335,7 +335,7 @@ impl eframe::App for MyApp {
             if find_bad {
                 let mut idx = self.index + 1;
 
-                while idx < self.cycles.len() - 1 && self.cycles[idx].measurement_r > 0.98 {
+                while idx < self.cycles.len() - 1 && self.cycles[idx].measurement_r > 0.995 {
                     idx += 1;
                 }
 
@@ -372,322 +372,273 @@ impl eframe::App for MyApp {
             // let mut lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
             let mut lag_s = self.cycles[self.index].lag_s;
 
-            let calc_area_range =
-                self.cycles[self.index].calc_range_end - self.cycles[self.index].calc_range_start;
-
-            // let right_polygon_rect = Rect::from_min_max(
-            //     Pos2::new(self.cycles[self.index].calc_range_start as f32, self.min_y as f32),
-            //     Pos2::new((self.cycles[self.index].calc_range_start + 30.0) as f32, self.max_y as f32),
-            // );
             let left_id = Id::new("left_test");
             let main_id = Id::new("main_area");
             let right_id = Id::new("right_area");
 
-            let inner = gas_plot.show(ui, |plot_ui| {
-                plot_ui.points(
-                    Points::new(PlotPoints::from(self.gas_plot.clone()))
-                        .name("CH4")
-                        .shape(MarkerShape::Circle)
-                        .radius(2.),
-                );
-                // let x_max = self..start_time
-                //     + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
-                let x_max: f64 = self.start_time_idx + self.open_offset + lag_s;
+            ui.horizontal(|ui| {
+                let inner = gas_plot.show(ui, |plot_ui| {
+                    plot_ui.points(
+                        Points::new(PlotPoints::from(self.gas_plot.clone()))
+                            .name("CH4")
+                            .shape(MarkerShape::Circle)
+                            .radius(2.),
+                    );
+                    // let x_max = self..start_time
+                    //     + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+                    let x_max: f64 = self.start_time_idx + self.open_offset + lag_s;
 
-                let x_close = self.start_time_idx + self.close_offset + lag_s;
+                    let x_close = self.start_time_idx + self.close_offset + lag_s;
 
-                let max_vl = VLine::new(x_max)
-                    .name("Lagtime")
-                    .width(2.0)
-                    .allow_hover(true);
+                    let max_vl = VLine::new(x_max)
+                        .name("Lagtime")
+                        .width(2.0)
+                        .allow_hover(true);
 
-                let close_vl = VLine::new(x_close)
-                    .name("Close time")
-                    .width(2.0)
-                    .allow_hover(true);
+                    let close_vl = VLine::new(x_close)
+                        .name("Close time")
+                        .width(2.0)
+                        .allow_hover(true);
 
-                let drag_panel_width = 40.;
-                let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
-                let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
-                let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
-                let close_line_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
+                    let drag_panel_width = 40.;
+                    let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
+                    let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
+                    let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
+                    let close_line_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
 
-                // let close_line = create_polygon(
-                //     x_max - 5.,
-                //     x_max + 5.,
-                //     self.min_y,
-                //     self.max_y,
-                //     close_line_color,
-                //     close_line_color,
-                //     "Close_time",
-                //     left_id,
-                // );
-                let main_polygon = create_polygon(
-                    self.cycles[self.index].calc_range_start + drag_panel_width,
-                    self.cycles[self.index].calc_range_end - drag_panel_width,
-                    self.min_y,
-                    self.max_y,
-                    calc_area_color,
-                    calc_area_stroke_color,
-                    "Move",
-                    main_id,
-                );
+                    // let close_line = create_polygon(
+                    //     x_max - 5.,
+                    //     x_max + 5.,
+                    //     self.min_y,
+                    //     self.max_y,
+                    //     close_line_color,
+                    //     close_line_color,
+                    //     "Close_time",
+                    //     left_id,
+                    // );
+                    let main_polygon = create_polygon(
+                        self.cycles[self.index].calc_range_start + drag_panel_width,
+                        self.cycles[self.index].calc_range_end - drag_panel_width,
+                        self.min_y,
+                        self.max_y,
+                        calc_area_color,
+                        calc_area_stroke_color,
+                        "Move",
+                        main_id,
+                    );
 
-                let left_polygon = create_polygon(
-                    self.cycles[self.index].calc_range_start,
-                    self.cycles[self.index].calc_range_start + drag_panel_width,
-                    self.min_y,
-                    self.max_y,
-                    calc_area_adjust_color,
-                    calc_area_stroke_color,
-                    "Extend left",
-                    left_id,
-                );
-
-                let right_polygon = create_polygon(
-                    self.cycles[self.index].calc_range_end - drag_panel_width,
-                    self.cycles[self.index].calc_range_end,
-                    self.min_y,
-                    self.max_y,
-                    calc_area_adjust_color,
-                    calc_area_stroke_color,
-                    "Extend right",
-                    right_id,
-                );
-
-                // Draw polygons
-                plot_ui.polygon(main_polygon);
-                plot_ui.polygon(left_polygon);
-                plot_ui.polygon(right_polygon);
-                // plot_ui.polygon(close_line);
-                plot_ui.vline(max_vl);
-                plot_ui.vline(close_vl);
-
-                if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
-                    let drag_delta = plot_ui.pointer_coordinate_drag_delta();
-                    // Handle dragging
-                    let inside_left = is_inside_polygon(
-                        pointer_pos,
+                    let left_polygon = create_polygon(
                         self.cycles[self.index].calc_range_start,
                         self.cycles[self.index].calc_range_start + drag_panel_width,
                         self.min_y,
                         self.max_y,
+                        calc_area_adjust_color,
+                        calc_area_stroke_color,
+                        "Extend left",
+                        left_id,
                     );
-                    let inside_right = is_inside_polygon(
-                        pointer_pos,
+
+                    let right_polygon = create_polygon(
                         self.cycles[self.index].calc_range_end - drag_panel_width,
                         self.cycles[self.index].calc_range_end,
                         self.min_y,
                         self.max_y,
-                    );
-                    let inside_main = is_inside_polygon(
-                        pointer_pos,
-                        self.cycles[self.index].calc_range_start + drag_panel_width,
-                        self.cycles[self.index].calc_range_end - drag_panel_width,
-                        self.min_y,
-                        self.max_y,
-                    );
-                    let inside_lag = is_inside_polygon(
-                        pointer_pos,
-                        x_max - 20.,
-                        x_max + 20.,
-                        f64::NEG_INFINITY,
-                        f64::INFINITY,
+                        calc_area_adjust_color,
+                        calc_area_stroke_color,
+                        "Extend right",
+                        right_id,
                     );
 
-                    let after_close = self.cycles[self.index].calc_range_start >= self.close_idx;
-                    let before_open = self.cycles[self.index].calc_range_end <= self.open_idx;
-                    let in_bounds = after_close && before_open;
-                    let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-                    let at_start = self.cycles[self.index].calc_range_start == self.close_idx;
-                    let at_end = self.cycles[self.index].calc_range_end == self.open_idx;
-                    let range_len = self.cycles[self.index].calc_range_end
-                        - self.cycles[self.index].calc_range_start;
-                    let cycle_len = self.open_idx - self.close_idx;
+                    // Draw polygons
+                    plot_ui.polygon(main_polygon);
+                    plot_ui.polygon(left_polygon);
+                    plot_ui.polygon(right_polygon);
+                    // plot_ui.polygon(close_line);
+                    plot_ui.vline(max_vl);
+                    plot_ui.vline(close_vl);
 
-                    if range_len > cycle_len {
-                        self.cycles[self.index].calc_range_start = self.close_idx;
-                        self.cycles[self.index].calc_range_end = self.open_idx;
-                    }
-                    if inside_left {
-                        handle_drag_polygon(plot_ui, self, true);
-                        // self.cycles[self.index].get_calc_data();
-                        self.cycles[self.index].get_calc_data();
-                        self.cycles[self.index].calculate_calc_r();
-                        self.cycles[self.index].calculate_flux();
-                    }
-                    if inside_right {
-                        handle_drag_polygon(plot_ui, self, false);
-                        self.cycles[self.index].get_calc_data();
-                        self.cycles[self.index].calculate_calc_r();
-                        self.cycles[self.index].calculate_flux();
-                    }
+                    if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
+                        let drag_delta = plot_ui.pointer_coordinate_drag_delta();
+                        // Handle dragging
+                        let inside_left = is_inside_polygon(
+                            pointer_pos,
+                            self.cycles[self.index].calc_range_start,
+                            self.cycles[self.index].calc_range_start + drag_panel_width,
+                            self.min_y,
+                            self.max_y,
+                        );
+                        let inside_right = is_inside_polygon(
+                            pointer_pos,
+                            self.cycles[self.index].calc_range_end - drag_panel_width,
+                            self.cycles[self.index].calc_range_end,
+                            self.min_y,
+                            self.max_y,
+                        );
+                        let inside_main = is_inside_polygon(
+                            pointer_pos,
+                            self.cycles[self.index].calc_range_start + drag_panel_width,
+                            self.cycles[self.index].calc_range_end - drag_panel_width,
+                            self.min_y,
+                            self.max_y,
+                        );
+                        let inside_lag = is_inside_polygon(
+                            pointer_pos,
+                            x_max - 20.,
+                            x_max + 20.,
+                            f64::NEG_INFINITY,
+                            f64::INFINITY,
+                        );
 
-                    if inside_main && in_bounds && dragged && !at_start && !at_end {
-                        self.cycles[self.index].calc_range_start += drag_delta.x as f64;
-                        self.cycles[self.index].calc_range_end += drag_delta.x as f64;
-                        self.cycles[self.index].get_calc_data();
-                        self.cycles[self.index].calculate_calc_r();
-                        self.cycles[self.index].calculate_flux();
-                    }
+                        let after_close =
+                            self.cycles[self.index].calc_range_start >= self.close_idx;
+                        let before_open = self.cycles[self.index].calc_range_end <= self.open_idx;
+                        let in_bounds = after_close && before_open;
+                        let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
+                        let at_start = self.cycles[self.index].calc_range_start == self.close_idx;
+                        let at_end = self.cycles[self.index].calc_range_end == self.open_idx;
+                        let range_len = self.cycles[self.index].calc_range_end
+                            - self.cycles[self.index].calc_range_start;
+                        let cycle_len = self.open_idx - self.close_idx;
 
-                    if inside_lag && dragged && !inside_right {
-                        println!("New range!");
-                        self.lag_idx += drag_delta.x as f64;
-                        lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
-                        lag_s = lag_s.round();
-                        self.close_idx = self.start_time_idx + self.close_offset + lag_s;
-                        self.open_idx = self.start_time_idx + self.open_offset + lag_s;
-                        self.cycles[self.index].lag_s = lag_s;
-                        self.cycles[self.index].get_measurement_data();
-                        self.cycles[self.index].calculate_measurement_r();
-                        println!("New window");
-                        self.cycles[self.index].find_highest_r_window_disp();
-                        self.cycles[self.index].calculate_flux();
-                        self.update_cycle(self.index);
-                        // println!("{:?}", self.cycles[self.index].calc_range_start)
-                        // self.update_cycle(self.index);
-                        // if self.open_idx == self.cycles[self.index].calc_range_end {
-                        //     self.cycles[self.index].calc_range_start -= drag_delta.x as f64;
-                        // }
+                        if range_len > cycle_len {
+                            self.cycles[self.index].calc_range_start = self.close_idx;
+                            self.cycles[self.index].calc_range_end = self.open_idx;
+                        }
+                        if inside_left {
+                            handle_drag_polygon(plot_ui, self, true);
+                            // self.cycles[self.index].get_calc_data();
+                            self.cycles[self.index].get_calc_data();
+                            self.cycles[self.index].calculate_calc_r();
+                            self.cycles[self.index].calculate_flux();
+                        }
+                        if inside_right {
+                            handle_drag_polygon(plot_ui, self, false);
+                            self.cycles[self.index].get_calc_data();
+                            self.cycles[self.index].calculate_calc_r();
+                            self.cycles[self.index].calculate_flux();
+                        }
+
+                        if inside_main && in_bounds && dragged && !at_start && !at_end {
+                            self.cycles[self.index].calc_range_start += drag_delta.x as f64;
+                            self.cycles[self.index].calc_range_end += drag_delta.x as f64;
+                            self.cycles[self.index].get_calc_data();
+                            self.cycles[self.index].calculate_calc_r();
+                            self.cycles[self.index].calculate_flux();
+                        }
+
+                        if inside_lag && dragged && !inside_right {
+                            self.lag_idx += drag_delta.x as f64;
+                            lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
+                            lag_s = lag_s.round();
+                            self.close_idx = self.start_time_idx + self.close_offset + lag_s;
+                            self.open_idx = self.start_time_idx + self.open_offset + lag_s;
+                            self.cycles[self.index].lag_s = lag_s;
+                            self.cycles[self.index].get_measurement_data();
+                            self.cycles[self.index].calculate_measurement_r();
+                            self.cycles[self.index].find_highest_r_window_disp();
+                            self.cycles[self.index].calculate_flux();
+                            self.update_cycle(self.index);
+                            // println!("{:?}", self.cycles[self.index].calc_range_start)
+                            // self.update_cycle(self.index);
+                            // if self.open_idx == self.cycles[self.index].calc_range_end {
+                            //     self.cycles[self.index].calc_range_start -= drag_delta.x as f64;
+                            // }
+                        }
+                        limit_to_bounds(plot_ui, self)
                     }
-                    limit_to_bounds(plot_ui, self)
-                }
+                });
             });
             let mut selected_point: Option<[f64; 2]> = Some(self.lag_plot[self.index]); // Store the selected point
-            let lags = lag_plot.show(ui, |plot_ui| {
-                let x_range = self
-                    .lag_plot
-                    .iter()
-                    .map(|p| p[0])
-                    .fold(f64::INFINITY, f64::min)
-                    ..self
+            ui.horizontal(|ui| {
+                let lags = lag_plot.show(ui, |plot_ui| {
+                    let x_range = self
                         .lag_plot
                         .iter()
                         .map(|p| p[0])
-                        .fold(f64::NEG_INFINITY, f64::max);
-                let y_range = self
-                    .lag_plot
-                    .iter()
-                    .map(|p| p[1])
-                    .fold(f64::INFINITY, f64::min)
-                    ..self
+                        .fold(f64::INFINITY, f64::min)
+                        ..self
+                            .lag_plot
+                            .iter()
+                            .map(|p| p[0])
+                            .fold(f64::NEG_INFINITY, f64::max);
+                    let y_range = self
                         .lag_plot
                         .iter()
                         .map(|p| p[1])
-                        .fold(f64::NEG_INFINITY, f64::max);
+                        .fold(f64::INFINITY, f64::min)
+                        ..self
+                            .lag_plot
+                            .iter()
+                            .map(|p| p[1])
+                            .fold(f64::NEG_INFINITY, f64::max);
 
-                let points = self.lag_plot.clone(); // Clone to avoid borrowing issues
-                let plot_points = PlotPoints::from(points.clone());
+                    let points = self.lag_plot.clone(); // Clone to avoid borrowing issues
+                    let plot_points = PlotPoints::from(points.clone());
 
-                // First, get pointer position
-                let pointer_pos = plot_ui.pointer_coordinate();
+                    // First, get pointer position
+                    let pointer_pos = plot_ui.pointer_coordinate();
 
-                // Render the points
-                plot_ui.points(
-                    Points::new(plot_points)
-                        .name("Lag")
-                        .shape(MarkerShape::Circle)
-                        .radius(2.),
-                );
+                    // Render the points
+                    plot_ui.points(
+                        Points::new(plot_points)
+                            .name("Lag")
+                            .shape(MarkerShape::Circle)
+                            .radius(2.),
+                    );
 
-                // Find and display the nearest point
-                if let Some(pointer) = pointer_pos {
-                    let norm_x = |x: f64| (x - x_range.start) / (x_range.end - x_range.start);
-                    let norm_y = |y: f64| (y - y_range.start) / (y_range.end - y_range.start);
-                    if let Some(closest) = points.iter().min_by(|a, b| {
-                        let dist_a = ((norm_x(a[0]) - norm_x(pointer.x)).powi(2)
-                            + (norm_y(a[1]) - norm_y(pointer.y)).powi(2))
-                        .sqrt();
-                        let dist_b = ((norm_x(b[0]) - norm_x(pointer.x)).powi(2)
-                            + (norm_y(b[1]) - norm_y(pointer.y)).powi(2))
-                        .sqrt();
-                        // let dist_a =
-                        //     ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
-                        // let dist_b =
-                        //     ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
-                        dist_a.partial_cmp(&dist_b).unwrap()
-                    }) {
-                        // if let Some(closest) = points.iter().min_by(|a, b| {
-                        //     let dist_a =
-                        //         ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
-                        //     let dist_b =
-                        //         ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
-                        //     dist_a.partial_cmp(&dist_b).unwrap()
-                        // }) {
-                        // Check if the user clicked
-                        if plot_ui.response().clicked() {
-                            for (i, c) in self.cycles.iter().enumerate() {
-                                if c.start_time.timestamp() as f64 == closest[0] {
-                                    self.index = i;
+                    // Find and display the nearest point
+                    if let Some(pointer) = pointer_pos {
+                        let norm_x = |x: f64| (x - x_range.start) / (x_range.end - x_range.start);
+                        let norm_y = |y: f64| (y - y_range.start) / (y_range.end - y_range.start);
+                        if let Some(closest) = points.iter().min_by(|a, b| {
+                            let dist_a = ((norm_x(a[0]) - norm_x(pointer.x)).powi(2)
+                                + (norm_y(a[1]) - norm_y(pointer.y)).powi(2))
+                            .sqrt();
+                            let dist_b = ((norm_x(b[0]) - norm_x(pointer.x)).powi(2)
+                                + (norm_y(b[1]) - norm_y(pointer.y)).powi(2))
+                            .sqrt();
+                            // let dist_a =
+                            //     ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
+                            // let dist_b =
+                            //     ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
+                            dist_a.partial_cmp(&dist_b).unwrap()
+                        }) {
+                            // if let Some(closest) = points.iter().min_by(|a, b| {
+                            //     let dist_a =
+                            //         ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
+                            //     let dist_b =
+                            //         ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
+                            //     dist_a.partial_cmp(&dist_b).unwrap()
+                            // }) {
+                            // Check if the user clicked
+                            if plot_ui.response().clicked() {
+                                for (i, c) in self.cycles.iter().enumerate() {
+                                    if c.start_time.timestamp() as f64 == closest[0] {
+                                        self.index = i;
+                                    }
                                 }
+                                selected_point = Some(*closest);
+                                self.update_cycle(self.index);
                             }
-                            selected_point = Some(*closest);
-                            self.update_cycle(self.index);
+                        }
+                        if let Some(selected) = selected_point {
+                            plot_ui.points(
+                                Points::new(PlotPoints::from(vec![selected]))
+                                    .name("Selected Point")
+                                    .shape(MarkerShape::Diamond)
+                                    .radius(5.0) // Larger marker for highlight
+                                    .color(egui::Color32::GREEN), // Highlighted color
+                            );
                         }
                     }
-                    if let Some(selected) = selected_point {
-                        plot_ui.points(
-                            Points::new(PlotPoints::from(vec![selected]))
-                                .name("Selected Point")
-                                .shape(MarkerShape::Diamond)
-                                .radius(5.0) // Larger marker for highlight
-                                .color(egui::Color32::GREEN), // Highlighted color
-                        );
-                    }
-                }
+                });
             });
 
-            // let lags = lag_plot.show(ui, |plot_ui| {
-            //     let pts = self.lag_plot.clone();
-            //     let plot_points = PlotPoints::from(pts.clone());
-            //     let response = plot_ui.points(
-            //         Points::new(PlotPoints::from(plot_points))
-            //             .name("Lag")
-            //             .shape(MarkerShape::Circle)
-            //             .radius(2.),
-            //     );
-            //     if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
-            //         println!("{}", pointer_pos.x);
-            //     }
-            //     if let Some(pointer) = plot_ui.pointer_coordinate() {
-            //         let closest_point = pts.iter().min_by(|a, b| {
-            //             let dist_a =
-            //                 ((a[0] - pointer.x).powi(2) + (a[1] - pointer.y).powi(2)).sqrt();
-            //             let dist_b =
-            //                 ((b[0] - pointer.x).powi(2) + (b[1] - pointer.y).powi(2)).sqrt();
-            //             dist_a.partial_cmp(&dist_b).unwrap()
-            //         });
-            //
-            //         if let Some(closest) = closest_point {
-            //             ui.label(format!(
-            //                 "Nearest Point: ({:.2}, {:.2})",
-            //                 closest[0], closest[1]
-            //             ));
-            //         }
-            //     }
-            // });
-            // println!("{}", calc_area_range);
-            plot_rect = Some(inner.response.rect);
+            // plot_rect = Some(inner.response.rect);
         });
     }
 }
-// WARN: BETTER FUNCTION FOR FINDING NEAREST
-// when zoomed the elements get activated pretty far away
-fn _find_nearest_point(
-    points: &Vec<[f64; 2]>,
-    pos: egui_plot::PlotPoint,
-    threshold: f64,
-) -> Option<(f64, f64, f64)> {
-    points
-        .iter()
-        .map(|&p| {
-            let dist = (p[0] - pos.x).powi(2) + (p[1] - pos.y).powi(2);
-            (p[0], p[1], dist)
-        })
-        .filter(|(_, _, dist)| *dist <= threshold.powi(2)) // Filter points within threshold
-        .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap()) // Find the closest
-}
+
 fn is_inside_polygon(
     point: egui_plot::PlotPoint,
     start_x: f64,
@@ -699,7 +650,7 @@ fn is_inside_polygon(
 }
 fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
     let calc_area_range =
-        (app.cycles[app.index].calc_range_end - app.cycles[app.index].calc_range_start);
+        app.cycles[app.index].calc_range_end - app.cycles[app.index].calc_range_start;
     let drag_delta = plot_ui.pointer_coordinate_drag_delta();
     let at_min_area = calc_area_range as i64 == app.min_calc_area_range as i64;
     // let after_close = app.cycles[app.index].calc_range_start >= app.close_idx;
@@ -710,7 +661,6 @@ fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
     let at_end = app.cycles[app.index].calc_range_end >= app.open_idx;
     let positive_drag = drag_delta.x > 0.;
     let negative_drag = drag_delta.x < 0.;
-    let max_len = app.open_idx - app.close_idx;
 
     // println!("{}", drag_delta);
     if at_start && positive_drag && !at_min_area {
@@ -724,7 +674,6 @@ fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp) {
     }
 
     if app.cycles[app.index].calc_range_start < app.close_idx {
-        println!("4");
         let diff = (app.cycles[app.index].calc_range_start - app.close_idx).abs();
         app.cycles[app.index].calc_range_start = app.close_idx;
         if app.cycles[app.index].calc_range_end < app.open_idx {
@@ -756,10 +705,7 @@ fn handle_drag_polygon(plot_ui: &mut PlotUi, app: &mut MyApp, is_left: bool) {
             app.cycles[app.index].calc_range_start -= diff;
             return;
         }
-        println!("moving left.");
-        println!("b: {}", app.cycles[app.index].calc_range_start);
         app.cycles[app.index].calc_range_start += delta.x as f64; // Adjust left boundary
-        println!("a: {}", app.cycles[app.index].calc_range_start);
     } else if !is_left && app.cycles[app.index].calc_range_end < app.open_idx && dragged {
         // do nothing if at min length and trying to make it smaller
         if calc_area_range < app.min_calc_area_range && delta.x < 0. {
@@ -767,9 +713,6 @@ fn handle_drag_polygon(plot_ui: &mut PlotUi, app: &mut MyApp, is_left: bool) {
             app.cycles[app.index].calc_range_end += diff;
             return;
         }
-        println!("moving right.");
-        println!("a: {}", app.cycles[app.index].calc_range_start);
         app.cycles[app.index].calc_range_end += delta.x as f64; // Adjust right boundary
-        println!("b: {}", app.cycles[app.index].calc_range_start);
     }
 }
