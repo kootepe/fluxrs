@@ -11,11 +11,6 @@ fn main() -> eframe::Result {
         process::exit(1)
     });
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([350.0, 200.0]),
-        ..Default::default()
-    };
-
     // NOTE: I dont think this error will ever happen since they are being handled in run?
     // if let Err(e) = fluxrs::run(config) {
     //     println!("App error: {e}.")
