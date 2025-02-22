@@ -214,9 +214,9 @@ fn process_cycles(
                         cycle.gas_v.push(*d);
                         cycle.diag_v.push(*dg);
                     });
+                cycle.get_peak_datetime();
                 cycle.get_measurement_data();
                 if !cycle.measurement_dt_v.is_empty() && !cycle.measurement_gas_v.is_empty() {
-                    cycle.get_peak_datetime();
                     cycle.calculate_measurement_r();
                     cycle.find_highest_r_window_disp();
                     cycle.calculate_flux();
