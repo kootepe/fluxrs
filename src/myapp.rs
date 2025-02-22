@@ -146,6 +146,7 @@ impl MyApp {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_polygon(
     start_x: f64,
     end_x: f64,
@@ -172,7 +173,6 @@ fn create_polygon(
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut plot_rect = None;
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
 
@@ -206,7 +206,7 @@ impl eframe::App for MyApp {
             let datetime = format!("datetime: {}", self.cycles[self.index].start_time);
             ui.label(datetime);
         });
-        let mut threshold = 20.;
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.style_mut().text_styles.insert(
                 egui::TextStyle::Button,
@@ -225,71 +225,96 @@ impl eframe::App for MyApp {
                     // let timestamp = x as i64;
                     let timestamp = mark.value as i64; // Extract value from GridMark
                     DateTime::from_timestamp(timestamp, 0)
-                        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                        .map(|dt| dt.format("%Y-%m-%d").to_string())
                         .unwrap_or_else(|| "Invalid".to_string())
                 };
-            // let x_axis_spacer =
-            //     |mark: GridInput, _range: &std::ops::RangeInclusive<f64>| -> String {
-            //         // let timestamp = x as i64;
-            //         // let timestamp = mark.value as i64; // Extract value from GridMark
-            //         DateTime::from_timestamp(timestamp, 0)
-            //             .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-            //             .unwrap_or_else(|| "Invalid".to_string())
-            //     };
-            // ctx.set_pixels_per_point(1.1);
-
+            let disable_labels =
+                |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
+                    "".to_string() // Empty string hides labels
+                };
             let x_grid_spacer_gas = |range: GridInput| -> Vec<GridMark> {
                 let (min, max) = range.bounds;
-                let step = 300.0;
-                let mut grid_marks = Vec::new();
-                let mut current = min;
+                // big ticks 5 min interval
+                let five = 300.0;
+                // small ticks 1 min interval
+                let one = 60.0;
+                let mut smalls = Vec::new();
+                let mut bigs = Vec::new();
+                let mut current = min - (min % five);
 
                 // Generate grid marks at intervals of `step`
                 while current <= max {
-                    grid_marks.push(GridMark {
+                    bigs.push(GridMark {
                         value: current,  // Set the full range
-                        step_size: step, // Keep step size consistent
+                        step_size: five, // Keep step size consistent
                     });
 
-                    current += step; // Move to next tick position
+                    current += five; // Move to next tick position
                 }
-                grid_marks
+
+                current = min - (min % one);
+                while current <= max {
+                    smalls.push(GridMark {
+                        value: current,
+                        step_size: one,
+                    });
+
+                    current += one; // Move to next tick position
+                }
+                bigs.append(&mut smalls);
+                bigs
             };
             let x_grid_spacer_lag = |range: GridInput| -> Vec<GridMark> {
                 let (min, max) = range.bounds;
-                let step = 691200.0;
-                let mut grid_marks = Vec::new();
-                let mut current = min;
+                let wk = 604800.0;
+                let day = 86400.0;
+                let mut bigs = Vec::new();
+                let mut smalls = Vec::new();
+                let mut current = min - (min - wk);
 
                 // Generate grid marks at intervals of `step`
                 while current <= max {
-                    grid_marks.push(GridMark {
-                        value: current,  // Set the full range
-                        step_size: step, // Keep step size consistent
+                    bigs.push(GridMark {
+                        value: current, // Set the full range
+                        step_size: wk,  // Keep step size consistent
                     });
 
-                    current += step; // Move to next tick position
+                    current += wk; // Move to next tick position
                 }
-                println!("gridmark count: {}", grid_marks.len());
-                grid_marks
+                current = min - (min - day);
+                while current <= max {
+                    smalls.push(GridMark {
+                        value: current, // Set the full range
+                        step_size: day, // Keep step size consistent
+                    });
+
+                    current += day; // Move to next tick position
+                }
+                bigs.append(&mut smalls);
+                bigs
             };
 
             let gas_plot = Plot::new("Data plot")
-                // .x_grid_spacer(x_grid_spacer_gas)
-                .x_axis_formatter(x_axis_formatter_gas) // Custom date formatting
+                .x_grid_spacer(x_grid_spacer_gas)
+                // .x_axis_formatter(x_axis_formatter_gas) // Custom date formatting
+                .show_axes(false)
                 .allow_drag(false)
                 .width(600.)
                 .height(350.)
+                .y_axis_label("CH4")
                 .legend(Legend::default().position(Corner::LeftTop));
 
             let lag_plot = Plot::new("Lag plot")
-                // .x_grid_spacer(x_grid_spacer_lag)
-                .x_axis_formatter(x_axis_formatter_lag) // Custom date formatting
+                .x_grid_spacer(x_grid_spacer_lag)
+                // .x_axis_formatter(x_axis_formatter_lag) // Custom date formatting
+                .show_axes(false)
                 .allow_drag(false)
                 .width(600.)
                 .height(350.)
+                .y_axis_label("Lag (s)")
                 .legend(Legend::default().position(Corner::LeftTop));
 
+            // initiate button booleans
             let mut prev_clicked = false;
             let mut next_clicked = false;
             let mut highest_r = false;
