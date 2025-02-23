@@ -1,3 +1,4 @@
+use crate::instruments::Gas;
 use chrono::{DateTime, Utc};
 use std::any::Any;
 
@@ -23,24 +24,86 @@ pub struct MyApp {
     start_time_idx: f64,
     calc_range_start: f64,
     calc_range_end: f64,
-    max_y: f64,
-    min_y: f64,
+    max_y: Vec<f64>,
+    min_y: Vec<f64>,
     min_calc_area_range: f64,
     index: usize,
     lag_vec: Vec<f64>,
     start_vec: Vec<f64>,
 }
-
+fn prepare_gas_plot(cycle: &Cycle) -> Vec<[f64; 2]> {
+    cycle
+        .dt_v_as_float()
+        .iter()
+        .copied()
+        .zip(cycle.gas_data.iter().flat_map(|gas| match gas {
+            Gas::CH4(values) | Gas::CO2(values) | Gas::H2O(values) | Gas::N2O(values) => {
+                values.clone()
+            }
+        }))
+        .map(|(x, y)| [x, y])
+        .collect()
+}
+pub fn get_min_y(cycle: &Cycle) -> Vec<f64> {
+    cycle
+        .gas_data
+        .iter()
+        .map(|gas| match gas {
+            Gas::CH4(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::INFINITY, f64::min),
+            Gas::CO2(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::INFINITY, f64::min),
+            Gas::H2O(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::INFINITY, f64::min),
+            Gas::N2O(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::INFINITY, f64::min),
+        })
+        .collect()
+}
+pub fn get_max_y(cycle: &Cycle) -> Vec<f64> {
+    cycle
+        .gas_data
+        .iter()
+        .map(|gas| match gas {
+            Gas::CH4(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::NEG_INFINITY, f64::max),
+            Gas::CO2(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::NEG_INFINITY, f64::max),
+            Gas::H2O(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::NEG_INFINITY, f64::max),
+            Gas::N2O(values) => values
+                .iter()
+                .copied()
+                .filter(|v| !v.is_nan())
+                .fold(f64::NEG_INFINITY, f64::max),
+        })
+        .collect()
+}
 impl MyApp {
     pub fn update_cycle(&mut self, index: usize) {
         let cycle = &self.cycles[index];
-        self.gas_plot = cycle
-            .dt_v_as_float()
-            .iter()
-            .copied()
-            .zip(cycle.gas_v.iter().copied())
-            .map(|(x, y)| [x, y])
-            .collect();
+        self.gas_plot = prepare_gas_plot(cycle);
 
         self.lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
         self.close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
@@ -51,18 +114,8 @@ impl MyApp {
         self.start_time_idx = cycle.start_time.timestamp() as f64;
         self.calc_range_end = cycle.calc_range_end;
         self.calc_range_start = cycle.calc_range_start;
-        self.min_y = cycle
-            .gas_v
-            .iter()
-            .copied()
-            .filter(|v| !v.is_nan())
-            .fold(f64::INFINITY, f64::min);
-        self.max_y = cycle
-            .gas_v
-            .iter()
-            .copied()
-            .filter(|v| !v.is_nan())
-            .fold(f64::NEG_INFINITY, f64::max);
+        self.min_y = get_min_y(cycle);
+        self.max_y = get_max_y(cycle);
         self.lag_vec = self.cycles.iter().map(|x| x.lag_s).collect();
         self.start_vec = self
             .cycles
@@ -80,13 +133,14 @@ impl MyApp {
 
     pub fn new(cycles: Vec<Cycle>) -> Self {
         let cycle = &cycles[0];
-        let gas_plot: Vec<[f64; 2]> = cycle
-            .dt_v_as_float()
-            .iter()
-            .copied() // Copy each f64 from the iterator
-            .zip(cycle.gas_v.iter().copied()) // Iterate and copy gas_v
-            .map(|(x, y)| [x, y]) // Convert each tuple into an array
-            .collect();
+        let gas_plot = prepare_gas_plot(cycle);
+        // let gas_plot: Vec<[f64; 2]> = cycle
+        //     .dt_v_as_float()
+        //     .iter()
+        //     .copied() // Copy each f64 from the iterator
+        //     .zip(cycle.gas_v.iter().copied()) // Iterate and copy gas_v
+        //     .map(|(x, y)| [x, y]) // Convert each tuple into an array
+        //     .collect();
         let lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
         let close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
         let open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
@@ -95,20 +149,22 @@ impl MyApp {
         let start_time_idx = cycle.start_time.timestamp() as f64;
         let calc_range_end = cycle.calc_range_end;
         let calc_range_start = cycle.calc_range_start;
-        let min_y = cycle
-            .gas_v
-            .iter()
-            .cloned()
-            .filter(|v| !v.is_nan())
-            .fold(f64::INFINITY, f64::min);
-        let max_y = cycle
-            .gas_v
-            .iter()
-            .cloned()
-            // .rev()
-            // .take(120)
-            .filter(|v| !v.is_nan())
-            .fold(f64::NEG_INFINITY, f64::max);
+        let min_y = get_min_y(cycle);
+        let max_y = get_max_y(cycle);
+        // let min_y = cycle
+        //     .gas_v
+        //     .iter()
+        //     .cloned()
+        //     .filter(|v| !v.is_nan())
+        //     .fold(f64::INFINITY, f64::min);
+        // let max_y = cycle
+        //     .gas_v
+        //     .iter()
+        //     .cloned()
+        //     // .rev()
+        //     // .take(120)
+        //     .filter(|v| !v.is_nan())
+        //     .fold(f64::NEG_INFINITY, f64::max);
 
         // let max_y;
         // let min_y;
@@ -419,8 +475,8 @@ impl eframe::App for MyApp {
                     let main_polygon = create_polygon(
                         self.cycles[self.index].calc_range_start + drag_panel_width,
                         self.cycles[self.index].calc_range_end - drag_panel_width,
-                        self.min_y,
-                        self.max_y,
+                        self.min_y[0],
+                        self.max_y[0],
                         calc_area_color,
                         calc_area_stroke_color,
                         "Move",
@@ -430,8 +486,8 @@ impl eframe::App for MyApp {
                     let left_polygon = create_polygon(
                         self.cycles[self.index].calc_range_start,
                         self.cycles[self.index].calc_range_start + drag_panel_width,
-                        self.min_y,
-                        self.max_y,
+                        self.min_y[0],
+                        self.max_y[0],
                         calc_area_adjust_color,
                         calc_area_stroke_color,
                         "Extend left",
@@ -441,8 +497,8 @@ impl eframe::App for MyApp {
                     let right_polygon = create_polygon(
                         self.cycles[self.index].calc_range_end - drag_panel_width,
                         self.cycles[self.index].calc_range_end,
-                        self.min_y,
-                        self.max_y,
+                        self.min_y[0],
+                        self.max_y[0],
                         calc_area_adjust_color,
                         calc_area_stroke_color,
                         "Extend right",
@@ -464,22 +520,22 @@ impl eframe::App for MyApp {
                             pointer_pos,
                             self.cycles[self.index].calc_range_start,
                             self.cycles[self.index].calc_range_start + drag_panel_width,
-                            self.min_y,
-                            self.max_y,
+                            self.min_y[0],
+                            self.max_y[0],
                         );
                         let inside_right = is_inside_polygon(
                             pointer_pos,
                             self.cycles[self.index].calc_range_end - drag_panel_width,
                             self.cycles[self.index].calc_range_end,
-                            self.min_y,
-                            self.max_y,
+                            self.min_y[0],
+                            self.max_y[0],
                         );
                         let inside_main = is_inside_polygon(
                             pointer_pos,
                             self.cycles[self.index].calc_range_start + drag_panel_width,
                             self.cycles[self.index].calc_range_end - drag_panel_width,
-                            self.min_y,
-                            self.max_y,
+                            self.min_y[0],
+                            self.max_y[0],
                         );
                         let inside_lag = is_inside_polygon(
                             pointer_pos,

@@ -117,7 +117,7 @@ pub fn write_cycles_to_html(cycles: &[structs::Cycle]) -> Result<(), Box<dyn Err
 
         for cycle in grouped_cycles.get(date).unwrap() {
             let diag_sum: i64 = cycle.diag_v.iter().copied().sum();
-            let plot_path = draw_gas_plot(cycle)?;
+            // let plot_path = draw_gas_plot(cycle)?;
             let mut row = format!(
                 "<tr style=\"color:greenyellow\">\
                     <td>{}</td>\
@@ -136,7 +136,7 @@ pub fn write_cycles_to_html(cycles: &[structs::Cycle]) -> Result<(), Box<dyn Err
                 cycle.calc_r,
                 if diag_sum == 0 { 1 } else { 0 },
                 cycle.flux,
-                plot_path
+                "asd" // plot_path
             );
             if diag_sum != 0 {
                 row = row.replace("greenyellow", "salmon");
