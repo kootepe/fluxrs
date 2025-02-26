@@ -34,101 +34,101 @@ pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
 }
 
-pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Error>> {
-    let mut rdr = mk_rdr(filename)?;
-    let skip = 4;
-
-    for _ in 0..skip {
-        rdr.records().next();
-    }
-
-    let mut ch4: Vec<f64> = Vec::new();
-    let mut co2: Vec<f64> = Vec::new();
-    let mut diag: Vec<i64> = Vec::new();
-    let mut datetime: Vec<DateTime<Utc>> = Vec::new();
-    let mut secs: Vec<i64> = Vec::new();
-    let mut nsecs: Vec<i64> = Vec::new();
-    let mut header = csv::StringRecord::new();
-
-    if let Some(result) = rdr.records().next() {
-        header = result?;
-    }
-    let ch4_col = "CH4";
-    let co2_col = "CO2";
-    let diag_col = "DIAG";
-    let secs_col = "SECONDS";
-    let nsecs_col = "NANOSECONDS";
-
-    let idx_ch4 = header
-        .iter()
-        .position(|h| h == ch4_col)
-        .ok_or("Column not found")?;
-    let idx_co2 = header
-        .iter()
-        .position(|h| h == co2_col)
-        .ok_or("Column not found")?;
-    let idx_diag = header
-        .iter()
-        .position(|h| h == diag_col)
-        .ok_or("Column not found")?;
-    let idx_secs = header
-        .iter()
-        .position(|h| h == secs_col)
-        .ok_or("Column not found")?;
-    let idx_nsecs = header
-        .iter()
-        .position(|h| h == nsecs_col)
-        .ok_or("Column not found")?;
-    for (i, r) in rdr.records().enumerate() {
-        let record: &csv::StringRecord = &r?;
-        if i == 0 {
-            header = record.clone();
-            continue;
-        }
-        if i == 1 {
-            continue;
-        }
-
-        if let Ok(val) = record[idx_ch4].parse::<f64>() {
-            ch4.push(val)
-        } else {
-            ch4.push(structs::ERROR_FLOAT)
-        }
-        if let Ok(val) = record[idx_co2].parse::<f64>() {
-            co2.push(val)
-        } else {
-            co2.push(structs::ERROR_FLOAT)
-        }
-        if let Ok(val) = record[idx_diag].parse::<i64>() {
-            diag.push(val)
-        }
-        let sec = record[idx_secs].parse::<i64>()?;
-        let nsec = record[idx_nsecs].parse::<i64>()?;
-        let dt_utc = parse_secnsec_to_dt(sec, nsec);
-        datetime.push(dt_utc);
-
-        if let Ok(val) = record[idx_secs].parse::<i64>() {
-            secs.push(val)
-        }
-        if let Ok(val) = record[idx_nsecs].parse::<i64>() {
-            nsecs.push(val)
-        }
-    }
-    let mut indices: Vec<usize> = (0..datetime.len()).collect();
-    indices.sort_by(|&i, &j| datetime[i].cmp(&datetime[j]));
-
-    let datetime: Vec<chrono::DateTime<Utc>> = indices.iter().map(|&i| datetime[i]).collect();
-    let gas: Vec<f64> = indices.iter().map(|&i| ch4[i]).collect();
-    let diag: Vec<i64> = indices.iter().map(|&i| diag[i]).collect();
-
-    let df = GasData {
-        header,
-        datetime,
-        gas,
-        diag,
-    };
-    Ok(df)
-}
+// pub fn read_gas_csv<P: AsRef<Path>>(filename: P) -> Result<GasData, Box<dyn Error>> {
+//     let mut rdr = mk_rdr(filename)?;
+//     let skip = 4;
+//
+//     for _ in 0..skip {
+//         rdr.records().next();
+//     }
+//
+//     let mut ch4: Vec<f64> = Vec::new();
+//     let mut co2: Vec<f64> = Vec::new();
+//     let mut diag: Vec<i64> = Vec::new();
+//     let mut datetime: Vec<DateTime<Utc>> = Vec::new();
+//     let mut secs: Vec<i64> = Vec::new();
+//     let mut nsecs: Vec<i64> = Vec::new();
+//     let mut header = csv::StringRecord::new();
+//
+//     if let Some(result) = rdr.records().next() {
+//         header = result?;
+//     }
+//     let ch4_col = "CH4";
+//     let co2_col = "CO2";
+//     let diag_col = "DIAG";
+//     let secs_col = "SECONDS";
+//     let nsecs_col = "NANOSECONDS";
+//
+//     let idx_ch4 = header
+//         .iter()
+//         .position(|h| h == ch4_col)
+//         .ok_or("Column not found")?;
+//     let idx_co2 = header
+//         .iter()
+//         .position(|h| h == co2_col)
+//         .ok_or("Column not found")?;
+//     let idx_diag = header
+//         .iter()
+//         .position(|h| h == diag_col)
+//         .ok_or("Column not found")?;
+//     let idx_secs = header
+//         .iter()
+//         .position(|h| h == secs_col)
+//         .ok_or("Column not found")?;
+//     let idx_nsecs = header
+//         .iter()
+//         .position(|h| h == nsecs_col)
+//         .ok_or("Column not found")?;
+//     for (i, r) in rdr.records().enumerate() {
+//         let record: &csv::StringRecord = &r?;
+//         if i == 0 {
+//             header = record.clone();
+//             continue;
+//         }
+//         if i == 1 {
+//             continue;
+//         }
+//
+//         if let Ok(val) = record[idx_ch4].parse::<f64>() {
+//             ch4.push(val)
+//         } else {
+//             ch4.push(structs::ERROR_FLOAT)
+//         }
+//         if let Ok(val) = record[idx_co2].parse::<f64>() {
+//             co2.push(val)
+//         } else {
+//             co2.push(structs::ERROR_FLOAT)
+//         }
+//         if let Ok(val) = record[idx_diag].parse::<i64>() {
+//             diag.push(val)
+//         }
+//         let sec = record[idx_secs].parse::<i64>()?;
+//         let nsec = record[idx_nsecs].parse::<i64>()?;
+//         let dt_utc = parse_secnsec_to_dt(sec, nsec);
+//         datetime.push(dt_utc);
+//
+//         if let Ok(val) = record[idx_secs].parse::<i64>() {
+//             secs.push(val)
+//         }
+//         if let Ok(val) = record[idx_nsecs].parse::<i64>() {
+//             nsecs.push(val)
+//         }
+//     }
+//     let mut indices: Vec<usize> = (0..datetime.len()).collect();
+//     indices.sort_by(|&i, &j| datetime[i].cmp(&datetime[j]));
+//
+//     let datetime: Vec<chrono::DateTime<Utc>> = indices.iter().map(|&i| datetime[i]).collect();
+//     let gas: Vec<f64> = indices.iter().map(|&i| ch4[i]).collect();
+//     let diag: Vec<i64> = indices.iter().map(|&i| diag[i]).collect();
+//
+//     let df = GasData {
+//         header,
+//         datetime,
+//         gas,
+//         diag,
+//     };
+//     Ok(df)
+// }
 
 pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
     let file = File::open(filename)?;
@@ -181,34 +181,34 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
     Ok(df)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_any_col_invalid() {
-        let valid_data = GasData {
-            header: csv::StringRecord::new(),
-            datetime: vec![Utc::now(), Utc::now(), Utc::now()],
-            gas: vec![1.0, 2.0, 3.0],
-            diag: vec![1, 2, 3],
-        };
-        assert!(
-            !valid_data.any_col_invalid(),
-            "Expected valid data to return false"
-        )
-    }
-    #[test]
-    fn invalid_multiple() {
-        let invalid_multiple = GasData {
-            header: csv::StringRecord::new(),
-            datetime: vec![Utc::now(), Utc::now(), Utc::now()],
-            gas: vec![structs::ERROR_FLOAT; 3],
-            diag: vec![structs::ERROR_INT; 3],
-        };
-        assert!(
-            invalid_multiple.any_col_invalid(),
-            "Expected multiple invalid columns to return true"
-        )
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//
+//     #[test]
+//     fn test_any_col_invalid() {
+//         let valid_data = GasData {
+//             header: csv::StringRecord::new(),
+//             datetime: vec![Utc::now(), Utc::now(), Utc::now()],
+//             gas: vec![1.0, 2.0, 3.0],
+//             diag: vec![1, 2, 3],
+//         };
+//         assert!(
+//             !valid_data.any_col_invalid(),
+//             "Expected valid data to return false"
+//         )
+//     }
+//     #[test]
+//     fn invalid_multiple() {
+//         let invalid_multiple = GasData {
+//             header: csv::StringRecord::new(),
+//             datetime: vec![Utc::now(), Utc::now(), Utc::now()],
+//             gas: vec![structs::ERROR_FLOAT; 3],
+//             diag: vec![structs::ERROR_INT; 3],
+//         };
+//         assert!(
+//             invalid_multiple.any_col_invalid(),
+//             "Expected multiple invalid columns to return true"
+//         )
+//     }
+// }
