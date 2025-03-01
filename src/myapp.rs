@@ -307,7 +307,6 @@ impl eframe::App for MyApp {
             ui.horizontal(|ui| {
                 for gas_type in self.enabled_gases.clone() {
                     if self.is_gas_enabled(&gas_type) {
-                        // ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                         // let x_range = (self.end_Lime_idx - self.start_time_idx) * 0.05;
                         // let y_range =
                         //     (self.get_max_y(&gas_type) - self.get_min_y(&gas_type)) * 0.05;
@@ -391,7 +390,7 @@ pub fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp, gas_type: &GasType
     let positive_drag = drag_delta.x > 0.;
     let negative_drag = drag_delta.x < 0.;
 
-    // println!("{}", drag_delta);
+    let range_len = app.get_calc_end(*gas_type) - app.get_calc_start(*gas_type);
     if at_start && positive_drag && !at_min_area {
         app.increment_calc_start(*gas_type, drag_delta.x as f64);
         return;
@@ -407,29 +406,21 @@ pub fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut MyApp, gas_type: &GasType
         app.set_calc_start(*gas_type, app.close_idx);
         if app.get_calc_end(*gas_type) < app.open_idx {
             app.increment_calc_end(*gas_type, diff);
-            // app.cycles[app.index]
-            //     .calc_range_end
-            //     .get(&gas_type)
-            //     .unwrap() += diff;
         }
         return;
     }
     if app.get_calc_end(*gas_type) > app.open_idx {
         let diff = (app.cycles[*app.index]
             .calc_range_end
-            .get(&gas_type)
+            .get(gas_type)
             .unwrap_or(&0.0)
             - app.open_idx)
             .abs();
+
         app.set_calc_end(*gas_type, app.open_idx);
         if app.get_calc_start(*gas_type) > app.close_idx {
             app.decrement_calc_start(*gas_type, diff);
-            // app.cycles[app.index]
-            //     .calc_range_start
-            //     .get(&gas_type)
-            //     .unwrap() -= diff;
         }
-        return;
     }
 }
 pub fn handle_drag_polygon(
@@ -440,16 +431,7 @@ pub fn handle_drag_polygon(
 ) {
     let delta = plot_ui.pointer_coordinate_drag_delta();
     let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-    let calc_area_range = app.cycles[*app.index]
-        .calc_range_end
-        .get(&gas_type)
-        .unwrap_or(&0.0)
-        - app.cycles[*app.index]
-            .calc_range_start
-            .get(&gas_type)
-            .unwrap_or(&0.0);
-    // println!("Dragging.");
-    // println!("{}", delta);
+    let calc_area_range = app.get_calc_end(*gas_type) - app.get_calc_start(*gas_type);
 
     if is_left && app.get_calc_start(*gas_type) > app.close_idx && dragged {
         // do nothing if at min length and trying to make it smaller
@@ -459,26 +441,13 @@ pub fn handle_drag_polygon(
             return;
         }
         app.increment_calc_start(*gas_type, delta.x as f64);
-        // app.cycles[app.index]
-        //     .calc_range_start
-        //     .get(&gas_type)
-        //     .unwrap() += delta.x as f64; // Adjust left boundary
     } else if !is_left && app.get_calc_end(*gas_type) < app.open_idx && dragged {
         // do nothing if at min length and trying to make it smaller
         if calc_area_range < app.min_calc_area_range && delta.x < 0. {
             let diff = app.min_calc_area_range - calc_area_range;
             app.increment_calc_end(*gas_type, diff);
-            // app.cycles[app.index]
-            //     .calc_range_end
-            //     .get(&gas_type)
-            //     .unwrap() += diff;
             return;
         }
         app.increment_calc_end(*gas_type, delta.x as f64);
-        // app.cycles[app.index]
-        //     .calc_range_end
-        //     .get(&gas_type)
-        //     .unwrap() += delta.x as f64; // Adjust right boundary
     }
 }
-// fn create_plot(&cycle) ->
