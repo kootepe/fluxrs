@@ -7,10 +7,12 @@ use instruments::Li7810;
 use std::error::Error;
 use structs::EqualLen;
 
+pub mod app_plotting;
 mod csv_parse;
 mod gas_plot;
 mod get_paths;
 mod html_report;
+mod index;
 mod instruments;
 pub mod myapp;
 mod stats;
@@ -208,19 +210,13 @@ impl Config {
 pub fn run(config: Config) -> Result<Vec<structs::Cycle>, Box<dyn Error>> {
     let all_gas = get_gas_data(&config.gas_path)?;
     let timev = get_time_data(&config.time_path)?;
-    if let Some(gas_values) = all_gas.gas.get(&GasType::CH4) {
-        println!("{:?}", gas_values.len());
-    } else {
-        println!("CH4 gas data not found");
-    }
 
     println!("Sorting and grouping data...");
     // let sorted_data = sort_and_group_gas(&all_gas);
     let sorted_data = group_gas_data_by_date(&all_gas);
-    println!("{}", sorted_data.len());
 
     println!("Processing cycles");
-    let cycle_vec = process_cycles(&timev, &all_gas, &sorted_data)?;
+    let cycle_vec = process_cycles(&timev, &sorted_data)?;
 
     println!("Calculated {} cycles.", cycle_vec.len());
 
@@ -289,7 +285,6 @@ fn sort_and_group_gas(all_gas: &structs::GasData) -> HashMap<String, structs::Ga
 }
 fn process_cycles(
     timev: &[structs::TimeData],
-    all_gas: &structs::GasData,
     sorted_data: &HashMap<String, structs::GasData>,
 ) -> Result<Vec<structs::Cycle>, Box<dyn Error>> {
     let mut cycle_vec = Vec::new();
@@ -297,9 +292,6 @@ fn process_cycles(
     let mut last_date = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
     for time in timev {
         for (chamber, start, close, open, end) in time.iter() {
-            // if start < &all_gas.datetime[0] || start > all_gas.datetime.last().unwrap() {
-            //     continue;
-            // }
             let mut cycle = structs::CycleBuilder::new()
                 .chamber_id(chamber.to_owned())
                 .start_time(*start)
@@ -317,6 +309,11 @@ fn process_cycles(
             last_date = day.clone();
 
             if let Some(cur_data) = sorted_data.get(&start.format("%Y-%m-%d").to_string()) {
+                // cur_data is ordered, so we can check last and first timestamp to skip cycles
+                // with no data
+                if start < &cur_data.datetime[0] || start > cur_data.datetime.last().unwrap() {
+                    continue;
+                }
                 cur_data.datetime.iter().enumerate().for_each(|(i, t)| {
                     if t >= &cycle.start_time && t <= &cycle.end_time {
                         // println!("Time within {} and {}", cycle.start_time, cycle.end_time);
@@ -342,26 +339,30 @@ fn process_cycles(
                     //     );
                     // }
                 });
-                // println!("totdt: {:?}", cur_data.datetime.len());
 
-                for gas_type in cur_data.gas.keys() {
-                    if *gas_type == GasType::CH4 {
-                        cycle.get_peak_datetime(*gas_type);
-                    }
+                let gases: Vec<_> = cur_data.gas.keys().cloned().collect(); // Collect first
+
+                cycle.get_peak_datetime(cycle.main_gas);
+                for gas_type in &gases {
+                    // Iterate over the collected Vec
                     cycle.get_measurement_data(*gas_type);
-                    // println!("mesdtv: {:?}", cycle.measurement_dt_v.len());
+
                     if let Some(measurement_gas_v) = cycle.measurement_gas_v.get(gas_type) {
-                        // println!("mesgas: {:?}", measurement_gas_v.len());
                         if !cycle.measurement_dt_v.is_empty() && !measurement_gas_v.is_empty() {
+                            // cycle.reset();
                             cycle.calculate_measurement_r(*gas_type);
-                            cycle.find_highest_r_window_disp(*gas_type);
+                            cycle.find_highest_r_window(*gas_type);
                             cycle.calculate_flux(*gas_type);
                             cycle.calculate_min_y();
                             cycle.calculate_max_y();
-                            cycle.prepare_plot_data();
+                            // cycle.prepare_plot_data();
                         }
                     }
+                    cycle.reset()
                 }
+
+                // Now safely assign to cycle.gases since gases is still available
+                cycle.gases = gases;
                 cycle_vec.push(cycle);
             } else {
                 no_data_for_day = true;
