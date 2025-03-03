@@ -1,11 +1,12 @@
 use chrono::prelude::DateTime;
 use chrono::Utc;
+use rusqlite::Error;
 use std::collections::HashMap;
 use std::fmt;
 use std::{thread, time};
 
 use csv::StringRecord;
-use std::error::Error;
+// use std::error::Error;
 
 use crate::gas_plot;
 use crate::instruments::GasType;
@@ -73,7 +74,61 @@ impl CycleBuilder {
     }
 
     /// Build the Cycle struct
-    pub fn build(self) -> Result<Cycle, &'static str> {
+    pub fn build_db(self) -> Result<Cycle, Error> {
+        let start = self.start_time.ok_or(Error::InvalidColumnName(
+            "Start time is required".to_owned(),
+        ))?;
+        let chamber = self.chamber_id.ok_or(Error::InvalidColumnName(
+            "Chamber ID is required".to_owned(),
+        ))?;
+        let close = self.close_offset.ok_or(Error::InvalidColumnName(
+            "Close offset is required".to_owned(),
+        ))?;
+        let open = self.open_offset.ok_or(Error::InvalidColumnName(
+            "Open offset is required".to_owned(),
+        ))?;
+        let end = self.end_offset.ok_or(Error::InvalidColumnName(
+            "End offset is required".to_owned(),
+        ))?;
+
+        Ok(Cycle {
+            chamber_id: chamber,
+            start_time: start,
+            close_time: start + chrono::Duration::seconds(close),
+            open_time: start + chrono::Duration::seconds(open),
+            end_time: start + chrono::Duration::seconds(end),
+            close_offset: close,
+            open_offset: open,
+            end_offset: end,
+            main_gas: GasType::CH4,
+            has_errors: false,
+            // calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
+            // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
+            gas_plot: HashMap::new(),
+            calc_range_end: HashMap::new(),
+            calc_range_start: HashMap::new(),
+            min_y: HashMap::new(),
+            max_y: HashMap::new(),
+            // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
+            lag_s: 0.,
+            max_idx: 0.,
+            flux: HashMap::new(),
+            r: HashMap::new(),
+            calc_r: HashMap::new(),
+            measurement_r: HashMap::new(),
+            diag_v: vec![],
+            dt_v: vec![],
+            gas_v: HashMap::new(),
+            calc_gas_v: HashMap::new(),
+            calc_dt_v: HashMap::new(),
+            measurement_gas_v: HashMap::new(),
+            measurement_dt_v: vec![],
+            gases: vec![],
+            air_pressure: 1000.,
+            air_temperature: 10.,
+        })
+    }
+    pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error>> {
         let start = self.start_time.ok_or("Start time is required")?;
         let chamber = self.chamber_id.ok_or("Chamber ID is required")?;
         let close = self.close_offset.ok_or("Close offset is required")?;
@@ -89,6 +144,7 @@ impl CycleBuilder {
             close_offset: close,
             open_offset: open,
             end_offset: end,
+            has_errors: false,
             main_gas: GasType::CH4,
             // calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
             // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
@@ -117,6 +173,7 @@ impl CycleBuilder {
         })
     }
 }
+#[derive(PartialEq)]
 pub struct Cycle {
     pub chamber_id: String,
     pub start_time: chrono::DateTime<chrono::Utc>,
@@ -125,6 +182,7 @@ pub struct Cycle {
     pub end_time: chrono::DateTime<chrono::Utc>,
     pub air_temperature: f64,
     pub air_pressure: f64,
+    pub has_errors: bool,
     pub main_gas: GasType,
     pub close_offset: i64,
     pub open_offset: i64,
@@ -427,6 +485,7 @@ impl Cycle {
 
     pub fn get_measurement_datas(&mut self) {
         for &gas_type in &self.gases {
+            // self.get_measurement_data(gas_type);
             if let Some(gas_v) = self.gas_v.get(&gas_type) {
                 let close_time = self.start_time
                     + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
@@ -448,6 +507,8 @@ impl Cycle {
                         self.measurement_dt_v.push(*t);
                         self.measurement_gas_v.get_mut(&gas_type).unwrap().push(*d);
                     });
+            } else {
+                println!("no measurement data for {}", gas_type);
             }
         }
     }
@@ -488,12 +549,32 @@ impl Cycle {
                     .collect();
                 let mut best_window_y = Vec::new();
 
-                for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
-                    for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
-                        let end = start + win_size;
+                for win_size in (MIN_WINDOW_SIZE..=max_window).step_by(WINDOW_INCREMENT) {
+                    for start in (0..max_window).step_by(WINDOW_INCREMENT) {
+                        let end = (start + win_size).min(max_window); // Ensure `end` does not exceed `max_window`
+
+                        // Skip if window is too small after clamping
+                        if end - start < MIN_WINDOW_SIZE {
+                            continue;
+                        }
+
+                        // Extract the window
                         let x_win = &dt_v[start..end];
                         let y_win = &gas_v[start..end];
+
+                        // 🔹 Check for missing timestamps
+                        let has_missing_time = x_win
+                            .windows(2) // Pairwise check for consecutive elements
+                            .any(|pair| (pair[1] - pair[0]).abs() > 1.0); // Difference > 1 second means gap
+
+                        // 🔹 Skip calculation if there are missing timestamps
+                        if has_missing_time {
+                            continue;
+                        }
+
+                        // Compute Pearson correlation only for valid continuous data
                         let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
+
                         if r > max_r {
                             max_r = r;
                             start_idx = start;
@@ -503,27 +584,296 @@ impl Cycle {
                     }
                 }
 
+                // 🔹 Ensure `end_idx` is never `0` before using it
+                if end_idx == 0 {
+                    println!("No valid window found for {:?}", gas_type);
+                    continue; // Skip storing results if no valid window was found
+                }
+
+                // 🔹 Store results safely
                 self.calc_r.insert(gas_type, max_r);
                 self.calc_range_start.insert(
                     gas_type,
-                    self.measurement_dt_v[start_idx].timestamp() as f64,
+                    self.measurement_dt_v
+                        .get(start_idx)
+                        .map_or(0.0, |dt| dt.timestamp() as f64),
                 );
                 self.calc_range_end.insert(
                     gas_type,
-                    self.measurement_dt_v[end_idx - 1].timestamp() as f64,
+                    self.measurement_dt_v
+                        .get(end_idx.saturating_sub(1))
+                        .map_or(0.0, |dt| dt.timestamp() as f64),
                 );
-                self.calc_dt_v
-                    .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
+                self.calc_dt_v.insert(
+                    gas_type,
+                    self.measurement_dt_v
+                        .get(start_idx..end_idx)
+                        .map_or_else(Vec::new, |v| v.to_vec()),
+                );
                 self.calc_gas_v.insert(gas_type, best_window_y);
             }
         }
     }
+    // pub fn find_highest_r_windows(&mut self) {
+    //     for &gas_type in &self.gases {
+    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
+    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+    //                 println!("Short data for {:?}", gas_type);
+    //                 continue;
+    //             }
+    //
+    //             let max_window = gas_v.len();
+    //             let mut max_r = f64::MIN;
+    //             let mut start_idx = 0;
+    //             let mut end_idx = 0;
+    //             let dt_v: Vec<f64> = self
+    //                 .measurement_dt_v
+    //                 .iter()
+    //                 .map(|dt| dt.timestamp() as f64)
+    //                 .collect();
+    //             let mut best_window_y = Vec::new();
+    //
+    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
+    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
+    //                     // let end = start + win_size;
+    //                     let end = (start + win_size).min(max_window); // 🔹 Ensure `end` does not exceed `max_window`
+    //
+    //                     // Extract the window
+    //                     let x_win = &dt_v[start..end];
+    //                     let y_win = &gas_v[start..end];
+    //
+    //                     // 🔹 Check for missing timestamps
+    //                     let has_missing_time = x_win
+    //                         .windows(2) // Pairwise check for consecutive elements
+    //                         .any(|pair| (pair[1] - pair[0]).abs() > 1.0); // Difference > 1 second means gap
+    //
+    //                     // 🔹 Skip calculation if there are missing timestamps
+    //                     if has_missing_time {
+    //                         continue;
+    //                     }
+    //
+    //                     // Compute Pearson correlation only for valid continuous data
+    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
+    //
+    //                     if r > max_r {
+    //                         max_r = r;
+    //                         start_idx = start;
+    //                         end_idx = end;
+    //                         best_window_y = y_win.to_vec();
+    //                     }
+    //                 }
+    //             }
+    //
+    //             // 🔹 Store results
+    //             self.calc_r.insert(gas_type, max_r);
+    //             self.calc_range_start.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
+    //             );
+    //             println!("{}", end_idx);
+    //             self.calc_range_end.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
+    //             );
+    //             self.calc_dt_v
+    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
+    //             self.calc_gas_v.insert(gas_type, best_window_y);
+    //         }
+    //     }
+    // }
+    // pub fn find_highest_r_windows(&mut self) {
+    //     for &gas_type in &self.gases {
+    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
+    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+    //                 println!("Short data for {:?}", gas_type);
+    //                 continue;
+    //             }
+    //
+    //             let max_window = gas_v.len();
+    //             let mut max_r = f64::MIN;
+    //             let mut start_idx = 0;
+    //             let mut end_idx = 0;
+    //             let dt_v: Vec<f64> = self
+    //                 .measurement_dt_v
+    //                 .iter()
+    //                 .map(|dt| dt.timestamp() as f64)
+    //                 .collect();
+    //             let mut best_window_y = Vec::new();
+    //
+    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
+    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
+    //                     let end = start + win_size;
+    //
+    //                     // Extract the window
+    //                     let x_win = &dt_v[start..end];
+    //                     let y_win = &gas_v[start..end];
+    //
+    //                     // 🔹 Skip calculation if any NaN is found in the window
+    //                     if x_win.iter().any(|&x| !x.is_finite())
+    //                         || y_win.iter().any(|&y| !y.is_finite())
+    //                     {
+    //                         continue;
+    //                     }
+    //
+    //                     // Compute Pearson correlation only for valid data
+    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
+    //
+    //                     if r > max_r {
+    //                         max_r = r;
+    //                         start_idx = start;
+    //                         end_idx = end;
+    //                         best_window_y = y_win.to_vec();
+    //                     }
+    //                 }
+    //             }
+    //
+    //             // 🔹 Store results
+    //             self.calc_r.insert(gas_type, max_r);
+    //             self.calc_range_start.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
+    //             );
+    //             self.calc_range_end.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
+    //             );
+    //             self.calc_dt_v
+    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
+    //             self.calc_gas_v.insert(gas_type, best_window_y);
+    //         }
+    //     }
+    // }
+    // pub fn find_highest_r_windows(&mut self) {
+    //     for &gas_type in &self.gases {
+    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
+    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+    //                 println!("Short data for {:?}", gas_type);
+    //                 continue;
+    //             }
+    //
+    //             let max_window = gas_v.len();
+    //             let mut max_r = f64::MIN;
+    //             let mut start_idx = 0;
+    //             let mut end_idx = 0;
+    //             let dt_v: Vec<f64> = self
+    //                 .measurement_dt_v
+    //                 .iter()
+    //                 .map(|dt| dt.timestamp() as f64)
+    //                 .collect();
+    //             let mut best_window_y = Vec::new();
+    //
+    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
+    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
+    //                     let end = start + win_size;
+    //
+    //                     let x_win: Vec<f64> = dt_v[start..end]
+    //                         .iter()
+    //                         .cloned()
+    //                         .filter(|&x| x.is_finite())
+    //                         .collect();
+    //                     let y_win: Vec<f64> = gas_v[start..end]
+    //                         .iter()
+    //                         .cloned()
+    //                         .filter(|&y| y.is_finite())
+    //                         .collect();
+    //
+    //                     // 🔹 Ensure valid values before calculating Pearson correlation
+    //                     let r = if x_win.len() > 1 && y_win.len() > 1 {
+    //                         stats::pearson_correlation(&x_win, &y_win).unwrap_or(0.0)
+    //                     } else {
+    //                         0.0 // Fallback if insufficient valid data
+    //                     };
+    //
+    //                     if r > max_r {
+    //                         max_r = r;
+    //                         start_idx = start;
+    //                         end_idx = end;
+    //                         best_window_y = y_win;
+    //                     }
+    //                 }
+    //             }
+    //
+    //             // 🔹 Store results
+    //             self.calc_r.insert(gas_type, max_r);
+    //             self.calc_range_start.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
+    //             );
+    //             self.calc_range_end.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
+    //             );
+    //             self.calc_dt_v
+    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
+    //             self.calc_gas_v.insert(gas_type, best_window_y);
+    //         }
+    //     }
+    // }
+    // pub fn find_highest_r_windows(&mut self) {
+    //     for &gas_type in &self.gases {
+    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
+    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
+    //                 println!("Short data for {:?}", gas_type);
+    //                 continue;
+    //             }
+    //
+    //             let max_window = gas_v.len();
+    //             let mut max_r = f64::MIN;
+    //             let mut start_idx = 0;
+    //             let mut end_idx = 0;
+    //             let dt_v: Vec<f64> = self
+    //                 .measurement_dt_v
+    //                 .iter()
+    //                 .map(|dt| dt.timestamp() as f64)
+    //                 .collect();
+    //             let mut best_window_y = Vec::new();
+    //
+    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
+    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
+    //                     let end = start + win_size;
+    //                     let x_win = &dt_v[start..end];
+    //                     let y_win = &gas_v[start..end];
+    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
+    //                     if r > max_r {
+    //                         max_r = r;
+    //                         start_idx = start;
+    //                         end_idx = end;
+    //                         best_window_y = y_win.to_vec();
+    //                     }
+    //                 }
+    //             }
+    //
+    //             self.calc_r.insert(gas_type, max_r);
+    //             self.calc_range_start.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
+    //             );
+    //             self.calc_range_end.insert(
+    //                 gas_type,
+    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
+    //             );
+    //             self.calc_dt_v
+    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
+    //             self.calc_gas_v.insert(gas_type, best_window_y);
+    //         }
+    //     }
+    // }
     pub fn reset(&mut self) {
         self.get_peak_datetime(self.main_gas);
         self.get_measurement_datas();
         self.calculate_measurement_rs();
+        if self.check_diag() {
+            self.lag_s = 0.;
+            self.has_errors = true;
+            return;
+        }
+        if (self.dt_v.len() as f64) < self.end_offset as f64 * 0.9 {
+            self.lag_s = 0.;
+        }
         self.find_highest_r_windows();
         self.calculate_fluxes();
+        self.calculate_max_y();
+        self.calculate_min_y();
     }
     pub fn change_measurement_range(&mut self) {
         self.get_measurement_datas();
@@ -661,6 +1011,8 @@ impl Cycle {
                     self.measurement_dt_v.push(*t);
                     self.measurement_gas_v.get_mut(&gas_type).unwrap().push(*d);
                 });
+        } else {
+            println!("No gas data found for {}", gas_type);
         }
     }
     // unused as the current implementation
@@ -738,7 +1090,6 @@ impl Cycle {
     // }
 }
 
-#[derive(Debug)]
 pub struct GasData {
     pub header: StringRecord,
     pub datetime: Vec<DateTime<Utc>>,
@@ -746,7 +1097,23 @@ pub struct GasData {
     pub gas: HashMap<GasType, Vec<f64>>,
     pub diag: Vec<i64>,
 }
+impl fmt::Debug for GasData {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(
+            f,
+            "start: {}, \nstart_len: {} diag_len: {}",
+            self.datetime[0],
+            self.datetime.len(),
+            self.diag.len(),
+        )?;
 
+        for (gas_type, values) in &self.gas {
+            writeln!(f, "{:?}: {:?}", gas_type, values.len())?;
+        }
+
+        Ok(())
+    }
+}
 impl EqualLen for GasData {
     fn validate_lengths(&self) -> bool {
         // check that all fields are equal length
@@ -883,6 +1250,15 @@ impl EqualLen for TimeData {
 }
 
 impl TimeData {
+    pub fn new() -> TimeData {
+        TimeData {
+            chamber_id: Vec::new(),
+            start_time: Vec::new(),
+            close_offset: Vec::new(),
+            open_offset: Vec::new(),
+            end_offset: Vec::new(),
+        }
+    }
     pub fn iter(&self) -> impl Iterator<Item = (&String, &DateTime<Utc>, &i64, &i64, &i64)> {
         self.chamber_id
             .iter()

@@ -1,78 +1,84 @@
 use crate::index::Index;
-use crate::instruments::parse_secnsec_to_dt;
 pub use crate::instruments::GasType;
-use crate::myapp::MyApp;
-use crate::myapp::{create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds};
-use crate::structs;
+use crate::validation_app::ValidationApp;
+use crate::validation_app::{
+    create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
+};
 use chrono::{DateTime, NaiveDateTime, Utc};
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::ops::Add;
+use std::collections::{HashMap, HashSet};
 
 use std::ops::RangeInclusive;
 
-use crate::structs::{Cycle, CycleBuilder};
-use eframe::egui::{
-    show_tooltip_at, Button, Color32, Id, PointerButton, Pos2, Rect, RichText, Sense, Stroke, Ui,
-};
+use eframe::egui::{Color32, Id, Layout, PointerButton, Pos2, Rect, RichText, Sense, Ui, Vec2};
 use egui_plot::{
-    AxisHints, ClosestElem, CoordinatesFormatter, Corner, GridInput, GridMark, HLine, Legend, Line,
-    MarkerShape, Plot, PlotItem, PlotPoint, PlotPoints, PlotTransform, PlotUi, Points, Polygon,
-    Text, VLine,
+    CoordinatesFormatter, Corner, GridInput, GridMark, MarkerShape, Plot, PlotPoint, PlotPoints,
+    PlotTransform, Points, Text, VLine,
 };
 
-// pub struct Index {
-//     pub count: usize,
-// }
-// impl Index {
-//     pub fn increment(&mut self) {
-//         self.count += 1;
-//     }
-//     pub fn decrement(&mut self) {
-//         self.count -= 1;
-//     }
-//     pub fn reset(&mut self) {
-//         self.count = 0;
-//     }
-//     pub fn set(&mut self, val: usize) {
-//         self.count = val;
-//     }
-// }
-// impl Default for Index {
-//     fn default() -> Self {
-//         Self { count: 0 }
-//     }
-// }
-//
-// impl Add for Index {
-//     type Output = Self;
-//
-//     fn add(self, other: Self) -> Self {
-//         Self {
-//             count: self.count + other.count,
-//         }
-//     }
-// }
-impl MyApp {
+impl ValidationApp {
     pub fn is_gas_enabled(&self, gas_type: &GasType) -> bool {
         self.enabled_gases.contains(gas_type)
     }
     pub fn is_flux_enabled(&self, gas_type: &GasType) -> bool {
         self.enabled_fluxes.contains(gas_type)
     }
-    pub fn render_gas_plot(&self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType, lag_s: f64) {
-        // let x_range = (self.end_time_idx - self.start_time_idx) * 0.05;
-        // let y_range = (self.get_max_y(&gas_type) - self.get_min_y(&gas_type)) * 0.05;
-        //
-        // let x_min = self.start_time_idx - x_range;
-        // let x_max = self.end_time_idx + x_range;
-        // let y_min = self.get_min_y(&gas_type) - y_range;
-        // let y_max = self.get_max_y(&gas_type) + y_range;
-        // plot_ui.plot().include_x(x_min).include_x(x_max);
-        // plot_ui.plot().include_y(y_min).include_y(y_max);
-        // plot_ui.set_plot_bounds(egui_plot::PlotBounds::from_min_max(
-        //     [x_min, y_min],
-        //     [x_max, y_max],
-        // ));
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_gas_plot(
+        &self,
+        plot_ui: &mut egui_plot::PlotUi,
+        gas_type: GasType,
+        lag_s: f64,
+        calc_area_color: Color32,
+        calc_area_stroke_color: Color32,
+        calc_area_adjust_color: Color32,
+        main_id: Id,
+        left_id: Id,
+        right_id: Id,
+    ) {
+        let left_polygon = create_polygon(
+            self.get_calc_start(gas_type),
+            self.get_calc_start(gas_type) + self.drag_panel_width,
+            self.get_min_y(&gas_type),
+            self.get_max_y(&gas_type),
+            calc_area_adjust_color,
+            calc_area_stroke_color,
+            "Extend left",
+            left_id,
+        );
+
+        let right_polygon = create_polygon(
+            self.get_calc_end(gas_type) - self.drag_panel_width,
+            self.get_calc_end(gas_type),
+            self.get_min_y(&gas_type),
+            self.get_max_y(&gas_type),
+            calc_area_adjust_color,
+            calc_area_stroke_color,
+            "Extend right",
+            right_id,
+        );
+        let main_polygon = create_polygon(
+            self.get_calc_start(gas_type) + self.drag_panel_width,
+            self.get_calc_end(gas_type) - self.drag_panel_width,
+            self.get_min_y(&gas_type),
+            self.get_max_y(&gas_type),
+            calc_area_color,
+            calc_area_stroke_color,
+            "Move",
+            main_id,
+        );
+
+        let x_open: f64 = self.start_time_idx + self.open_offset + lag_s;
+        let x_close = self.start_time_idx + self.close_offset + lag_s;
+        let max_vl = VLine::new(x_open)
+            .name("Lagtime")
+            .width(2.0)
+            .allow_hover(true);
+
+        let close_vl = VLine::new(x_close)
+            .name("Close time")
+            .width(2.0)
+            .allow_hover(true);
+
         if let Some(data) = self.cycles[self.index.count].gas_v.get(&gas_type) {
             let points: Vec<[f64; 2]> = self.cycles[self.index.count]
                 .dt_v_as_float()
@@ -89,6 +95,13 @@ impl MyApp {
                     .color(gas_type.color())
                     .radius(2.),
             );
+            if !self.cycles[*self.index].has_errors {
+                plot_ui.polygon(main_polygon);
+                plot_ui.polygon(left_polygon);
+                plot_ui.polygon(right_polygon);
+            }
+            plot_ui.vline(max_vl);
+            plot_ui.vline(close_vl);
         } else {
             let half_way_x = self.start_time_idx + ((self.end_time_idx - self.start_time_idx) / 2.);
             let bad_plot = Id::new(format!("bad_plot {}", gas_type));
@@ -101,36 +114,6 @@ impl MyApp {
             );
         }
     }
-    pub fn prepare_plot_data(&mut self) {
-        let cycle = &self.cycles[self.index.count];
-        self.gas_plot.clear(); // Clear existing data before recalculating
-
-        for (gas_type, gas_v) in &cycle.gas_v {
-            let data: Vec<[f64; 2]> = cycle
-                .dt_v_as_float()
-                .iter()
-                .copied()
-                .zip(gas_v.iter().copied())
-                .map(|(x, y)| [x, y])
-                .collect();
-
-            self.gas_plot.insert(*gas_type, data);
-        }
-    }
-    pub fn get_cycle(&mut self) -> &structs::Cycle {
-        &self.cycles[self.index.count]
-    }
-    // pub fn mk_main(&mut self, gas_type: GasType) {
-    //     let main_polygon = create_polygon(
-    //         self.get_calc_start(gas_type) + self.drag_panel_width,
-    //         self.get_calc_end(gas_type) - self.drag_panel_width,
-    //         self.get_min_y(&gas_type),
-    //         self.get_max_y(&gas_type),
-    //         self.calc_area_color,
-    //         self.calc_area_stroke_color,
-    //         "Move",
-    //     );
-    // }
 
     pub fn calculate_min_y(&mut self) {
         let cycle = &self.cycles[self.index.count];
@@ -167,46 +150,6 @@ impl MyApp {
         }
     }
 
-    // fn calculate_min_y(&mut self, cycle: &structs::Cycle) {
-    //     self.min_y.clear();
-    //     for (gas_type, gas_v) in &cycle.gas_v {
-    //         let data: Vec<f64> = cycle
-    //             .dt_v_as_float()
-    //             .iter()
-    //             .copied()
-    //             .zip(gas_v.iter().copied())
-    //             .map(|(x, y)| [x, y])
-    //             .collect();
-    //
-    //         self.gas_plot.insert(*gas_type, data);
-    //     }
-
-    // cycle
-    //     .gas_v
-    //     .get(&gas_type)
-    //     .map(|gas_v| {
-    //         gas_v
-    //             .iter()
-    //             .copied()
-    //             .filter(|v| !v.is_nan())
-    //             .fold(f64::INFINITY, f64::min)
-    //     })
-    //     .unwrap_or(f64::INFINITY)
-    // }
-
-    // pub fn prepare_plot_data(cycle: &structs::Cycle, gas_type: GasType) -> Vec<[f64; 2]> {
-    //     if let Some(gas_v) = cycle.gas_v.get(&gas_type) {
-    //         cycle
-    //             .dt_v_as_float()
-    //             .iter()
-    //             .copied()
-    //             .zip(gas_v.iter().copied())
-    //             .map(|(x, y)| [x, y])
-    //             .collect()
-    //     } else {
-    //         Vec::new()
-    //     }
-    // }
     pub fn update_cycle(&mut self) {
         let index = self.index.count;
         // let cycle = self.get_cycle();
@@ -277,35 +220,51 @@ impl MyApp {
         //     }
         // }
     }
-    // pub fn create_flux_plot(&mut self, gas_type: &GasType) -> Vec<[f64; 2]> {
-    pub fn create_lag_traces(&mut self) -> HashMap<String, Vec<[f64; 2]>> {
-        let mut flux_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
 
-        for cycle in &self.cycles {
-            let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-            let lag_value = cycle.lag_s; // Get flux value
-            let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-
-            flux_map
-                .entry(chamber_id)
-                .or_insert_with(Vec::new) // Ensure entry exists
-                .push([start_time, lag_value]); // Append the point
-        }
-
-        flux_map
-    }
     pub fn create_flux_traces(&mut self, gas_type: &GasType) -> HashMap<String, Vec<[f64; 2]>> {
         let mut flux_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
 
         for cycle in &self.cycles {
             let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-            let flux_value = *cycle.flux.get(gas_type).unwrap_or(&0.0); // Get flux value
-            let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
+                                                       //
+            if self
+                .visible_traces
+                .get(&chamber_id)
+                .cloned()
+                .unwrap_or(true)
+            {
+                let flux_value = *cycle.flux.get(gas_type).unwrap_or(&0.0); // Get flux value
+                let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
 
-            flux_map
-                .entry(chamber_id)
-                .or_insert_with(Vec::new) // Ensure entry exists
-                .push([start_time, flux_value]); // Append the point
+                flux_map
+                    .entry(chamber_id)
+                    .or_insert_with(Vec::new) // Ensure entry exists
+                    .push([start_time, flux_value]); // Append the point
+            }
+        }
+
+        flux_map
+    }
+    pub fn create_lag_traces(&mut self) -> HashMap<String, Vec<[f64; 2]>> {
+        let mut flux_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
+
+        for cycle in &self.cycles {
+            let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
+
+            if self
+                .visible_traces
+                .get(&chamber_id)
+                .cloned()
+                .unwrap_or(true)
+            {
+                let lag_value = cycle.lag_s; // Get flux value
+                let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
+
+                flux_map
+                    .entry(chamber_id)
+                    .or_insert_with(Vec::new)
+                    .push([start_time, lag_value]);
+            }
         }
 
         flux_map
@@ -373,102 +332,110 @@ impl MyApp {
             .calc_range_end
             .insert(gas_type, x);
     }
-
-    pub fn new(mut cycles: Vec<Cycle>) -> Self {
-        let cycle = &mut cycles[0];
-        let gas_type = GasType::CH4;
-        // cycle.prepare_plot_data();
-        cycle.calculate_min_y();
-        cycle.calculate_max_y();
-        // let gas_plot: Vec<[f64; 2]> = cycle
-        //     .dt_v_as_float()
-        //     .iter()
-        //     .copied() // Copy each f64 from the iterator
-        //     .zip(cycle.gas_v.iter().copied()) // Iterate and copy gas_v
-        //     .map(|(x, y)| [x, y]) // Convert each tuple into an array
-        //     .collect();
-        let lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
-        let close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
-        let open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
-        let open_offset = cycle.open_offset as f64;
-        let close_offset = cycle.close_offset as f64;
-        let start_time_idx = cycle.start_time.timestamp() as f64;
-        let end_time_idx = cycle.end_time.timestamp() as f64;
-        let calc_range_end = cycle.calc_range_end.clone();
-        let calc_range_start = cycle.calc_range_start.clone();
-        let min_y = cycle.min_y.clone();
-        let max_y = cycle.max_y.clone();
-        let gas_plot = cycle.gas_plot.clone();
-        // let min_y = cycle
-        //     .gas_v
-        //     .iter()
-        //     .cloned()
-        //     .filter(|v| !v.is_nan())
-        //     .fold(f64::INFINITY, f64::min);
-        // let max_y = cycle
-        //     .gas_v
-        //     .iter()
-        //     .cloned()
-        //     // .rev()
-        //     // .take(120)
-        //     .filter(|v| !v.is_nan())
-        //     .fold(f64::NEG_INFINITY, f64::max);
-
-        // let max_y;
-        // let min_y;
-        let min_calc_area_range = 240.;
-        let lag_vec: Vec<f64> = cycles.iter().map(|x| x.lag_s).collect();
-        let start_vec: Vec<f64> = cycles
-            .iter()
-            .map(|x| x.start_time.timestamp() as f64)
-            .collect();
-        let lag_plot: Vec<[f64; 2]> = start_vec
-            .iter()
-            .copied() // Copy each f64 from the iterator
-            .zip(lag_vec.iter().copied()) // Iterate and copy gas_v
-            .map(|(x, y)| [x, y]) // Convert each tuple into an array
-            .collect();
-        let index = Index::default();
-        let drag_panel_width = 40.0;
-        let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
-        let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
-        let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
-        let selected_point = None;
-        let dragged_point = None;
-        let gases = Vec::new();
-        // let enabled_gases = HashSet::from([GasType::CH4, GasType::CO2])
+    pub fn new() -> Self {
         Self {
-            cycles,
-            gases,
-            selected_point,
-            dragged_point,
+            cycles: Vec::new(),
+            gases: Vec::new(),
+            start_date: "2024-10-01".to_owned(),
+            end_date: String::new(),
+            visible_traces: HashMap::new(),
+            selected_point: None,
+            dragged_point: None,
             r_lim: 1.,
             chamber_colors: HashMap::new(),
             enabled_gases: HashSet::from([GasType::CH4, GasType::CO2]),
             enabled_fluxes: HashSet::from([GasType::CH4, GasType::CO2]),
-            gas_plot,
-            calc_area_color,
-            calc_area_adjust_color,
-            calc_area_stroke_color,
-            drag_panel_width,
-            lag_idx,
-            close_idx,
-            open_idx,
-            open_offset,
-            close_offset,
-            start_time_idx,
-            end_time_idx,
-            calc_range_end,
-            calc_range_start,
-            max_y,
-            min_y,
-            min_calc_area_range,
-            index,
-            lag_vec,
-            start_vec,
-            lag_plot,
+            calc_area_color: Color32::default(),
+            calc_area_adjust_color: Color32::default(),
+            calc_area_stroke_color: Color32::default(),
+            drag_panel_width: 40.,
+            lag_idx: 0.,
+            close_idx: 0.,
+            open_idx: 0.,
+            open_offset: 0.,
+            close_offset: 0.,
+            start_time_idx: 0.,
+            end_time_idx: 0.,
+            calc_range_end: HashMap::new(),
+            calc_range_start: HashMap::new(),
+            max_y: HashMap::new(),
+            min_y: HashMap::new(),
+            min_calc_area_range: 240.,
+            index: Index::default(),
+            lag_vec: Vec::new(),
+            start_vec: Vec::new(),
+            lag_plot: Vec::new(),
         }
     }
+    // pub fn new(mut cycles: Vec<Cycle>) -> Self {
+    //     let cycle = &mut cycles[0];
+    //     let lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
+    //     let close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
+    //     let open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
+    //     let open_offset = cycle.open_offset as f64;
+    //     let close_offset = cycle.close_offset as f64;
+    //     let start_time_idx = cycle.start_time.timestamp() as f64;
+    //     let end_time_idx = cycle.end_time.timestamp() as f64;
+    //     let calc_range_end = cycle.calc_range_end.clone();
+    //     let calc_range_start = cycle.calc_range_start.clone();
+    //     let min_y = cycle.min_y.clone();
+    //     let max_y = cycle.max_y.clone();
+    //     let gas_plot = cycle.gas_plot.clone();
+    //     let min_calc_area_range = 240.;
+    //     let lag_vec: Vec<f64> = cycles.iter().map(|x| x.lag_s).collect();
+    //     let start_vec: Vec<f64> = cycles
+    //         .iter()
+    //         .map(|x| x.start_time.timestamp() as f64)
+    //         .collect();
+    //     let lag_plot: Vec<[f64; 2]> = start_vec
+    //         .iter()
+    //         .copied() // Copy each f64 from the iterator
+    //         .zip(lag_vec.iter().copied()) // Iterate and copy gas_v
+    //         .map(|(x, y)| [x, y]) // Convert each tuple into an array
+    //         .collect();
+    //     let index = Index::default();
+    //     let drag_panel_width = 40.0;
+    //     let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
+    //     let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
+    //     let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
+    //     let selected_point = None;
+    //     let dragged_point = None;
+    //     let gases = Vec::new();
+    //     Self {
+    //         cycles,
+    //         gases,
+    //         start_date: String::new(),
+    //         end_date: String::new(),
+    //         visible_traces: HashMap::new(),
+    //         selected_point,
+    //         dragged_point,
+    //         r_lim: 1.,
+    //         chamber_colors: HashMap::new(),
+    //         enabled_gases: HashSet::from([GasType::CH4, GasType::CO2]),
+    //         enabled_fluxes: HashSet::from([GasType::CH4, GasType::CO2]),
+    //         gas_plot,
+    //         calc_area_color,
+    //         calc_area_adjust_color,
+    //         calc_area_stroke_color,
+    //         drag_panel_width,
+    //         lag_idx,
+    //         close_idx,
+    //         open_idx,
+    //         open_offset,
+    //         close_offset,
+    //         start_time_idx,
+    //         end_time_idx,
+    //         calc_range_end,
+    //         calc_range_start,
+    //         max_y,
+    //         min_y,
+    //         min_calc_area_range,
+    //         index,
+    //         lag_vec,
+    //         start_vec,
+    //         lag_plot,
+    //     }
+    // }
     pub fn render_flux_plot(&mut self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType) {
         let flux_traces = self.create_flux_traces(&gas_type);
         let mut hovered_point: Option<[f64; 2]> = None;
@@ -646,9 +613,8 @@ impl MyApp {
         if let Some(dragged) = self.dragged_point {
             if response.dragged_by(egui::PointerButton::Primary) {
                 if let delta = response.drag_delta() {
-                    let new_y = self.dragged_point.unwrap()[1] - delta.y as f64 * 0.3; // ✅ Continuously update dragged Y
+                    let new_y = self.dragged_point.unwrap()[1] - delta.y as f64;
 
-                    // ✅ Update `self.dragged_point` dynamically
                     self.dragged_point = Some([dragged[0], new_y]);
 
                     // ✅ Update `lag_s` in cycles for the dragged point
@@ -801,7 +767,9 @@ impl MyApp {
             .width(600.)
             .height(350.)
             .y_axis_label("Lag (s)")
-            .legend(Legend::default().position(Corner::LeftTop))
+        // .legend(Legend::default().text_style(egui::TextStyle::Body))
+        // Disables built-in legend
+        // .legend(Legend::default().show(false))
     }
 
     pub fn find_bad_measurement(&mut self, gas_type: GasType) {
@@ -833,64 +801,18 @@ impl MyApp {
         left_id: Id,
         right_id: Id,
     ) {
-        self.render_gas_plot(plot_ui, gas_type, lag_s);
-
-        let main_polygon = create_polygon(
-            self.get_calc_start(gas_type) + drag_panel_width,
-            self.get_calc_end(gas_type) - drag_panel_width,
-            self.get_min_y(&gas_type),
-            self.get_max_y(&gas_type),
+        self.drag_panel_width = 40.;
+        self.render_gas_plot(
+            plot_ui,
+            gas_type,
+            lag_s,
             calc_area_color,
             calc_area_stroke_color,
-            "Move",
+            calc_area_adjust_color,
             main_id,
-        );
-
-        let left_polygon = create_polygon(
-            self.get_calc_start(gas_type),
-            self.get_calc_start(gas_type) + drag_panel_width,
-            self.get_min_y(&gas_type),
-            self.get_max_y(&gas_type),
-            calc_area_adjust_color,
-            calc_area_stroke_color,
-            "Extend left",
             left_id,
-        );
-
-        let right_polygon = create_polygon(
-            self.get_calc_end(gas_type) - drag_panel_width,
-            self.get_calc_end(gas_type),
-            self.get_min_y(&gas_type),
-            self.get_max_y(&gas_type),
-            calc_area_adjust_color,
-            calc_area_stroke_color,
-            "Extend right",
             right_id,
         );
-
-        let x_open: f64 = self.start_time_idx + self.open_offset + lag_s;
-        // let x_open: f64 = self.cycles[*self.index].start_time.timestamp() as f64
-        //     + self.open_offset
-        //     + self.cycles[*self.index].lag_s;
-        // let x_close: f64 = self.cycles[*self.index].start_time.timestamp() as f64
-        //     + self.close_offset
-        //     + self.cycles[*self.index].lag_s;
-        let x_close = self.start_time_idx + self.close_offset + lag_s;
-        let max_vl = VLine::new(x_open)
-            .name("Lagtime")
-            .width(2.0)
-            .allow_hover(true);
-
-        let close_vl = VLine::new(x_close)
-            .name("Close time")
-            .width(2.0)
-            .allow_hover(true);
-
-        plot_ui.polygon(main_polygon);
-        plot_ui.polygon(left_polygon);
-        plot_ui.polygon(right_polygon);
-        plot_ui.vline(max_vl);
-        plot_ui.vline(close_vl);
 
         if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
             let drag_delta = plot_ui.pointer_coordinate_drag_delta();
@@ -916,6 +838,8 @@ impl MyApp {
                 self.get_min_y(&gas_type),
                 self.get_max_y(&gas_type),
             );
+            let x_open: f64 = self.start_time_idx + self.open_offset + lag_s;
+            let x_close = self.start_time_idx + self.close_offset + lag_s;
             let inside_lag = is_inside_polygon(
                 pointer_pos,
                 x_open - 20.,
@@ -974,6 +898,59 @@ impl MyApp {
             limit_to_bounds(plot_ui, self, &gas_type)
         }
     }
+
+    pub fn render_legend(&mut self, ui: &mut Ui, traces: &HashMap<String, Color32>) {
+        let legend_width = 150.0; // Fixed width for the legend
+        let color_box_size = Vec2::new(16.0, 16.0); // Size of color indicator
+
+        // 🔹 Convert trace names into (numeric value, original name)
+        let mut sorted_traces: Vec<(&String, &Color32)> = traces.iter().collect();
+
+        // sorted traces as numbers
+        sorted_traces.sort_by(|(a, _), (b, _)| {
+            let num_a = a.parse::<f64>().ok();
+            let num_b = b.parse::<f64>().ok();
+
+            match (num_a, num_b) {
+                (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal), // Numeric sorting
+                (Some(_), None) => std::cmp::Ordering::Less, // Numbers come first
+                (None, Some(_)) => std::cmp::Ordering::Greater, // Strings come after numbers
+                (None, None) => a.cmp(b),                    // Default string sorting
+            }
+        });
+
+        ui.allocate_ui_with_layout(
+            Vec2::new(legend_width, ui.available_height()), // Fixed width
+            Layout::top_down(egui::Align::LEFT),
+            |ui| {
+                ui.label("Legend");
+
+                for (chamber_id, color) in sorted_traces.iter() {
+                    ui.horizontal(|ui| {
+                        // 🔹 Checkbox for toggling visibility
+                        let mut visible = self
+                            .visible_traces
+                            .get(*chamber_id)
+                            .cloned()
+                            .unwrap_or(true);
+                        if ui.checkbox(&mut visible, "").changed() {
+                            // No label on checkbox to avoid overlap
+                            self.visible_traces.insert((*chamber_id).clone(), visible);
+                        }
+
+                        // 🔹 Reserve space for the color box
+                        let (rect, _response) =
+                            ui.allocate_at_least(color_box_size, egui::Sense::hover());
+
+                        // 🔹 Draw the color box inside the allocated rect
+                        ui.painter().rect_filled(rect, 2.0, **color);
+                        // 🔹 Show trace name separately for spacing
+                        ui.label(*chamber_id);
+                    });
+                }
+            },
+        );
+    }
 }
 
 pub fn create_gas_plot<'a>(gas_type: &'a GasType, start: f64, end: f64) -> egui_plot::Plot<'a> {
@@ -1022,8 +999,8 @@ pub fn create_gas_plot<'a>(gas_type: &'a GasType, start: f64, end: f64) -> egui_
         .height(350.)
         .include_x(start)
         .include_x(end)
-        .y_axis_label("CH4")
-        .legend(Legend::default().position(Corner::LeftTop))
+        .y_axis_label(format!("{}", gas_type))
+    // .legend(Legend::default().position(Corner::LeftTop))
 }
 pub fn init_flux_plot<'a>(gas_type: &'a GasType) -> egui_plot::Plot<'a> {
     Plot::new(format!("{}flux_plot", gas_type))
@@ -1051,7 +1028,6 @@ pub fn init_flux_plot<'a>(gas_type: &'a GasType) -> egui_plot::Plot<'a> {
         .height(350.)
         .x_axis_formatter(format_x_axis)
         .y_axis_label(format!("{} flux", gas_type))
-        .legend(Legend::default().position(Corner::LeftTop))
 }
 pub fn init_lag_plot(gas_type: &GasType) -> egui_plot::Plot {
     Plot::new(format!("{}lag_plot", gas_type))
@@ -1084,7 +1060,7 @@ pub fn init_lag_plot(gas_type: &GasType) -> egui_plot::Plot {
         .height(350.)
         .y_axis_label(format!("{} lag", gas_type))
         .x_axis_formatter(format_x_axis)
-        .legend(Legend::default().position(Corner::LeftTop))
+    // .legend(Legend::default().position(Corner::LeftTop))
 }
 fn generate_grid_marks(range: GridInput) -> Vec<GridMark> {
     let (min, max) = range.bounds;

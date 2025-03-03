@@ -5,6 +5,7 @@ use fluxrs::myapp;
 use fluxrs::Config;
 
 fn main() -> eframe::Result {
+    // fn main() -> Result<()> {
     let inputs = env::args();
     let config = Config::build(inputs).unwrap_or_else(|err| {
         println!("Parsing problem {err}");
@@ -15,9 +16,10 @@ fn main() -> eframe::Result {
     // if let Err(e) = fluxrs::run(config) {
     //     println!("App error: {e}.")
     // }
-    let mut data = fluxrs::run(config).unwrap();
 
-    let app = myapp::MyApp::new(data);
+    // let mut data = fluxrs::run(config).unwrap();
+
+    let app = myapp::MyApp::new();
     eframe::run_native(
         "My Plot App",
         Default::default(),

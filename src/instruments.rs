@@ -84,7 +84,8 @@ pub struct Instrument {
 }
 
 pub struct Li7810 {
-    pub base: Instrument, // ✅ Composition: LI_7810 contains an Instrument
+    pub base: Instrument,
+    pub model: String,
 }
 
 impl Instrument {
@@ -111,6 +112,7 @@ impl Default for Li7810 {
                 diag_col: "DIAG".to_string(),
                 has_header: true,
             },
+            model: "LI-7810".to_owned(),
         }
     }
 }
@@ -150,15 +152,33 @@ impl Li7810 {
         let idx_diag = header
             .iter()
             .position(|h| h == diag_col)
-            .ok_or("Column not found")?;
+            .unwrap_or_else(|| {
+                eprintln!(
+                    "Warning: Column '{}' not found, using default index.",
+                    diag_col
+                );
+                0
+            });
         let idx_secs = header
             .iter()
             .position(|h| h == secs_col)
-            .ok_or("Column not found")?;
+            .unwrap_or_else(|| {
+                eprintln!(
+                    "Warning: Column '{}' not found, using default index.",
+                    diag_col
+                );
+                0
+            });
         let idx_nsecs = header
             .iter()
             .position(|h| h == nsecs_col)
-            .ok_or("Column not found")?;
+            .unwrap_or_else(|| {
+                eprintln!(
+                    "Warning: Column '{}' not found, using default index.",
+                    diag_col
+                );
+                0
+            });
 
         for (i, r) in rdr.records().enumerate() {
             let record = r?;
