@@ -5,7 +5,9 @@ use crate::validation_app::{
     create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
 };
 use chrono::{DateTime, NaiveDateTime, Utc};
+use egui_file::FileDialog;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use std::ops::RangeInclusive;
 
@@ -365,6 +367,12 @@ impl ValidationApp {
             lag_vec: Vec::new(),
             start_vec: Vec::new(),
             lag_plot: Vec::new(),
+            opened_files: None,
+            open_file_dialog: None,
+            initial_path: Some(PathBuf::from(".")),
+            selected_data_type: None,
+            log_messages: Vec::new(),
+            should_upload: false,
         }
     }
     // pub fn new(mut cycles: Vec<Cycle>) -> Self {

@@ -1,23 +1,36 @@
 use crate::app_plotting::{create_gas_plot, init_flux_plot, init_lag_plot};
+use crate::csv_parse;
 use crate::index::Index;
-use crate::instruments::GasType;
-use crate::process_cycles;
+use crate::instruments::{GasType, Li7810};
 use crate::query_cycles;
 use crate::query_gas;
-use crate::structs::Cycle;
+use crate::structs::{Cycle, EqualLen, GasData, TimeData};
+use crate::{insert_cycles, insert_measurements, process_cycles};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use eframe::egui::{
-    Button, Color32, Id, PointerButton, Pos2, Rect, RichText, Sense, Stroke, Ui, WidgetInfo,
-    WidgetText, WidgetType,
+    Button, Color32, Context, Id, PointerButton, Pos2, Rect, RichText, Sense, Stroke, Ui,
+    WidgetInfo, WidgetText, WidgetType,
 };
+use egui_file::FileDialog;
 use egui_plot::{PlotPoints, PlotUi, Polygon};
 use rusqlite::{params, Connection, Result};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
+pub enum DataType {
+    Gas,
+    Cycle,
+    Meteo,
+    Volume,
+}
 #[derive(PartialEq, Eq)]
 pub enum Panel {
     Validation,
     DataInit,
+    FileInit,
     Empty,
 }
 
@@ -26,7 +39,7 @@ impl Default for Panel {
         Self::Empty
     }
 }
-#[derive(Default, PartialEq)]
+#[derive(Default)]
 pub struct MainApp {
     current_panel: Panel,
     validation_panel: ValidationApp,
@@ -59,6 +72,11 @@ impl MainApp {
                         Panel::DataInit,
                         "Initiate measurements",
                     );
+                    ui.selectable_value(
+                        &mut self.current_panel,
+                        Panel::FileInit,
+                        "Upload files to db",
+                    );
                     ui.selectable_value(&mut self.current_panel, Panel::Empty, "Empty panel");
                 });
         });
@@ -69,7 +87,10 @@ impl MainApp {
                 self.validation_panel.ui(ui, ctx);
             }
             Panel::DataInit => {
-                self.validation_panel.init_ui(ui);
+                self.validation_panel.init_ui(ui, ctx);
+            }
+            Panel::FileInit => {
+                self.validation_panel.file_ui(ui, ctx);
             }
             Panel::Empty => {
                 self.empty_panel.ui(ui);
@@ -78,7 +99,7 @@ impl MainApp {
     }
 }
 
-#[derive(Default, PartialEq)]
+// #[derive(Default)]
 pub struct ValidationApp {
     pub r_lim: f32,
     pub enabled_gases: HashSet<GasType>, // Stores which gases are enabled for plotting
@@ -111,6 +132,57 @@ pub struct ValidationApp {
     pub visible_traces: HashMap<String, bool>,    // Stores colors per chamber
     pub start_date: String,
     pub end_date: String,
+    // pub dialog: FileDialog,
+    pub opened_files: Option<Vec<PathBuf>>,
+    pub open_file_dialog: Option<FileDialog>,
+    pub initial_path: Option<PathBuf>,
+    pub selected_data_type: Option<DataType>,
+    pub log_messages: Vec<String>,
+    pub should_upload: bool,
+}
+
+impl Default for ValidationApp {
+    fn default() -> Self {
+        Self {
+            r_lim: 0.0,
+            enabled_gases: HashSet::new(),
+            enabled_fluxes: HashSet::new(),
+            cycles: Vec::new(),
+            gases: Vec::new(),
+            lag_plot: Vec::new(),
+            lag_idx: 0.0,
+            close_idx: 0.0,
+            open_offset: 0.0,
+            close_offset: 0.0,
+            open_idx: 0.0,
+            start_time_idx: 0.0,
+            end_time_idx: 0.0,
+            calc_range_start: HashMap::new(),
+            calc_range_end: HashMap::new(),
+            max_y: HashMap::new(),
+            min_y: HashMap::new(),
+            drag_panel_width: 200.0, // Default width for UI panel
+            calc_area_color: Color32::from_gray(100), // Default gray color
+            calc_area_adjust_color: Color32::from_gray(150),
+            calc_area_stroke_color: Color32::from_gray(200),
+            min_calc_area_range: 0.0,
+            index: Index::default(), // Assuming Index implements Default
+            lag_vec: Vec::new(),
+            start_vec: Vec::new(),
+            selected_point: None,
+            dragged_point: None,
+            chamber_colors: HashMap::new(),
+            visible_traces: HashMap::new(),
+            start_date: String::new(),
+            end_date: String::new(),
+            opened_files: None,
+            open_file_dialog: None,
+            initial_path: Some(PathBuf::from("/home/eerokos/code/rust/fluxrs/")),
+            selected_data_type: None,
+            log_messages: Vec::new(),
+            should_upload: false,
+        }
+    }
 }
 impl ValidationApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -371,18 +443,54 @@ impl ValidationApp {
         });
     }
 
-    pub fn init_ui(&mut self, ui: &mut egui::Ui) {
+    fn parse_dates(&mut self) -> Result<(DateTime<Utc>, DateTime<Utc>), String> {
+        let naive_start = match NaiveDateTime::parse_from_str(&self.start_date, "%Y-%m-%dT%H:%M:%S")
+        {
+            Ok(dt) => dt,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to parse start date: {}, {}\nUse format YYYY-MM-DDTHH:MM:SS",
+                    self.start_date, e
+                ));
+            }
+        };
+
+        let naive_end = match NaiveDateTime::parse_from_str(&self.end_date, "%Y-%m-%dT%H:%M:%S") {
+            Ok(dt) => dt,
+            Err(e) => {
+                return Err(format!(
+                    "Failed to parse end date: {}, {}\nUse format YYYY-MM-DDTHH:MM:SS",
+                    self.end_date, e
+                ));
+            }
+        };
+
+        let start = DateTime::<Utc>::from_utc(naive_start, Utc);
+        let end = DateTime::<Utc>::from_utc(naive_end, Utc);
+
+        Ok((start, end))
+    }
+    pub fn log_display(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        ui.label("**Log Messages:**");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for message in &self.log_messages {
+                ui.label(message);
+            }
+        });
+    }
+    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
         ui.text_edit_singleline(&mut self.start_date);
         ui.text_edit_singleline(&mut self.end_date);
         if ui.button("Use range").clicked() {
-            let naive_start =
-                NaiveDateTime::parse_from_str(&self.start_date, "%Y-%m-%dT%H:%M:%S").unwrap();
-            let start = DateTime::<Utc>::from_utc(naive_start, Utc);
-            let naive_end =
-                NaiveDateTime::parse_from_str(&self.end_date, "%Y-%m-%dT%H:%M:%S").unwrap();
+            let (start, end) = match self.parse_dates() {
+                Ok(dates) => dates,
+                Err(e) => {
+                    self.log_messages.push(e); // Log error in UI
+                    return;
+                }
+            };
 
-            let end = DateTime::<Utc>::from_utc(naive_end, Utc);
-            // let conn = Connection::open("fluxrs.db");
             let conn = match Connection::open("fluxrs.db") {
                 Ok(conn) => conn,
                 Err(e) => {
@@ -414,15 +522,219 @@ impl ValidationApp {
                 _ => eprintln!("Failed to query database."),
             }
         }
+        self.log_display(ui);
+        // ui.separator();
+        // ui.label("**Log Messages:**");
+        // egui::ScrollArea::vertical().show(ui, |ui| {
+        //     for message in &self.log_messages {
+        //         ui.label(message);
+        //     }
+        // });
+    }
+    pub fn file_ui(&mut self, ui: &mut Ui, ctx: &Context) {
+        ui.horizontal(|ui| {
+            if ui.button("Select Gas Files").clicked() {
+                self.selected_data_type = Some(DataType::Gas);
+                self.open_file_dialog();
+            }
+            if ui.button("Select Cycle Files").clicked() {
+                self.selected_data_type = Some(DataType::Cycle);
+                self.open_file_dialog();
+            }
+            if ui.button("Select Meteo Files").clicked() {
+                self.selected_data_type = Some(DataType::Meteo);
+                // self.open_file_dialog();
+            }
+            if ui.button("Select Volume Files").clicked() {
+                self.selected_data_type = Some(DataType::Volume);
+                // self.open_file_dialog();
+            }
+        });
+
+        // Handle file selection
+        self.handle_file_selection(ctx);
+
+        self.log_display(ui);
+        if ui.button("Clear Log").clicked() {
+            self.log_messages.clear();
+        }
+    }
+
+    // fn upload_cycle_data(&mut self) {
+    fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
+        self.log_messages
+            .push("Uploading cycle data...".to_string());
+
+        let mut all_times = TimeData::new();
+
+        for path in &selected_paths {
+            match csv_parse::read_time_csv(path) {
+                // ✅ Pass `path` directly
+                Ok(res) => {
+                    if res.validate_lengths() {
+                        all_times.chamber_id.extend(res.chamber_id);
+                        all_times.start_time.extend(res.start_time);
+                        all_times.close_offset.extend(res.close_offset);
+                        all_times.open_offset.extend(res.open_offset);
+                        all_times.end_offset.extend(res.end_offset);
+
+                        self.log_messages
+                            .push(format!("Successfully read {:?}", path));
+                    } else {
+                        self.log_messages
+                            .push(format!("Skipped file {:?}: Invalid data length", path));
+                    }
+                }
+                Err(e) => {
+                    self.log_messages
+                        .push(format!("Failed to read file {:?}: {}", path, e));
+                }
+            }
+        }
+        match insert_cycles(conn, &all_times) {
+            Ok(row_count) => {
+                self.log_messages
+                    .push(format!("Successfully inserted {} rows into DB.", row_count));
+            }
+            Err(_) => {
+                self.log_messages
+                    .push("Failed to insert cycle data to db.".to_owned());
+            }
+        }
+    }
+    fn upload_meteo_data(&mut self) {
+        self.log_messages
+            .push("Uploading meteo data...".to_string());
+        for path in &self.opened_files {
+            self.log_messages
+                .push(format!("Successfully uploaded {:?}", path));
+        }
+    }
+
+    fn upload_volume_data(&mut self) {
+        self.log_messages
+            .push("Uploading volume data...".to_string());
+        for path in &self.opened_files {
+            self.log_messages
+                .push(format!("Successfully uploaded {:?}", path));
+        }
+    }
+    fn open_file_dialog(&mut self) {
+        let mut dialog = FileDialog::open_file(self.initial_path.clone())
+            .open_button_text(Cow::from("Upload"))
+            .multi_select(true)
+            .show_rename(false)
+            .show_new_folder(false);
+
+        dialog.open();
+        self.open_file_dialog = Some(dialog);
+    }
+
+    /// Handles the file selection process
+    fn handle_file_selection(&mut self, ctx: &Context) {
+        if let Some(dialog) = &mut self.open_file_dialog {
+            dialog.show(ctx);
+
+            match dialog.state() {
+                egui_file::State::Selected => {
+                    let selected_paths: Vec<PathBuf> = dialog
+                        .selection()
+                        .into_iter()
+                        .map(|p: &Path| p.to_path_buf())
+                        .collect();
+
+                    if !selected_paths.is_empty() {
+                        self.opened_files = Some(selected_paths.clone()); // ✅ Store files properly
+                        self.log_messages
+                            .push(format!("Selected files: {:?}", selected_paths));
+                        self.process_files(selected_paths);
+                    }
+
+                    self.open_file_dialog = None; // ✅ Close the dialog
+                }
+                egui_file::State::Cancelled | egui_file::State::Closed => {
+                    self.log_messages
+                        .push("File selection cancelled.".to_string());
+                    self.open_file_dialog = None;
+                }
+                _ => {} // Do nothing if still open
+            }
+        }
+    }
+
+    fn process_gas_files(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
+        self.log_messages.push("Uploading gas data...".to_owned());
+        let mut all_gas = GasData::new();
+        for path in &selected_paths {
+            // self.log_messages
+            //     .push(format!("📂 Reading file: {:?}", path));
+
+            let instrument = Li7810::default(); // Assuming you have a default instrument
+            match instrument.read_data_file(path) {
+                Ok(data) => {
+                    if data.validate_lengths() && !data.any_col_invalid() {
+                        let rows = data.diag.len();
+                        all_gas.datetime.extend(data.datetime);
+                        all_gas.diag.extend(data.diag);
+
+                        // Merge gas values correctly
+                        for (gas_type, values) in data.gas {
+                            all_gas
+                                .gas
+                                .entry(gas_type)
+                                .or_insert_with(Vec::new)
+                                .extend(values);
+                        }
+                        self.log_messages.push(format!(
+                            "Succesfully read file {:?} with {} rows.",
+                            path, rows
+                        ));
+                    }
+                }
+                Err(e) => {
+                    self.log_messages
+                        .push(format!("Failed to read file {:?}: {}", path, e));
+                }
+            }
+        }
+        match insert_measurements(conn, &all_gas) {
+            Ok(row_count) => {
+                self.log_messages
+                    .push(format!("Successfully inserted {} rows into DB.", row_count));
+            }
+            Err(_) => {
+                self.log_messages
+                    .push("Failed to insert gas data to db.".to_owned());
+            }
+        }
+    }
+    fn process_files(&mut self, selected_paths: Vec<PathBuf>) {
+        match Connection::open("fluxrs.db") {
+            Ok(mut conn) => {
+                if let Some(data_type) = self.selected_data_type.as_ref() {
+                    match data_type {
+                        DataType::Gas => self.process_gas_files(selected_paths, &mut conn),
+                        DataType::Cycle => self.upload_cycle_data(selected_paths, &mut conn),
+                        DataType::Meteo => self.upload_meteo_data(),
+                        DataType::Volume => self.upload_volume_data(),
+                    }
+                }
+            }
+            Err(e) => {
+                self.log_messages
+                    .push(format!("❌ Failed to connect to database: {}", e));
+            }
+        }
     }
 }
+
 #[derive(Default, PartialEq)]
 struct EmptyPanel {}
 
 impl EmptyPanel {
     pub fn ui(&mut self, ui: &mut egui::Ui) {}
 }
-#[derive(Default, PartialEq)]
+#[derive(Default)]
 struct InitApp {
     parent: ValidationApp,
 }

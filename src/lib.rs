@@ -235,7 +235,7 @@ impl Config {
     }
 }
 
-fn insert_cycles(conn: &mut Connection, cycles: &structs::TimeData) -> Result<()> {
+fn insert_cycles(conn: &mut Connection, cycles: &structs::TimeData) -> Result<usize> {
     let close_vec = &cycles.close_offset;
     let open_vec = &cycles.open_offset;
     let end_vec = &cycles.end_offset;
@@ -268,10 +268,11 @@ fn insert_cycles(conn: &mut Connection, cycles: &structs::TimeData) -> Result<()
     }
     tx.commit()?;
     println!("Inserted {} rows into cycles.", start_vec.len());
-    Ok(())
+    Ok(start_vec.len())
 }
 
-fn insert_measurements(conn: &mut Connection, all_gas: &GasData) -> Result<()> {
+fn insert_measurements(conn: &mut Connection, all_gas: &GasData) -> Result<(usize)> {
+    println!("Inserting");
     let diag_vec = &all_gas.diag;
     let datetime_vec = all_gas
         .datetime
@@ -287,6 +288,7 @@ fn insert_measurements(conn: &mut Connection, all_gas: &GasData) -> Result<()> {
         || datetime_vec.len() != co2_vec.len()
         || datetime_vec.len() != h2o_vec.len()
     {
+        println!("Error");
         return Err(rusqlite::Error::InvalidQuery); // Ensure equal-length data
     }
 
@@ -313,7 +315,7 @@ fn insert_measurements(conn: &mut Connection, all_gas: &GasData) -> Result<()> {
     }
     tx.commit()?;
     println!("Inserted {} rows into measurements.", datetime_vec.len());
-    Ok(())
+    Ok(datetime_vec.len())
 }
 
 fn query_and_group_gas_data(
@@ -398,6 +400,39 @@ fn query_and_group_gas_data(
 
     Ok(grouped_data)
 }
+pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
+    println!("Initiating db.");
+    let mut conn = Connection::open("fluxrs.db")?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cycles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chamber_id TEXT NOT NULL,
+            start_time integer NOT NULL,
+            close_offset integer NOT NULL,
+            open_offset integer NOT NULL,
+            end_offset integer NOT NULL,
+            site TEXT NOT NULL
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS measurements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_model TEXT NOT NULL,
+            instrument_serial TEXT NOT NULL,
+            datetime integer NOT NULL,
+            ch4 float,
+            co2 float,
+            h2o float,
+            n2o float,
+            diag integer
+        )",
+        [],
+    )?;
+    // insert_measurements(&mut conn, gases)?;
+    // insert_cycles(&mut conn, times)?;
+    Ok(())
+}
 pub fn initiate_db(
     gases: &structs::GasData,
     times: &structs::TimeData,
@@ -430,8 +465,8 @@ pub fn initiate_db(
         )",
         [],
     )?;
-    insert_measurements(&mut conn, gases)?;
-    insert_cycles(&mut conn, times)?;
+    // insert_measurements(&mut conn, gases)?;
+    // insert_cycles(&mut conn, times)?;
     Ok(())
 }
 

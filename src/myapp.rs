@@ -1,6 +1,6 @@
 use crate::validation_app::MainApp;
 
-#[derive(PartialEq, Default)]
+#[derive(Default)]
 pub struct MyApp {
     pub main_app: MainApp,
 }

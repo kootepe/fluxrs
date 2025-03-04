@@ -1037,6 +1037,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feeef44e73baff3a26d371801df019877a9866a8c493d315ab00177843314f35"
+
+[[package]]
 name = "ecolor"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1136,6 +1142,16 @@ dependencies = [
  "web-time",
  "webbrowser",
  "winit",
+]
+
+[[package]]
+name = "egui_file"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8cca3e96199c77bfb19338c370fbca1af3096c17e4405b719ca83ea18a9cb99a"
+dependencies = [
+ "dyn-clone",
+ "egui",
 ]
 
 [[package]]
@@ -1343,6 +1359,7 @@ dependencies = [
  "csv",
  "eframe",
  "egui",
+ "egui_file",
  "egui_plot",
  "fxhash",
  "glob",
