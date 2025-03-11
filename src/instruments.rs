@@ -11,14 +11,6 @@ use std::fmt;
 use std::fs::File;
 use std::path::Path;
 
-#[derive(Debug, Clone)]
-pub enum Gas {
-    CH4(Vec<f64>),
-    CO2(Vec<f64>),
-    H2O(Vec<f64>),
-    N2O(Vec<f64>), // This variant is ignored in processing
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GasType {
     CH4,
@@ -37,7 +29,7 @@ impl fmt::Display for GasType {
     }
 }
 impl GasType {
-    fn from_str(s: &str) -> Option<Self> {
+    pub fn from_str(s: &str) -> Option<Self> {
         match s {
             "CH4" => Some(GasType::CH4),
             "CO2" => Some(GasType::CO2),
@@ -46,7 +38,7 @@ impl GasType {
             _ => None,
         }
     }
-    fn column_name(&self) -> &'static str {
+    pub fn column_name(&self) -> &'static str {
         match self {
             GasType::CH4 => "CH4",
             GasType::CO2 => "CO2",
@@ -72,12 +64,48 @@ impl GasType {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InstrumentType {
+    #[default]
+    Li7810,
+    Other, // Placeholder for additional instruments
+}
+
+impl fmt::Display for InstrumentType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            InstrumentType::Li7810 => write!(f, "LI-7810"),
+            InstrumentType::Other => write!(f, "Other"),
+        }
+    }
+}
+
+impl InstrumentType {
+    /// Convert a `&str` into an `InstrumentType`
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "LI-7810" => InstrumentType::Li7810,
+            _ => InstrumentType::Other,
+        }
+    }
+
+    /// Return a list of available instruments (for UI dropdown)
+    pub fn available_instruments() -> Vec<InstrumentType> {
+        vec![InstrumentType::Li7810, InstrumentType::Other] // Expand this list as needed
+    }
+    pub fn available_gases(&self) -> Vec<GasType> {
+        match self {
+            InstrumentType::Li7810 => vec![GasType::CH4, GasType::CO2, GasType::H2O],
+            InstrumentType::Other => vec![GasType::N2O], // Example for another instrument
+        }
+    }
+}
 pub struct Instrument {
     sep: u8,
     skiprows: i64,
     skip_after_header: i64,
     time_col: String,
-    gas_cols: Vec<String>,
+    pub gas_cols: Vec<String>,
     flux_cols: Vec<String>,
     diag_col: String,
     has_header: bool,
@@ -123,10 +151,24 @@ impl Li7810 {
     }
     pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
         let mut rdr = self.mk_rdr(filename)?;
-        let skip = 4;
+        let mut instrument_serial = String::new();
+        // let mut skip = 1;
+
+        // rdr.records().next();
+        // for _ in 0..skip {
+        //     rdr.records().next();
+        // }
+        if let Some(result) = rdr.records().next() {
+            instrument_serial = result.unwrap()[1].to_owned();
+            // instrument_serial.push(result.unwrap()[0].to_owned())
+        }
+
+        let skip = 3;
         for _ in 0..skip {
             rdr.records().next();
         }
+        // let instrument_model = vec![self.model.clone()];
+        let instrument_model = self.model.clone();
 
         let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
         let mut diag: Vec<i64> = Vec::new();
@@ -149,36 +191,18 @@ impl Li7810 {
                 gas_data.insert(gas_type, Vec::new()); // Initialize gas vectors
             }
         }
-        let idx_diag = header
-            .iter()
-            .position(|h| h == diag_col)
-            .unwrap_or_else(|| {
-                eprintln!(
-                    "Warning: Column '{}' not found, using default index.",
-                    diag_col
-                );
-                0
-            });
-        let idx_secs = header
-            .iter()
-            .position(|h| h == secs_col)
-            .unwrap_or_else(|| {
-                eprintln!(
-                    "Warning: Column '{}' not found, using default index.",
-                    diag_col
-                );
-                0
-            });
-        let idx_nsecs = header
-            .iter()
-            .position(|h| h == nsecs_col)
-            .unwrap_or_else(|| {
-                eprintln!(
-                    "Warning: Column '{}' not found, using default index.",
-                    diag_col
-                );
-                0
-            });
+        let idx_diag = header.iter().position(|h| h == diag_col).unwrap_or_else(|| {
+            eprintln!("Warning: Column '{}' not found, using default index.", diag_col);
+            0
+        });
+        let idx_secs = header.iter().position(|h| h == secs_col).unwrap_or_else(|| {
+            eprintln!("Warning: Column '{}' not found, using default index.", diag_col);
+            0
+        });
+        let idx_nsecs = header.iter().position(|h| h == nsecs_col).unwrap_or_else(|| {
+            eprintln!("Warning: Column '{}' not found, using default index.", diag_col);
+            0
+        });
 
         for (i, r) in rdr.records().enumerate() {
             let record = r?;
@@ -216,6 +240,8 @@ impl Li7810 {
 
         let df = GasData {
             header,
+            instrument_model,
+            instrument_serial,
             datetime,
             gas: sorted_gas_data,
             diag,
@@ -230,9 +256,16 @@ pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
         LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&Utc),
         LocalResult::None => {
             eprintln!("Impossible local time: sec={} nsec={}", sec, nsec);
-        }
+        },
     };
 
     // Default fallback timestamp if parsing fails
     Utc.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
+}
+
+pub fn get_instrument_by_model(model: &str) -> Option<Li7810> {
+    match model {
+        "LI-7810" => Some(Li7810::default()),
+        _ => None,
+    }
 }

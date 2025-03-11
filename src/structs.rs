@@ -1,8 +1,12 @@
+use crate::instruments::InstrumentType;
 use chrono::prelude::DateTime;
 use chrono::Utc;
 use rusqlite::Error;
+use rusqlite::{params, Connection, Result};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
+use std::ops::{BitOr, BitOrAssign};
 use std::{thread, time};
 
 use csv::StringRecord;
@@ -10,6 +14,7 @@ use csv::StringRecord;
 
 use crate::gas_plot;
 use crate::instruments::GasType;
+use crate::query::get_nearest_meteo_data;
 use crate::stats;
 
 pub const ERROR_INT: i64 = -9999;
@@ -23,12 +28,115 @@ pub trait EqualLen {
     fn validate_lengths(&self) -> bool;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorCode {
+    ErrorsInMeasurement,
+    LowR,
+    TooManyMeasurements,
+    TooFewMeasurements,
+    FewUnique,
+    ManualInvalid,
+    TooManyDiagErrors,
+}
+
+impl ErrorCode {
+    // Define bitmask constants
+    pub const DIAG_ERROR_IN_MEASUREMENT: u16 = 1 << 0;
+    pub const LOW_R: u16 = 1 << 1;
+    pub const FEW_UNIQUE: u16 = 1 << 2;
+    pub const TOO_MANY_MEASUREMENTS: u16 = 1 << 3;
+    pub const TOO_FEW_MEASUREMENTS: u16 = 1 << 4;
+    pub const MANUAL_INVALID: u16 = 1 << 5;
+    pub const MOSTLY_DIAG_ERRORS: u16 = 1 << 6;
+
+    /// Convert an `ErrorCode` to its corresponding bitmask
+    pub fn to_mask(&self) -> u16 {
+        match self {
+            ErrorCode::ErrorsInMeasurement => Self::DIAG_ERROR_IN_MEASUREMENT,
+            ErrorCode::LowR => Self::LOW_R,
+            ErrorCode::FewUnique => Self::FEW_UNIQUE,
+            ErrorCode::TooManyMeasurements => Self::TOO_MANY_MEASUREMENTS,
+            ErrorCode::TooFewMeasurements => Self::TOO_FEW_MEASUREMENTS,
+            ErrorCode::ManualInvalid => Self::MANUAL_INVALID,
+            ErrorCode::TooManyDiagErrors => Self::MOSTLY_DIAG_ERRORS,
+        }
+    }
+
+    /// Convert a bitmask into a list of `ErrorCode` values
+    pub fn from_mask(mask: u16) -> Vec<ErrorCode> {
+        let mut errors = Vec::new();
+        for error in [
+            ErrorCode::ErrorsInMeasurement,
+            ErrorCode::LowR,
+            ErrorCode::FewUnique,
+            ErrorCode::TooManyMeasurements,
+            ErrorCode::TooFewMeasurements,
+            ErrorCode::ManualInvalid,
+            ErrorCode::TooManyDiagErrors,
+        ] {
+            if mask & error.to_mask() != 0 {
+                errors.push(error);
+            }
+        }
+        errors
+    }
+}
+
+/// Wrapper struct for managing the error bitmask
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ErrorMask(pub u16);
+
+/// Implement `BitOr` for `ErrorCode`, allowing `ErrorCode | ErrorCode`
+impl BitOr for ErrorCode {
+    type Output = ErrorMask;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        ErrorMask(self.to_mask() | rhs.to_mask())
+    }
+}
+
+/// Implement `BitOrAssign<ErrorCode>` for `ErrorMask` (allow `ErrorMask |= ErrorCode`)
+impl BitOrAssign<ErrorCode> for ErrorMask {
+    fn bitor_assign(&mut self, rhs: ErrorCode) {
+        self.0 |= rhs.to_mask();
+    }
+}
+
+/// Implement `BitOrAssign<ErrorMask>` for `ErrorMask` (allow `ErrorMask |= ErrorMask`)
+impl BitOrAssign<ErrorMask> for ErrorMask {
+    fn bitor_assign(&mut self, rhs: ErrorMask) {
+        self.0 |= rhs.0;
+    }
+}
+
+impl ErrorMask {
+    pub fn from_u16(value: u16) -> Self {
+        ErrorMask(value)
+    }
+}
+
+/// Implement `Display` for error messages
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let message = match self {
+            ErrorCode::ErrorsInMeasurement => "Instrument diagnostic errors in measurement",
+            ErrorCode::LowR => "Low r value",
+            ErrorCode::FewUnique => "Too few unique values",
+            ErrorCode::TooManyMeasurements => "Too many values",
+            ErrorCode::TooFewMeasurements => "Too few values",
+            ErrorCode::ManualInvalid => "Manual invalid",
+            ErrorCode::TooManyDiagErrors => "Too many instrument diagnostic errors",
+        };
+        write!(f, "{}", message)
+    }
+}
+
 pub struct CycleBuilder {
     chamber_id: Option<String>,
     start_time: Option<DateTime<Utc>>,
     close_offset: Option<i64>,
     open_offset: Option<i64>,
     end_offset: Option<i64>,
+    project: Option<String>,
 }
 
 impl CycleBuilder {
@@ -40,6 +148,7 @@ impl CycleBuilder {
             close_offset: None,
             open_offset: None,
             end_offset: None,
+            project: None,
         }
     }
 
@@ -72,28 +181,32 @@ impl CycleBuilder {
         self.end_offset = Some(offset);
         self
     }
+    pub fn project_name(mut self, project: String) -> Self {
+        self.project = Some(project);
+        self
+    }
 
     /// Build the Cycle struct
     pub fn build_db(self) -> Result<Cycle, Error> {
-        let start = self.start_time.ok_or(Error::InvalidColumnName(
-            "Start time is required".to_owned(),
-        ))?;
-        let chamber = self.chamber_id.ok_or(Error::InvalidColumnName(
-            "Chamber ID is required".to_owned(),
-        ))?;
-        let close = self.close_offset.ok_or(Error::InvalidColumnName(
-            "Close offset is required".to_owned(),
-        ))?;
-        let open = self.open_offset.ok_or(Error::InvalidColumnName(
-            "Open offset is required".to_owned(),
-        ))?;
-        let end = self.end_offset.ok_or(Error::InvalidColumnName(
-            "End offset is required".to_owned(),
-        ))?;
+        let start =
+            self.start_time.ok_or(Error::InvalidColumnName("Start time is required".to_owned()))?;
+        let chamber =
+            self.chamber_id.ok_or(Error::InvalidColumnName("Chamber ID is required".to_owned()))?;
+        let close = self
+            .close_offset
+            .ok_or(Error::InvalidColumnName("Close offset is required".to_owned()))?;
+        let open = self
+            .open_offset
+            .ok_or(Error::InvalidColumnName("Open offset is required".to_owned()))?;
+        let end =
+            self.end_offset.ok_or(Error::InvalidColumnName("End offset is required".to_owned()))?;
 
         Ok(Cycle {
             chamber_id: chamber,
             start_time: start,
+            instrument_model: InstrumentType::Li7810,
+            instrument_serial: String::new(),
+            project_name: String::new(),
             close_time: start + chrono::Duration::seconds(close),
             open_time: start + chrono::Duration::seconds(open),
             end_time: start + chrono::Duration::seconds(end),
@@ -101,10 +214,12 @@ impl CycleBuilder {
             open_offset: open,
             end_offset: end,
             main_gas: GasType::CH4,
-            has_errors: false,
+            // has_errors: false,
+            error_code: ErrorMask(0),
+            manual_adjusted: false,
             // calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
             // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
-            gas_plot: HashMap::new(),
+            // gas_plot: HashMap::new(),
             calc_range_end: HashMap::new(),
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
@@ -113,9 +228,11 @@ impl CycleBuilder {
             lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
-            r: HashMap::new(),
+            slope: HashMap::new(),
             calc_r: HashMap::new(),
             measurement_r: HashMap::new(),
+            measurement_range_start: 0.,
+            measurement_range_end: 0.,
             diag_v: vec![],
             dt_v: vec![],
             gas_v: HashMap::new(),
@@ -123,9 +240,13 @@ impl CycleBuilder {
             calc_dt_v: HashMap::new(),
             measurement_gas_v: HashMap::new(),
             measurement_dt_v: vec![],
+            measurement_diag_v: Vec::new(),
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
+            is_valid: true,
+            override_valid: None,
+            manual_valid: false,
         })
     }
     pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error>> {
@@ -134,9 +255,13 @@ impl CycleBuilder {
         let close = self.close_offset.ok_or("Close offset is required")?;
         let open = self.open_offset.ok_or("Open offset is required")?;
         let end = self.end_offset.ok_or("End offset is required")?;
+        let project = self.project.ok_or("Project is required")?;
 
         Ok(Cycle {
             chamber_id: chamber,
+            instrument_model: InstrumentType::Li7810,
+            instrument_serial: String::new(),
+            project_name: project,
             start_time: start,
             close_time: start + chrono::Duration::seconds(close),
             open_time: start + chrono::Duration::seconds(open),
@@ -144,11 +269,13 @@ impl CycleBuilder {
             close_offset: close,
             open_offset: open,
             end_offset: end,
-            has_errors: false,
+            // has_errors: false,
+            error_code: ErrorMask(0),
             main_gas: GasType::CH4,
+            manual_adjusted: false,
             // calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
             // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
-            gas_plot: HashMap::new(),
+            // gas_plot: HashMap::new(),
             calc_range_end: HashMap::new(),
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
@@ -157,9 +284,11 @@ impl CycleBuilder {
             lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
-            r: HashMap::new(),
+            slope: HashMap::new(),
             calc_r: HashMap::new(),
             measurement_r: HashMap::new(),
+            measurement_range_start: 0.,
+            measurement_range_end: 0.,
             diag_v: vec![],
             dt_v: vec![],
             gas_v: HashMap::new(),
@@ -167,22 +296,33 @@ impl CycleBuilder {
             calc_dt_v: HashMap::new(),
             measurement_gas_v: HashMap::new(),
             measurement_dt_v: vec![],
+            measurement_diag_v: Vec::new(),
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
+            is_valid: true,
+            override_valid: None,
+            manual_valid: false,
         })
     }
 }
-#[derive(PartialEq)]
+#[derive(Clone)]
 pub struct Cycle {
     pub chamber_id: String,
+    pub instrument_model: InstrumentType,
+    pub instrument_serial: String,
+    pub project_name: String,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub close_time: chrono::DateTime<chrono::Utc>,
     pub open_time: chrono::DateTime<chrono::Utc>,
     pub end_time: chrono::DateTime<chrono::Utc>,
     pub air_temperature: f64,
     pub air_pressure: f64,
-    pub has_errors: bool,
+    // pub has_errors: bool,
+    pub error_code: ErrorMask,
+    pub is_valid: bool,
+    pub override_valid: Option<bool>,
+    pub manual_valid: bool,
     pub main_gas: GasType,
     pub close_offset: i64,
     pub open_offset: i64,
@@ -192,12 +332,14 @@ pub struct Cycle {
     pub gases: Vec<GasType>,
     pub calc_range_start: HashMap<GasType, f64>,
     pub calc_range_end: HashMap<GasType, f64>,
+    pub manual_adjusted: bool,
     pub min_y: HashMap<GasType, f64>,
     pub max_y: HashMap<GasType, f64>,
-    pub gas_plot: HashMap<GasType, Vec<[f64; 2]>>,
-
+    // pub gas_plot: HashMap<GasType, Vec<[f64; 2]>>,
     pub flux: HashMap<GasType, f64>,
-    pub r: HashMap<GasType, f64>,
+    pub slope: HashMap<GasType, f64>,
+    pub measurement_range_start: f64,
+    pub measurement_range_end: f64,
     pub measurement_r: HashMap<GasType, f64>,
     pub calc_r: HashMap<GasType, f64>,
 
@@ -210,29 +352,24 @@ pub struct Cycle {
     pub gas_v: HashMap<GasType, Vec<f64>>,
     pub calc_gas_v: HashMap<GasType, Vec<f64>>,
     pub measurement_gas_v: HashMap<GasType, Vec<f64>>,
+    pub measurement_diag_v: Vec<i64>,
 
     pub diag_v: Vec<i64>,
 }
 impl fmt::Debug for Cycle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let ms = self.measurement_dt_v[0];
-        let me = self.measurement_dt_v.last().unwrap();
-        let mr = ms.timestamp() as f64 - me.timestamp() as f64;
-        let cs = self.calc_dt_v.get(&GasType::CO2).unwrap()[0];
-        let ce = self.calc_dt_v.get(&GasType::CO2).unwrap().last().unwrap();
-        let cr = ce.timestamp() as f64 - cs.timestamp() as f64;
+        let len: usize = self.measurement_dt_v.len();
         write!(
             f,
-            "Cycle id: {}, \nlag: {}, \nstart: {}, \nmeas_s: {}, \nmeas_e: {}, \nmeas_r: {}, \ncalc_e: {}, \ncalc_e: {}, \ncalc_r: {}",
+            // "Cycle id: {}, \nlag: {}, \nstart: {}, \nmeas_s: {}, \nmeas_e: {}",
+            "Cycle id: {}, \nproj: {}",
             self.chamber_id,
-            self.lag_s,
-            self.start_time,
-            ms.format("%H:%M:%S"),
-            me.format("%H:%M:%S"),
-            mr,
-            cs.format("%H:%M:%S"),
-            ce.format("%H:%M:%S"),
-            cr,
+            self.project_name // self.lag_s,
+                              // self.start_time,
+                              // self.dt_v.len(),
+                              // self.calc_dt_v.get(&GasType::CH4).unwrap_or(Vec::new()).len(),
+                              // len,
+                              // self.measurement_dt_v.get(&GasType::CH4).unwrap().len()
         )
     }
 }
@@ -256,10 +393,96 @@ impl Cycle {
     //         self.flux
     //     ))
     // }
+    pub fn toggle_valid(&mut self) {
+        self.is_valid = !self.is_valid; // Toggle `is_valid`
+    }
     pub fn dt_v_as_float(&self) -> Vec<f64> {
         self.dt_v.iter().map(|x| x.timestamp() as f64).collect()
     }
+    // pub fn validate(&mut self) {
+    //     if self.override_valid.is_none() {
+    //         self.is_valid = self.automatic_validation();
+    //     } else {
+    //         self.is_valid = self.override_valid.unwrap();
+    //     }
+    // }
+    // pub fn set_automatic_valid(&mut self, valid: bool) {
+    //     if self.override_valid.is_none() {
+    //         self.is_valid = valid;
+    //     }
+    // }
+    pub fn set_automatic_valid(&mut self, valid: bool) {
+        if self.override_valid.is_none() {
+            self.is_valid = valid && self.error_code.0 == 0; // Ensure error codes affect validity
+        }
+    }
+    pub fn toggle_manual_valid(&mut self) {
+        if self.override_valid.is_some() {
+            // if we hit override after already toggling it, it will reset to None
+            self.override_valid = None;
+        } else {
+            // if we have overriden, it should be opposite of valid
+            self.override_valid = Some(!self.is_valid);
+            // if self.is_valid {
+            //     self.error_code = ErrorMask(0);
+            // }
+        }
 
+        // always toggle is_valid
+        self.is_valid = !self.is_valid;
+        // manual valid to true if override is not None
+        self.manual_valid = self.override_valid.is_some(); // Track manual changes
+        if self.manual_valid && self.override_valid == Some(false) {
+            self.add_error(ErrorCode::ManualInvalid)
+        } else {
+            self.remove_error(ErrorCode::ManualInvalid)
+        }
+        if self.manual_valid && self.override_valid == Some(true) {
+            self.error_code = ErrorMask(0);
+            // self.add_error(ErrorCode::ManualInvalid)
+        }
+    }
+
+    pub fn get_peak_near_timestamp(
+        &mut self,
+        gas_type: GasType,
+        target_time: i64, // Now an i64 timestamp
+    ) -> Option<DateTime<Utc>> {
+        if let Some(gas_v) = self.gas_v.get(&gas_type) {
+            let len = gas_v.len();
+            if len < 120 {
+                println!("Less than 2minutes of data.");
+                return None;
+            }
+
+            // Find index closest to `target_time` in `dt_v`
+            let target_idx = self
+                .dt_v
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, &dt)| (dt.timestamp() - target_time).abs())
+                .map(|(idx, _)| idx)?;
+
+            // Define search range (±5 seconds)
+            let start_index = target_idx.saturating_sub(5);
+            let end_index = (target_idx + 5).min(len - 1);
+
+            // Find max in the range
+            let max_idx = (start_index..=end_index).max_by(|&a, &b| {
+                gas_v[a].partial_cmp(&gas_v[b]).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            if let Some(idx) = max_idx {
+                if let Some(peak_time) = self.dt_v.get(idx).cloned() {
+                    self.lag_s = (peak_time
+                        - (self.start_time + chrono::TimeDelta::seconds(self.open_offset)))
+                    .num_seconds() as f64;
+
+                    return Some(peak_time);
+                }
+            }
+        }
+        None
+    }
     pub fn get_peak_datetime(&mut self, gas_type: GasType) -> Option<DateTime<Utc>> {
         if let Some(gas_v) = self.gas_v.get(&gas_type) {
             let len = gas_v.len();
@@ -277,10 +500,10 @@ impl Cycle {
 
             if let Some(idx) = max_idx {
                 if let Some(peak_time) = self.dt_v.get(idx).cloned() {
-                    let max_idxx = (self.start_time + chrono::TimeDelta::seconds(idx as i64))
-                        .timestamp() as f64;
-                    self.lag_s = max_idxx - (self.open_time.timestamp() as f64);
-                    // println!("{}", self.lag_s);
+                    self.lag_s = (peak_time
+                        - (self.start_time + chrono::TimeDelta::seconds(self.open_offset)))
+                    .num_seconds() as f64;
+
                     return Some(peak_time);
                 }
             }
@@ -288,40 +511,29 @@ impl Cycle {
         self.get_measurement_datas();
         None
     }
+    pub fn check_diag(&mut self) {
+        let total_count = self.diag_v.len();
+        let nonzero_count = self.diag_v.iter().filter(|&&x| x != 0).count();
 
-    // pub fn get_peak_datetime(&mut self) -> Option<DateTime<Utc>> {
-    //     // Find the index of the highest gas value in the last 120 elements
-    //     let len = self.gas_v.len();
-    //     if len < 120 {
-    //         return None; // Return None if there aren't 120 elements
-    //     }
-    //
-    //     // NOTE: maybe look around the lag adjusted open time?
-    //     // right now just looks for max in the last 240 secs
-    //     let start_index = len.saturating_sub(240); // Get the start index for the last 240 elements
-    //
-    //     let max_idx = self.gas_v[start_index..] // Take the last x elements
-    //         .iter()
-    //         .enumerate()
-    //         .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
-    //         .map(|(idx, _)| start_index + idx); // Adjust index to original vector
-    //
-    //     if let Some(idx) = max_idx {
-    //         if let Some(peak_time) = self.dt_v.get(idx).cloned() {
-    //             let max_idxx =
-    //                 (self.start_time + chrono::TimeDelta::seconds(idx as i64)).timestamp() as f64;
-    //             self.lag_s = max_idxx - (self.open_time.timestamp() as f64);
-    //             // self.open_time = self.start_time
-    //             //     + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
-    //             return Some(peak_time);
-    //         }
-    //     }
-    //
-    //     None
+        // Check if more than 50% of the values are nonzero
+        let check = nonzero_count as f64 / total_count as f64 > 0.5;
+        if check {
+            self.add_error(ErrorCode::TooManyDiagErrors)
+        } else {
+            self.remove_error(ErrorCode::TooManyDiagErrors)
+        }
+    }
+    // pub fn check_diag(&mut self) -> bool {
+    //     self.diag_v.iter().sum::<i64>() != 0
     // }
-
-    pub fn check_diag(&mut self) -> bool {
-        self.diag_v.iter().sum::<i64>() != 0
+    pub fn check_measurement_diag(&mut self) -> bool {
+        let check = self.measurement_diag_v.iter().sum::<i64>() != 0;
+        if check {
+            self.add_error(ErrorCode::ErrorsInMeasurement)
+        } else {
+            self.remove_error(ErrorCode::ErrorsInMeasurement)
+        }
+        check
     }
 
     pub fn adjust_open_time(&mut self) {
@@ -330,63 +542,46 @@ impl Cycle {
             + chrono::TimeDelta::seconds(self.lag_s as i64)
     }
     pub fn calculate_max_y(&mut self) {
-        // let cycle = &self.cycles[self.index.count];
-        // self.min_y.clear(); // Clear previous data
-
         for (gas_type, gas_v) in &self.gas_v {
-            let min_value = gas_v
-                .iter()
-                .copied()
-                .filter(|v| !v.is_nan())
-                .fold(f64::NEG_INFINITY, f64::max);
+            let min_value =
+                gas_v.iter().copied().filter(|v| !v.is_nan()).fold(f64::NEG_INFINITY, f64::max);
 
             self.max_y.insert(*gas_type, min_value);
         }
     }
     pub fn calculate_min_y(&mut self) {
-        // let cycle = &self.cycles[self.index.count];
-        // self.min_y.clear(); // Clear previous data
-
         for (gas_type, gas_v) in &self.gas_v {
-            let min_value = gas_v
-                .iter()
-                .copied()
-                .filter(|v| !v.is_nan())
-                .fold(f64::INFINITY, f64::min);
+            let min_value =
+                gas_v.iter().copied().filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min);
 
             self.min_y.insert(*gas_type, min_value);
         }
     }
     pub fn calculate_measurement_r(&mut self, gas_type: GasType) {
         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-            let dt_vv: Vec<f64> = self
-                .measurement_dt_v
-                .iter()
-                .map(|x| x.timestamp() as f64)
-                .collect();
+            let dt_vv: Vec<f64> =
+                self.measurement_dt_v.iter().map(|x| x.timestamp() as f64).collect();
             // self.measurement_r = stats::pearson_correlation(&dt_vv, &filtered_gas_v).unwrap_or(0.0);
-            self.measurement_r.insert(
-                gas_type,
-                stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0),
-            );
+            self.measurement_r
+                .insert(gas_type, stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0));
         }
     }
-    pub fn prepare_plot_data(&mut self) {
-        // let cycle = &self.cycles[self.index.count];
-        self.gas_plot.clear(); // Clear existing data before recalculating
-
-        for (gas_type, gas_v) in &self.gas_v {
-            let data: Vec<[f64; 2]> = self
-                .dt_v_as_float()
-                .iter()
-                .copied()
-                .zip(gas_v.iter().copied())
-                .map(|(x, y)| [x, y])
-                .collect();
-
-            self.gas_plot.insert(*gas_type, data);
-        }
-    }
+    // pub fn prepare_plot_data(&mut self) {
+    //     // let cycle = &self.cycles[self.index.count];
+    //     self.gas_plot.clear(); // Clear existing data before recalculating
+    //
+    //     for (gas_type, gas_v) in &self.gas_v {
+    //         let data: Vec<[f64; 2]> = self
+    //             .dt_v_as_float()
+    //             .iter()
+    //             .copied()
+    //             .zip(gas_v.iter().copied())
+    //             .map(|(x, y)| [x, y])
+    //             .collect();
+    //
+    //         self.gas_plot.insert(*gas_type, data);
+    //     }
+    // }
     pub fn calculate_calc_r(&mut self, gas_type: GasType) {
         if let Some(gas_v) = self.gas_v.get(&gas_type) {
             let s = self.calc_range_start.get(&gas_type).unwrap();
@@ -423,11 +618,8 @@ impl Cycle {
             let mut max_r = f64::MIN;
             let mut start_idx = 0;
             let mut end_idx = 0;
-            let dt_v: Vec<f64> = self
-                .measurement_dt_v
-                .iter()
-                .map(|dt| dt.timestamp() as f64)
-                .collect();
+            let dt_v: Vec<f64> =
+                self.measurement_dt_v.iter().map(|dt| dt.timestamp() as f64).collect();
             let mut best_window_y = Vec::new();
 
             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
@@ -446,16 +638,11 @@ impl Cycle {
             }
 
             self.calc_r.insert(gas_type, max_r);
-            self.calc_range_start.insert(
-                gas_type,
-                self.measurement_dt_v[start_idx].timestamp() as f64,
-            );
-            self.calc_range_end.insert(
-                gas_type,
-                self.measurement_dt_v[end_idx - 1].timestamp() as f64,
-            );
-            self.calc_dt_v
-                .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
+            self.calc_range_start
+                .insert(gas_type, self.measurement_dt_v[start_idx].timestamp() as f64);
+            self.calc_range_end
+                .insert(gas_type, self.measurement_dt_v[end_idx - 1].timestamp() as f64);
+            self.calc_dt_v.insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
             self.calc_gas_v.insert(gas_type, best_window_y);
         }
     }
@@ -497,16 +684,26 @@ impl Cycle {
                 // Clear previous results
                 self.measurement_gas_v.insert(gas_type, Vec::new());
                 self.measurement_dt_v.clear();
+                self.measurement_diag_v.clear();
+                let diag_v = &self.diag_v; // Directly reference diag_v (no Option handling needed)
 
-                // Filter and store results in separate vectors
-                self.dt_v
-                    .iter()
-                    .zip(gas_v.iter()) // Pair timestamps with gas values
-                    .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
-                    .for_each(|(t, d)| {
+                // Filter and store results
+                for ((t, d), diag) in self.dt_v.iter().zip(gas_v.iter()).zip(diag_v.iter()) {
+                    if (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e {
                         self.measurement_dt_v.push(*t);
                         self.measurement_gas_v.get_mut(&gas_type).unwrap().push(*d);
-                    });
+                        self.measurement_diag_v.push(*diag);
+                    }
+                }
+                // Filter and store results in separate vectors
+                // self.dt_v
+                //     .iter()
+                //     .zip(gas_v.iter()) // Pair timestamps with gas values
+                //     .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
+                //     .for_each(|(t, d)| {
+                //         self.measurement_dt_v.push(*t);
+                //         self.measurement_gas_v.get_mut(&gas_type).unwrap().push(*d);
+                //     });
             } else {
                 println!("no measurement data for {}", gas_type);
             }
@@ -516,15 +713,12 @@ impl Cycle {
     pub fn calculate_measurement_rs(&mut self) {
         for &gas_type in &self.gases {
             if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-                let dt_vv: Vec<f64> = self
-                    .measurement_dt_v
-                    .iter()
-                    .map(|x| x.timestamp() as f64)
-                    .collect();
+                let dt_vv: Vec<f64> =
+                    self.measurement_dt_v.iter().map(|x| x.timestamp() as f64).collect();
 
                 self.measurement_r.insert(
                     gas_type,
-                    stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0),
+                    stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0).abs(),
                 );
             }
         }
@@ -542,11 +736,8 @@ impl Cycle {
                 let mut max_r = f64::MIN;
                 let mut start_idx = 0;
                 let mut end_idx = 0;
-                let dt_v: Vec<f64> = self
-                    .measurement_dt_v
-                    .iter()
-                    .map(|dt| dt.timestamp() as f64)
-                    .collect();
+                let dt_v: Vec<f64> =
+                    self.measurement_dt_v.iter().map(|dt| dt.timestamp() as f64).collect();
                 let mut best_window_y = Vec::new();
 
                 for win_size in (MIN_WINDOW_SIZE..=max_window).step_by(WINDOW_INCREMENT) {
@@ -594,9 +785,7 @@ impl Cycle {
                 self.calc_r.insert(gas_type, max_r);
                 self.calc_range_start.insert(
                     gas_type,
-                    self.measurement_dt_v
-                        .get(start_idx)
-                        .map_or(0.0, |dt| dt.timestamp() as f64),
+                    self.measurement_dt_v.get(start_idx).map_or(0.0, |dt| dt.timestamp() as f64),
                 );
                 self.calc_range_end.insert(
                     gas_type,
@@ -614,266 +803,89 @@ impl Cycle {
             }
         }
     }
-    // pub fn find_highest_r_windows(&mut self) {
-    //     for &gas_type in &self.gases {
-    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
-    //                 println!("Short data for {:?}", gas_type);
-    //                 continue;
-    //             }
-    //
-    //             let max_window = gas_v.len();
-    //             let mut max_r = f64::MIN;
-    //             let mut start_idx = 0;
-    //             let mut end_idx = 0;
-    //             let dt_v: Vec<f64> = self
-    //                 .measurement_dt_v
-    //                 .iter()
-    //                 .map(|dt| dt.timestamp() as f64)
-    //                 .collect();
-    //             let mut best_window_y = Vec::new();
-    //
-    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
-    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
-    //                     // let end = start + win_size;
-    //                     let end = (start + win_size).min(max_window); // 🔹 Ensure `end` does not exceed `max_window`
-    //
-    //                     // Extract the window
-    //                     let x_win = &dt_v[start..end];
-    //                     let y_win = &gas_v[start..end];
-    //
-    //                     // 🔹 Check for missing timestamps
-    //                     let has_missing_time = x_win
-    //                         .windows(2) // Pairwise check for consecutive elements
-    //                         .any(|pair| (pair[1] - pair[0]).abs() > 1.0); // Difference > 1 second means gap
-    //
-    //                     // 🔹 Skip calculation if there are missing timestamps
-    //                     if has_missing_time {
-    //                         continue;
-    //                     }
-    //
-    //                     // Compute Pearson correlation only for valid continuous data
-    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
-    //
-    //                     if r > max_r {
-    //                         max_r = r;
-    //                         start_idx = start;
-    //                         end_idx = end;
-    //                         best_window_y = y_win.to_vec();
-    //                     }
-    //                 }
-    //             }
-    //
-    //             // 🔹 Store results
-    //             self.calc_r.insert(gas_type, max_r);
-    //             self.calc_range_start.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
-    //             );
-    //             println!("{}", end_idx);
-    //             self.calc_range_end.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
-    //             );
-    //             self.calc_dt_v
-    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
-    //             self.calc_gas_v.insert(gas_type, best_window_y);
-    //         }
+    pub fn has_error(&self, error: ErrorCode) -> bool {
+        self.error_code.0 & error.to_mask() != 0
+    }
+    pub fn add_error(&mut self, error: ErrorCode) {
+        self.error_code |= error;
+        if self.error_code != ErrorMask(0) {
+            self.is_valid = false; // Automatically invalidate on error
+        }
+    }
+    pub fn remove_error(&mut self, error: ErrorCode) {
+        self.error_code.0 &= !error.to_mask();
+        if self.error_code.0 == 0 {
+            self.is_valid = true; // If no errors remain, revalidate
+        }
+    }
+    // pub fn remove_error(&mut self, error: ErrorCode) {
+    //     self.error_code &= !error;
+    //     if self.error_code == ErrorMask(0) {
+    //         self.is_valid = true; // If no errors remain, revalidate
     //     }
     // }
-    // pub fn find_highest_r_windows(&mut self) {
-    //     for &gas_type in &self.gases {
-    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
-    //                 println!("Short data for {:?}", gas_type);
-    //                 continue;
-    //             }
-    //
-    //             let max_window = gas_v.len();
-    //             let mut max_r = f64::MIN;
-    //             let mut start_idx = 0;
-    //             let mut end_idx = 0;
-    //             let dt_v: Vec<f64> = self
-    //                 .measurement_dt_v
-    //                 .iter()
-    //                 .map(|dt| dt.timestamp() as f64)
-    //                 .collect();
-    //             let mut best_window_y = Vec::new();
-    //
-    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
-    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
-    //                     let end = start + win_size;
-    //
-    //                     // Extract the window
-    //                     let x_win = &dt_v[start..end];
-    //                     let y_win = &gas_v[start..end];
-    //
-    //                     // 🔹 Skip calculation if any NaN is found in the window
-    //                     if x_win.iter().any(|&x| !x.is_finite())
-    //                         || y_win.iter().any(|&y| !y.is_finite())
-    //                     {
-    //                         continue;
-    //                     }
-    //
-    //                     // Compute Pearson correlation only for valid data
-    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
-    //
-    //                     if r > max_r {
-    //                         max_r = r;
-    //                         start_idx = start;
-    //                         end_idx = end;
-    //                         best_window_y = y_win.to_vec();
-    //                     }
-    //                 }
-    //             }
-    //
-    //             // 🔹 Store results
-    //             self.calc_r.insert(gas_type, max_r);
-    //             self.calc_range_start.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
-    //             );
-    //             self.calc_range_end.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
-    //             );
-    //             self.calc_dt_v
-    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
-    //             self.calc_gas_v.insert(gas_type, best_window_y);
-    //         }
-    //     }
-    // }
-    // pub fn find_highest_r_windows(&mut self) {
-    //     for &gas_type in &self.gases {
-    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
-    //                 println!("Short data for {:?}", gas_type);
-    //                 continue;
-    //             }
-    //
-    //             let max_window = gas_v.len();
-    //             let mut max_r = f64::MIN;
-    //             let mut start_idx = 0;
-    //             let mut end_idx = 0;
-    //             let dt_v: Vec<f64> = self
-    //                 .measurement_dt_v
-    //                 .iter()
-    //                 .map(|dt| dt.timestamp() as f64)
-    //                 .collect();
-    //             let mut best_window_y = Vec::new();
-    //
-    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
-    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
-    //                     let end = start + win_size;
-    //
-    //                     let x_win: Vec<f64> = dt_v[start..end]
-    //                         .iter()
-    //                         .cloned()
-    //                         .filter(|&x| x.is_finite())
-    //                         .collect();
-    //                     let y_win: Vec<f64> = gas_v[start..end]
-    //                         .iter()
-    //                         .cloned()
-    //                         .filter(|&y| y.is_finite())
-    //                         .collect();
-    //
-    //                     // 🔹 Ensure valid values before calculating Pearson correlation
-    //                     let r = if x_win.len() > 1 && y_win.len() > 1 {
-    //                         stats::pearson_correlation(&x_win, &y_win).unwrap_or(0.0)
-    //                     } else {
-    //                         0.0 // Fallback if insufficient valid data
-    //                     };
-    //
-    //                     if r > max_r {
-    //                         max_r = r;
-    //                         start_idx = start;
-    //                         end_idx = end;
-    //                         best_window_y = y_win;
-    //                     }
-    //                 }
-    //             }
-    //
-    //             // 🔹 Store results
-    //             self.calc_r.insert(gas_type, max_r);
-    //             self.calc_range_start.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
-    //             );
-    //             self.calc_range_end.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
-    //             );
-    //             self.calc_dt_v
-    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
-    //             self.calc_gas_v.insert(gas_type, best_window_y);
-    //         }
-    //     }
-    // }
-    // pub fn find_highest_r_windows(&mut self) {
-    //     for &gas_type in &self.gases {
-    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
-    //                 println!("Short data for {:?}", gas_type);
-    //                 continue;
-    //             }
-    //
-    //             let max_window = gas_v.len();
-    //             let mut max_r = f64::MIN;
-    //             let mut start_idx = 0;
-    //             let mut end_idx = 0;
-    //             let dt_v: Vec<f64> = self
-    //                 .measurement_dt_v
-    //                 .iter()
-    //                 .map(|dt| dt.timestamp() as f64)
-    //                 .collect();
-    //             let mut best_window_y = Vec::new();
-    //
-    //             for win_size in (MIN_WINDOW_SIZE..max_window).step_by(WINDOW_INCREMENT) {
-    //                 for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
-    //                     let end = start + win_size;
-    //                     let x_win = &dt_v[start..end];
-    //                     let y_win = &gas_v[start..end];
-    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
-    //                     if r > max_r {
-    //                         max_r = r;
-    //                         start_idx = start;
-    //                         end_idx = end;
-    //                         best_window_y = y_win.to_vec();
-    //                     }
-    //                 }
-    //             }
-    //
-    //             self.calc_r.insert(gas_type, max_r);
-    //             self.calc_range_start.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[start_idx].timestamp() as f64,
-    //             );
-    //             self.calc_range_end.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v[end_idx - 1].timestamp() as f64,
-    //             );
-    //             self.calc_dt_v
-    //                 .insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
-    //             self.calc_gas_v.insert(gas_type, best_window_y);
-    //         }
-    //     }
-    // }
+    pub fn check_main_r(&mut self) {
+        if self.measurement_r.get(&self.main_gas).unwrap_or(&0.0) < &0.98 {
+            self.add_error(ErrorCode::LowR);
+        } else {
+            self.remove_error(ErrorCode::LowR)
+        }
+    }
+
+    pub fn check_missing(&mut self) {
+        let check = self.end_offset as f64 * 0.7 > self.dt_v.len() as f64;
+        if check {
+            self.add_error(ErrorCode::TooFewMeasurements);
+        } else {
+            self.remove_error(ErrorCode::TooFewMeasurements)
+        }
+    }
+    pub fn check_errors(&mut self) {
+        self.check_main_r();
+        self.check_measurement_diag();
+        self.check_missing();
+        if self.error_code.0 == 0 || self.override_valid == Some(true) {
+            self.is_valid = true
+        }
+    }
     pub fn reset(&mut self) {
-        self.get_peak_datetime(self.main_gas);
-        self.get_measurement_datas();
-        self.calculate_measurement_rs();
-        if self.check_diag() {
-            self.lag_s = 0.;
-            self.has_errors = true;
-            return;
+        // self.check_errors();
+        self.manual_adjusted = false;
+        self.check_diag();
+        self.check_missing();
+
+        if !self.has_error(ErrorCode::TooManyDiagErrors)
+            && !self.has_error(ErrorCode::TooFewMeasurements)
+        {
+            // let mut conn = match Connection::open("fluxrs.db") {
+            //     Ok(conn) => conn,
+            //     Err(e) => {
+            //         eprintln!("Failed to open database: {}", e);
+            //         return; // Exit early if connection fails
+            //     },
+            // };
+            // let close_time = (self.start_time
+            //     + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64))
+            // .timestamp();
+            // let (temp, pressure) =
+            //     get_nearest_meteo_data(&conn, self.project_name.clone(), close_time).unwrap();
+            // self.air_temperature = temp;
+            // self.air_pressure = pressure;
+            self.get_peak_datetime(self.main_gas);
+            self.get_measurement_datas();
+            self.calculate_measurement_rs();
+            // if self.check_measurement_diag() {
+            //     self.lag_s = 0.;
+            //     self.is_valid = false;
+            //     return;
+            // }
+            self.check_main_r();
+            self.find_highest_r_windows();
+            self.calculate_fluxes();
+            self.calculate_max_y();
+            self.calculate_min_y();
+            self.check_errors();
         }
-        if (self.dt_v.len() as f64) < self.end_offset as f64 * 0.9 {
-            self.lag_s = 0.;
-        }
-        self.find_highest_r_windows();
-        self.calculate_fluxes();
-        self.calculate_max_y();
-        self.calculate_min_y();
     }
     pub fn change_measurement_range(&mut self) {
         self.get_measurement_datas();
@@ -886,89 +898,6 @@ impl Cycle {
         self.calculate_fluxes();
     }
 
-    // pub fn find_highest_r_window(&mut self) {
-    //     println!("Finding highest r");
-    //     if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
-    //         return;
-    //     }
-    //
-    //     let mut max_r = f64::MIN;
-    //     let mut step: usize = 0;
-    //
-    //     // let mut cur_window = min_window_size;
-    //     let data_len = self.measurement_dt_v.len();
-    //     let mut range_end = MIN_WINDOW_SIZE;
-    //     let mut range_st = 0;
-    //     let mut range_en = 0;
-    //     // let mut window_dt: Vec<f64> = Vec::new();
-    //
-    //     while step + MIN_WINDOW_SIZE <= data_len {
-    //         range_end += step;
-    //
-    //         if range_end > data_len {
-    //             range_end = data_len
-    //         }
-    //         println!("stp: {}", step);
-    //         println!("len: {}", (range_end - step));
-    //         let window_dt: Vec<f64> = self.measurement_dt_v[step..range_end]
-    //             .iter()
-    //             .map(|dt| dt.timestamp() as f64)
-    //             .collect();
-    //         if (range_end - step) > window_dt.len() {
-    //             // missing data points
-    //             continue;
-    //         }
-    //         let window_gas = &self.measurement_gas_v[step..range_end];
-    //
-    //         let r = stats::pearson_correlation(&window_dt, window_gas).unwrap_or(0.0);
-    //         if range_end == data_len {
-    //             // calculate total_r from the whole length of the measurement
-    //             self.measurement_r = r;
-    //         }
-    //
-    //         if r > max_r {
-    //             range_st = step;
-    //             range_en = range_end;
-    //             max_r = r;
-    //         }
-    //         if step == 0 {
-    //             step += WINDOW_INCREMENT;
-    //         }
-    //         if range_end >= data_len {
-    //             range_end = MIN_WINDOW_SIZE;
-    //             step += WINDOW_INCREMENT;
-    //         }
-    //     }
-    //
-    //     self.r = max_r;
-    //     self.calc_range_start = self.calc_dt_v[range_st].timestamp() as f64;
-    //     self.calc_range_end = self.calc_dt_v[range_en - 1].timestamp() as f64;
-    //     self.calc_dt_v = self.calc_dt_v[range_st..range_en].to_vec();
-    //     self.calc_gas_v = self.calc_gas_v[range_st..range_en].to_vec();
-    // }
-
-    // pub fn get_calc_data(&mut self, gas_type: GasType) {
-    //     // self.close_time =
-    //     //     self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
-    //     // self.open_time =
-    //     //     self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
-    //     let s = self.calc_range_start;
-    //     let e = self.calc_range_end;
-    //
-    //     // Clear previous results
-    //     self.calc_gas_v.clear();
-    //     self.calc_dt_v.clear();
-    //
-    //     // Filter and store results in separate vectors
-    //     self.dt_v
-    //         .iter()
-    //         .zip(self.gas_v.iter()) // Pair timestamps with gas values
-    //         .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
-    //         .for_each(|(t, d)| {
-    //             self.calc_dt_v.push(*t);
-    //             self.calc_gas_v.push(*d);
-    //         });
-    // }
     pub fn get_calc_data(&mut self, gas_type: GasType) {
         if let Some(gas_v) = self.gas_v.get(&gas_type) {
             let s = self.calc_range_start.get(&gas_type).unwrap();
@@ -1015,17 +944,7 @@ impl Cycle {
             println!("No gas data found for {}", gas_type);
         }
     }
-    // unused as the current implementation
-    // pub fn _update_data(&mut self, dt_v: Vec<DateTime<Utc>>, gas_v: Vec<f64>) {
-    //     self.dt_v = dt_v;
-    //     self.gas_v = gas_v;
-    //     println!("{:?}", self.dt_v);
-    //     println!("{:?}", self.gas_v);
-    //
-    //     // Automatically run the calculation
-    //     self.get_calc_data();
-    // }
-    pub fn calculate_slope(&self, gas_type: GasType) -> f64 {
+    pub fn calculate_slope(&mut self, gas_type: GasType) {
         if let Some(gas_v) = self.calc_gas_v.get(&gas_type) {
             let num_ts: Vec<f64> = self
                 .calc_dt_v
@@ -1034,39 +953,20 @@ impl Cycle {
                 .iter()
                 .map(|dt| dt.timestamp() as f64)
                 .collect();
-            stats::LinReg::train(&num_ts, gas_v).slope
+            let slope = stats::LinReg::train(&num_ts, gas_v).slope;
+            self.slope.insert(gas_type, slope);
         } else {
-            0.0
+            self.slope.insert(gas_type, 0.0);
         }
     }
 
-    // pub fn calculate_slope(&self) -> f64 {
-    //     let num_ts: Vec<f64> = self
-    //         .calc_dt_v
-    //         .iter()
-    //         .map(|dt| dt.timestamp() as f64)
-    //         .collect();
-    //     stats::LinReg::train(&num_ts, &self.calc_gas_v).slope
-    // }
-    // pub fn calculate_measurement_r(&mut self, gas_type: GasType) {
-    //     // self.get_calc_data();
-    //     if let Some(gas_v) = self.calc_gas_v.get(&gas_type) {
-    //         let num_ts: Vec<f64> = self
-    //             .measurement_dt_v
-    //             .iter()
-    //             .map(|dt| dt.timestamp() as f64)
-    //             .collect();
-    //         self.measurement_r =
-    //             stats::pearson_correlation(&num_ts, &self.measurement_gas_v).unwrap_or(0.0);
-    //     }
-    // }
     pub fn calculate_fluxes(&mut self) {
         for &gas in &self.gases.clone() {
             self.calculate_flux(gas);
         }
     }
     pub fn calculate_flux(&mut self, gas_type: GasType) {
-        let slope = self.calculate_slope(gas_type);
+        self.calculate_slope(gas_type);
         let mol_mass = match gas_type {
             GasType::CO2 => 44.0,
             GasType::CH4 => 16.0,
@@ -1075,23 +975,58 @@ impl Cycle {
         };
         self.flux.insert(
             gas_type,
-            slope / 1_000_000.0
+            self.slope.get(&gas_type).unwrap() / 1_000_000.0
                 * 1.0
                 * ((mol_mass * (self.air_pressure * 1000.0))
                     / (8.314 * (self.air_temperature + 273.15)))
                 * 1000.0,
         );
     }
-
-    // pub fn calculate_flux(&mut self) {
-    //     let slope = self.calculate_slope();
-    //     self.flux =
-    //         slope / 1000000. * 1. * ((44. * (994. * 1000.)) / (8.314 * (10. + 273.15))) * 1000.;
+    pub fn update_cycle(&mut self, project: String) {
+        // let mut conn = match Connection::open("fluxrs.db") {
+        //     Ok(conn) => conn,
+        //     Err(e) => {
+        //         eprintln!("Failed to open database: {}", e);
+        //         return; // Exit early if connection fails
+        //     },
+        // };
+        // let close_time = (self.start_time
+        //     + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64))
+        // .timestamp();
+        // let (temp, pressure) = get_nearest_meteo_data(&conn, project, close_time).unwrap();
+        //
+        // self.air_temperature = temp;
+        // self.air_pressure = pressure;
+        self.get_calc_datas();
+        self.get_measurement_datas();
+        self.calculate_measurement_rs();
+        self.find_highest_r_windows();
+        self.calculate_fluxes();
+    }
+    // pub fn get_nearest_meteo_data(&self, conn: &Connection) -> Result<(f64, f64)> {
+    //     let mut stmt = conn.prepare(
+    //         "SELECT temperature, pressure
+    //          FROM meteo
+    //          WHERE project_id = ?1
+    //          ORDER BY ABS(datetime - ?2)
+    //          LIMIT 1",
+    //     )?;
+    //
+    //     let result = stmt.query_row(params![&self.project_id, self.close_time], |row| {
+    //         Ok((row.get(0)?, row.get(1)?))
+    //     });
+    //
+    //     match result {
+    //         Ok((temperature, pressure)) => Ok((temperature, pressure)),
+    //         Err(_) => Ok((0.0, 0.0)), // Return defaults if no data is found
+    //     }
     // }
 }
 
 pub struct GasData {
     pub header: StringRecord,
+    pub instrument_model: String,
+    pub instrument_serial: String,
     pub datetime: Vec<DateTime<Utc>>,
     // pub gas: HashMapnew(),
     pub gas: HashMap<GasType, Vec<f64>>,
@@ -1142,6 +1077,8 @@ impl GasData {
     pub fn new() -> GasData {
         GasData {
             header: csv::StringRecord::new(),
+            instrument_model: String::new(),
+            instrument_serial: String::new(),
             datetime: Vec::new(),
             gas: HashMap::new(),
             diag: Vec::new(),
@@ -1149,10 +1086,7 @@ impl GasData {
     }
     pub fn any_col_invalid(&self) -> bool {
         // Check if all values in any vector are equal to the error value
-        let gas_invalid = self
-            .gas
-            .values()
-            .any(|v| v.iter().all(|&x| x == ERROR_FLOAT));
+        let gas_invalid = self.gas.values().any(|v| v.iter().all(|&x| x == ERROR_FLOAT));
         let diag_invalid = self.diag.iter().all(|&x| x == ERROR_INT);
 
         gas_invalid || diag_invalid
@@ -1183,10 +1117,7 @@ impl GasData {
         for values in self.gas.values_mut() {
             if values.len() == self.datetime.len() {
                 // Ensure lengths match before sorting
-                *values = indices
-                    .iter()
-                    .filter_map(|&i| values.get(i).copied())
-                    .collect();
+                *values = indices.iter().filter_map(|&i| values.get(i).copied()).collect();
             } else {
                 eprintln!("Warning: Mismatched lengths during sorting, skipping gas type sorting.");
             }
@@ -1223,6 +1154,7 @@ pub struct TimeData {
     pub close_offset: Vec<i64>,
     pub open_offset: Vec<i64>,
     pub end_offset: Vec<i64>,
+    pub project: Vec<String>,
 }
 
 impl EqualLen for TimeData {
@@ -1257,182 +1189,161 @@ impl TimeData {
             close_offset: Vec::new(),
             open_offset: Vec::new(),
             end_offset: Vec::new(),
+            project: Vec::new(),
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &DateTime<Utc>, &i64, &i64, &i64)> {
+    pub fn iter(
+        &self,
+    ) -> impl Iterator<Item = (&String, &DateTime<Utc>, &i64, &i64, &i64, &String)> {
         self.chamber_id
             .iter()
             .zip(&self.start_time)
             .zip(&self.close_offset)
             .zip(&self.open_offset)
             .zip(&self.end_offset)
-            .map(|((((chamber, start), close), open), end)| (chamber, start, close, open, end))
+            .zip(&self.project)
+            .map(|(((((chamber, start), close), open), end), project)| {
+                (chamber, start, close, open, end, project)
+            })
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use chrono::TimeZone;
+// fn nan_exceeds_threshold(measurement_length: f64, threshold: f64) -> bool {
+//     let total_count = values.len();
+//     let nan_count = values.iter().filter(|&&x| x.is_nan()).count();
 //
-//     fn create_test_cycle() -> Cycle {
-//         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
-//         let start_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 0, 0).unwrap();
-//         let close_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 10, 0).unwrap();
-//         let close_offset = 20;
-//         let open_offset = 60;
-//         let end_offset = 100;
-//         let open_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 20, 0).unwrap();
-//         let end_time = Utc.with_ymd_and_hms(2024, 2, 1, 10, 30, 0).unwrap();
-//         let dt_v = (0..30)
-//             .map(|i| Utc.with_ymd_and_hms(2024, 2, 1, 10, i, 0).unwrap())
-//             .collect();
-//         let gas_v = (0..30).map(|i| i as f64 * 1.5 + 10.0).collect();
-//
-//         Cycle {
-//             chamber_id: String::from("test_chamber"),
-//             start_time,
-//             close_time,
-//             open_time,
-//             end_time,
-//             close_offset,
-//             open_offset,
-//             end_offset,
-//             calc_range_end: close_time.timestamp() as f64,
-//             calc_range_start: open_time.timestamp() as f64,
-//             lag_s: 0.,
-//             max_idx: 0.,
-//             r: HashMap::new(),
-//             calc_r: HashMap::new(),
-//             measurement_r: HashMap::new(),
-//             flux: HashMap::new(),
-//             diag_v: Vec::new(),
-//             dt_v,
-//             gas_v,
-//             calc_gas_v: HashMap::new(),
-//             calc_dt_v: Vec::new(),
-//             measurement_gas_v: HashMap::new(),
-//             measurement_dt_v: Vec::new(),
-//         }
-//     }
-//
-//     #[test]
-//     fn test_get_calc_data() {
-//         let mut cycle = create_test_cycle();
-//         cycle.get_calc_data();
-//         assert!(
-//             !cycle.calc_dt_v.is_empty(),
-//             "Filtered timestamps should not be empty"
-//         );
-//         assert_eq!(
-//             cycle.calc_dt_v.len(),
-//             cycle.calc_gas_v.len(),
-//             "Timestamps and gas values lengths should match"
-//         );
-//     }
-//
-//     #[test]
-//     fn test_calculate_slope() {
-//         let mut cycle = create_test_cycle();
-//         cycle.get_calc_data();
-//         let slope = cycle.calculate_slope();
-//         assert!(slope.is_finite(), "Slope should be a finite number");
-//     }
-//
-//     #[test]
-//     fn test_calculate_r() {
-//         let mut cycle = create_test_cycle();
-//         cycle.get_calc_data();
-//         cycle.calculate_measurement_r();
-//         assert!(
-//             (0.0..=1.0).contains(&cycle.r),
-//             "Correlation coefficient should be between 0 and 1"
-//         );
-//     }
-//
-//     // #[test]
-//     // fn test_calculate_flux() {
-//     //     let mut cycle = create_test_cycle();
-//     //     cycle.get_calc_data();
-//     //     cycle.calculate_flux();
-//     //     assert!(cycle.flux.is_finite(), "Flux should be a finite number");
-//     // }
-//     #[ignore]
-//     #[test]
-//     fn test_update_data() {
-//         //
-//         // ignored since update_data is not being used
-//         //
-//         let mut cycle = create_test_cycle();
-//         let new_dt_v: Vec<DateTime<Utc>> = (0..10)
-//             .map(|i| Utc.with_ymd_and_hms(2024, 2, 2, 11, i, 0).unwrap())
-//             .collect();
-//         let new_gas_v: Vec<f64> = (0..10).map(|i| (i as f64) * 2.0 + 5.0).collect();
-//         cycle._update_data(new_dt_v.clone(), new_gas_v.clone());
-//         assert_eq!(
-//             cycle.dt_v, new_dt_v,
-//             "Updated timestamps should match the input"
-//         );
-//         // assert_eq!(
-//         //     cycle.gas_v, new_gas_v,
-//         //     "Updated gas values should match the input"
-//         // );
-//         assert!(
-//             !cycle.calc_dt_v.is_empty(),
-//             "Calculated timestamps should not be empty after update"
-//         );
-//     }
-//     #[test]
-//     fn test_find_highest_r_window_valid() {
-//         let mut cycle = create_test_cycle();
-//         cycle.calc_dt_v = cycle.dt_v.clone();
-//         cycle.calc_gas_v = cycle.gas_v.clone();
-//         cycle.find_highest_r_window();
-//         assert!(cycle.r.is_finite(), "R value should be finite");
-//         assert_eq!(
-//             cycle.calc_dt_v.len(),
-//             cycle.calc_gas_v.len(),
-//             "Timestamps and gas values should match"
-//         );
-//         assert!(
-//             !cycle.calc_dt_v.is_empty(),
-//             "Filtered data should not be empty"
-//         );
-//     }
-//     #[test]
-//     fn test_adjust_open_time() {
-//         let mut cycle = create_test_cycle();
-//         let original_open_time = cycle.open_time;
-//         cycle.adjust_open_time();
-//         let expected_time = original_open_time + chrono::Duration::seconds(cycle.lag_s as i64);
-//         assert_eq!(
-//             cycle.open_time, expected_time,
-//             "Close time should be adjusted by lag_s seconds"
-//         );
-//     }
-//
-//     #[test]
-//     fn test_adjust_open_time_zero_lag() {
-//         let mut cycle = create_test_cycle();
-//         cycle.lag_s = 0.;
-//         let original_open_time = cycle.open_time;
-//         cycle.adjust_open_time();
-//         assert_eq!(
-//             cycle.open_time, original_open_time,
-//             "Close time should remain unchanged when lag_s is zero"
-//         );
-//     }
-//
-//     #[test]
-//     fn test_adjust_open_time_negative_lag() {
-//         let mut cycle = create_test_cycle();
-//         cycle.lag_s = -15.;
-//         let original_open_time = cycle.open_time;
-//         cycle.adjust_open_time();
-//         let expected_time = original_open_time - chrono::Duration::seconds(15);
-//         assert_eq!(
-//             cycle.open_time, expected_time,
-//             "Close time should be adjusted backwards by lag_s seconds"
-//         );
-//     }
+//     // Check if NaN count exceeds the threshold percentage
+//     (nan_count as f64) / (total_count as f64) > threshold
 // }
+#[derive(Debug, Default)]
+pub struct VolumeData {
+    pub datetime: Vec<i64>,
+    pub chamber_id: Vec<String>,
+    pub volume: Vec<f64>,
+}
+
+impl VolumeData {
+    // pub fn new() -> VolumeData {
+    //     VolumeData { datetime: Vec::new(), chamber_id: Vec::new(), volume: Vec::new() }
+    // }
+}
+#[derive(Debug, Default)]
+pub struct MeteoData {
+    pub datetime: Vec<i64>,
+    pub temperature: Vec<f64>,
+    pub pressure: Vec<f64>,
+}
+impl MeteoData {
+    pub fn get_nearest(&self, target_timestamp: i64) -> Option<(f64, f64)> {
+        if self.datetime.is_empty() {
+            return None; // No data available
+        }
+
+        let mut left = 0;
+        let mut right = self.datetime.len() - 1;
+
+        while left < right {
+            let mid = (left + right) / 2;
+            match self.datetime[mid].cmp(&target_timestamp) {
+                Ordering::Less => left = mid + 1,
+                Ordering::Greater => {
+                    if mid > 0 {
+                        right = mid - 1;
+                    } else {
+                        break;
+                    }
+                },
+                Ordering::Equal => return Some((self.temperature[mid], self.pressure[mid])),
+            }
+        }
+
+        match left {
+            0 => {
+                let diff = (self.datetime[0] - target_timestamp).abs();
+                if diff <= 1800 {
+                    Some((self.temperature[0], self.pressure[0]))
+                } else {
+                    None
+                }
+            },
+            _ if left >= self.datetime.len() => {
+                let diff = (self.datetime[right] - target_timestamp).abs();
+                if diff <= 1800 {
+                    Some((self.temperature[right], self.pressure[right]))
+                } else {
+                    None
+                }
+            },
+            _ => {
+                let prev_idx = left - 1;
+                let next_idx = left;
+
+                let prev_diff = (self.datetime[prev_idx] - target_timestamp).abs();
+                let next_diff = (self.datetime[next_idx] - target_timestamp).abs();
+
+                let (nearest_idx, nearest_diff) = if prev_diff <= next_diff {
+                    (prev_idx, prev_diff)
+                } else {
+                    (next_idx, next_diff)
+                };
+
+                if nearest_diff <= 1800 {
+                    Some((self.temperature[nearest_idx], self.pressure[nearest_idx]))
+                } else {
+                    None // No valid data within 30 min
+                }
+            },
+        }
+    }
+    // pub fn get_nearest(&self, target_timestamp: i64) -> Option<(f64, f64)> {
+    //     if self.datetime.is_empty() || self.temperature.is_empty() || self.pressure.is_empty() {
+    //         return None; // Return None if no data is available
+    //     }
+    //
+    //     let mut left = 0;
+    //     let mut right = self.datetime.len() - 1;
+    //
+    //     while left < right {
+    //         let mid = (left + right) / 2;
+    //         match self.datetime[mid].cmp(&target_timestamp) {
+    //             Ordering::Less => left = mid + 1,
+    //             Ordering::Greater => {
+    //                 if mid > 0 {
+    //                     right = mid - 1;
+    //                 } else {
+    //                     break;
+    //                 }
+    //             },
+    //             Ordering::Equal => return Some((self.temperature[mid], self.pressure[mid])),
+    //         }
+    //     }
+    //
+    //     // Edge case: If left is at the start, return first entry
+    //     if left == 0 {
+    //         return Some((self.temperature[0], self.pressure[0]));
+    //     }
+    //
+    //     // Edge case: If left is at the end, return last entry
+    //     if left >= self.datetime.len() {
+    //         return Some((
+    //             self.temperature[self.datetime.len() - 1],
+    //             self.pressure[self.datetime.len() - 1],
+    //         ));
+    //     }
+    //
+    //     // Find the closest timestamp
+    //     let prev_idx = left - 1;
+    //     let next_idx = left;
+    //
+    //     let prev_diff = (self.datetime[prev_idx] - target_timestamp).abs();
+    //     let next_diff = (self.datetime[next_idx] - target_timestamp).abs();
+    //
+    //     let nearest_idx = if prev_diff <= next_diff { prev_idx } else { next_idx };
+    //
+    //     if nearest_diff <= 1800 {
+    //         Some((self.temperature[nearest_idx], self.pressure[nearest_idx]))
+    //     } else {
+    //         None // No valid data within 30 min
+    //     }
+    //     // Some((self.temperature[nearest_idx], self.pressure[nearest_idx]))
+    // }
+}

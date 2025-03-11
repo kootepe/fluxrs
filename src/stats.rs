@@ -9,17 +9,12 @@ impl LinReg {
     }
 
     pub fn train(x: &[f64], y: &[f64]) -> Self {
-        assert!(
-            x.len() == y.len(),
-            "Input vectors x and y must have the same length"
-        );
+        assert!(x.len() == y.len(), "Input vectors x and y must have the same length");
 
         let avg_x: f64 = x.iter().sum::<f64>() / x.len() as f64;
         let x_differences_to_average: Vec<f64> = x.iter().map(|value| avg_x - value).collect();
-        let x_differences_to_average_squared: Vec<f64> = x_differences_to_average
-            .iter()
-            .map(|value| value.powi(2))
-            .collect();
+        let x_differences_to_average_squared: Vec<f64> =
+            x_differences_to_average.iter().map(|value| value.powi(2)).collect();
         let ss_xx: f64 = x_differences_to_average_squared.iter().sum();
 
         let avg_y = y.iter().sum::<f64>() / y.len() as f64;
@@ -33,10 +28,7 @@ impl LinReg {
         let slope = ss_xy / ss_xx;
         let intercept = avg_y - slope * avg_x;
 
-        Self {
-            _intercept: intercept,
-            slope,
-        }
+        Self { _intercept: intercept, slope }
     }
 }
 
@@ -63,11 +55,8 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     let mean_x = x.iter().sum::<f64>() / n;
     let mean_y = y.iter().sum::<f64>() / n;
 
-    let numerator: f64 = x
-        .iter()
-        .zip(y.iter())
-        .map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y))
-        .sum();
+    let numerator: f64 =
+        x.iter().zip(y.iter()).map(|(&xi, &yi)| (xi - mean_x) * (yi - mean_y)).sum();
 
     let denominator_x: f64 = x.iter().map(|&xi| (xi - mean_x).powi(2)).sum();
     let denominator_y: f64 = y.iter().map(|&yi| (yi - mean_y).powi(2)).sum();
@@ -77,7 +66,7 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     if denominator == 0.0 {
         None
     } else {
-        Some(numerator / denominator)
+        Some((numerator / denominator).abs())
     }
 }
 

@@ -1,7 +1,6 @@
 use std::env;
 use std::process;
 
-use fluxrs::initiate_tables;
 use fluxrs::myapp;
 use fluxrs::Config;
 
@@ -18,16 +17,12 @@ fn main() -> eframe::Result {
     //     println!("App error: {e}.")
     // }
 
-    match fluxrs::initiate_tables() {
+    match fluxrs::query::initiate_tables() {
         Ok(_) => println!("Successfully initiated db tables"),
         Err(e) => println!("Err:\n {}", e),
     }
     // let mut data = fluxrs::run(config).unwrap();
 
     let app = myapp::MyApp::new();
-    eframe::run_native(
-        "My Plot App",
-        Default::default(),
-        Box::new(|_cc| Ok(Box::new(app))),
-    )
+    eframe::run_native("My Plot App", Default::default(), Box::new(|_cc| Ok(Box::new(app))))
 }

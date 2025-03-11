@@ -1,5 +1,5 @@
 use crate::structs;
-use crate::structs::TimeData;
+use crate::structs::{MeteoData, TimeData, VolumeData};
 use crate::GasData;
 use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
@@ -27,7 +27,7 @@ pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
         LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&Utc),
         LocalResult::None => {
             eprintln!("Impossible local time: sec={} nsec={}", sec, nsec);
-        }
+        },
     };
 
     // Default fallback timestamp if parsing fails
@@ -129,12 +129,69 @@ pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
 //     };
 //     Ok(df)
 // }
+pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn Error>> {
+    let file = File::open(file_path)?;
 
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true) // ✅ Ensure headers are read
+        .from_reader(file);
+
+    let mut datetime = Vec::new();
+    let mut temperature = Vec::new();
+    let mut pressure = Vec::new();
+
+    for result in rdr.records() {
+        let record = result?;
+
+        let datetime_str = &record[0]; // Read datetime column
+        let temp: f64 = record[1].parse()?; // Read air_temperature column
+        let press: f64 = record[2].parse()?; // Read air_pressure column
+
+        // Convert datetime string to Unix timestamp
+        let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
+        let timestamp = Utc.from_utc_datetime(&dt).timestamp();
+
+        // Store values
+        datetime.push(timestamp);
+        temperature.push(temp);
+        pressure.push(press);
+    }
+
+    Ok(MeteoData { datetime, temperature, pressure })
+}
+pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<dyn Error>> {
+    let file = File::open(file_path)?;
+
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true) // ✅ Ensure headers are read
+        .from_reader(file);
+
+    let mut datetime = Vec::new();
+    let mut chamber_id = Vec::new();
+    let mut volume = Vec::new();
+
+    for result in rdr.records() {
+        let record = result?;
+
+        let datetime_str = &record[0]; // Read datetime column
+        let ch = &record[1]; // Read datetime column
+        let vol: f64 = record[2].parse()?; // Read air_pressure column
+
+        // Convert datetime string to Unix timestamp
+        let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
+        let timestamp = Utc.from_utc_datetime(&dt).timestamp();
+
+        // Store values
+        datetime.push(timestamp);
+        chamber_id.push(ch.to_owned());
+        volume.push(vol);
+    }
+
+    Ok(VolumeData { datetime, chamber_id, volume })
+}
 pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
     let file = File::open(filename)?;
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(true)
-        .from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
 
     // chamber_id,start_time,close_offset,open_offset,end_offset
     let mut chamber_id: Vec<String> = Vec::new();
@@ -142,6 +199,7 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
     let mut close_offset: Vec<i64> = Vec::new();
     let mut open_offset: Vec<i64> = Vec::new();
     let mut end_offset: Vec<i64> = Vec::new();
+    let mut project: Vec<String> = Vec::new();
 
     for r in rdr.records() {
         let record: &csv::StringRecord = &r?;
@@ -155,10 +213,10 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
                     LocalResult::None => {
                         eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
                         process::exit(1)
-                    }
+                    },
                 };
                 start_time.push(dt_utc)
-            }
+            },
             Err(e) => println!("Failed to parse timestamp: {}", e),
         }
         if let Ok(val) = record[2].parse::<i64>() {
@@ -171,13 +229,7 @@ pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Er
             end_offset.push(val)
         }
     }
-    let df = TimeData {
-        chamber_id,
-        start_time,
-        close_offset,
-        open_offset,
-        end_offset,
-    };
+    let df = TimeData { chamber_id, start_time, close_offset, open_offset, end_offset, project };
     Ok(df)
 }
 
