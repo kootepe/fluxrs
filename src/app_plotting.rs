@@ -274,8 +274,8 @@ impl ValidationApp {
         self.end_time_idx = self.cycles[index].end_time.timestamp() as f64;
         self.calc_range_end = self.cycles[index].calc_range_end.clone();
         self.calc_range_start = self.cycles[index].calc_range_start.clone();
-        self.calc_r = self.cycles[index].calc_r.clone();
-        self.measurement_r = self.cycles[index].measurement_r.clone();
+        self.calc_r2 = self.cycles[index].calc_r2.clone();
+        self.measurement_r2 = self.cycles[index].measurement_r2.clone();
         self.flux = self.cycles[index].flux.clone();
         self.gases = self.cycles[index].gases.clone();
         self.cycles[index].check_errors();
@@ -1229,7 +1229,7 @@ impl ValidationApp {
             }
         }
 
-        // **Force selected_point to update whenever index changes**
+        // Force selected_point to update whenever index changes**
         if let Some(current_cycle) = self.cycles.get(self.index.count) {
             let x_coord = current_cycle.start_time.timestamp() as f64;
 
@@ -1332,7 +1332,7 @@ impl ValidationApp {
     pub fn find_bad_measurement(&mut self, gas_type: GasType) {
         let mut idx = self.index.count + 1;
         while idx < self.cycles.len() - 1
-            && *self.cycles[idx].measurement_r.get(&gas_type).unwrap_or(&0.0) > 0.995
+            && *self.cycles[idx].measurement_r2.get(&gas_type).unwrap_or(&0.0) > 0.995
         {
             idx += 1;
         }
@@ -1828,7 +1828,7 @@ impl ValidationApp {
     // }
 }
 
-pub fn create_gas_plot<'a>(
+pub fn init_gas_plot<'a>(
     gas_type: &'a GasType,
     start: f64,
     end: f64,
@@ -1884,7 +1884,7 @@ pub fn create_gas_plot<'a>(
     // .legend(Legend::default().position(Corner::LeftTop))
 }
 pub fn init_calc_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot::Plot<'a> {
-    Plot::new(format!("{}calc_r_plot", gas_type))
+    Plot::new(format!("{}calc_r2_plot", gas_type))
         .coordinates_formatter(
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
@@ -1895,7 +1895,7 @@ pub fn init_calc_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot:
                     })
                     .unwrap_or_else(|| format!("{:.1}", value.x));
 
-                format!("Time: {}\n{} r: {:.5}", datetime, gas_type, value.y)
+                format!("Time: {}\n{} r2: {:.5}", datetime, gas_type, value.y)
             }),
         )
         .label_formatter(|_, _| String::new())
@@ -1903,10 +1903,10 @@ pub fn init_calc_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot:
         .width(w)
         .height(h)
         .x_axis_formatter(format_x_axis)
-        .y_axis_label(format!("{} calc r", gas_type))
+        .y_axis_label(format!("{} calc r2", gas_type))
 }
 pub fn init_measurement_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot::Plot<'a> {
-    Plot::new(format!("{}measurement_r_plot", gas_type))
+    Plot::new(format!("{}measurement_r2_plot", gas_type))
         .coordinates_formatter(
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
@@ -1917,7 +1917,7 @@ pub fn init_measurement_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egu
                     })
                     .unwrap_or_else(|| format!("{:.1}", value.x));
 
-                format!("Time: {}\n{} r: {:.5}", datetime, gas_type, value.y)
+                format!("Time: {}\n{} r2: {:.5}", datetime, gas_type, value.y)
             }),
         )
         .label_formatter(|_, _| String::new())
@@ -1925,7 +1925,7 @@ pub fn init_measurement_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egu
         .width(w)
         .height(h)
         .x_axis_formatter(format_x_axis)
-        .y_axis_label(format!("{} measurement r", gas_type))
+        .y_axis_label(format!("{} measurement r2", gas_type))
 }
 pub fn init_flux_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot::Plot<'a> {
     Plot::new(format!("{}flux_plot", gas_type))

@@ -24,5 +24,5 @@ fn main() -> eframe::Result {
     // let mut data = fluxrs::run(config).unwrap();
 
     let app = myapp::MyApp::new();
-    eframe::run_native("My Plot App", Default::default(), Box::new(|_cc| Ok(Box::new(app))))
+    eframe::run_native("fluxrs", Default::default(), Box::new(|_cc| Ok(Box::new(app))))
 }

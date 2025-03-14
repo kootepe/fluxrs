@@ -18,8 +18,8 @@ impl eframe::App for MyApp {
                 ui.add_space(16.0);
                 use egui::special_emojis::GITHUB;
                 ui.hyperlink_to(
-                    format!("{GITHUB} egui_plot on GitHub"),
-                    "https://github.com/emilk/egui_plot",
+                    format!("{GITHUB} fluxrs on GitHub"),
+                    "https://github.com/kootepe/fluxrs.git",
                 );
             });
         });

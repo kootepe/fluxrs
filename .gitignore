@@ -1,5 +1,6 @@
 /target
 /data
+/manual_data
 *.DAT
 .jukit
 images/

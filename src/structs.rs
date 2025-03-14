@@ -20,7 +20,7 @@ use crate::stats;
 pub const ERROR_INT: i64 = -9999;
 pub const ERROR_FLOAT: f64 = -9999.;
 // the window of max r must be at least 240 seconds
-pub const MIN_WINDOW_SIZE: usize = 240;
+pub const MIN_WINDOW_SIZE: usize = 180;
 // how many seconds to increment the moving window searching for max r
 pub const WINDOW_INCREMENT: usize = 5;
 
@@ -229,8 +229,8 @@ impl CycleBuilder {
             max_idx: 0.,
             flux: HashMap::new(),
             slope: HashMap::new(),
-            calc_r: HashMap::new(),
-            measurement_r: HashMap::new(),
+            calc_r2: HashMap::new(),
+            measurement_r2: HashMap::new(),
             measurement_range_start: 0.,
             measurement_range_end: 0.,
             diag_v: vec![],
@@ -244,6 +244,7 @@ impl CycleBuilder {
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
+            chamber_volume: 1.,
             is_valid: true,
             override_valid: None,
             manual_valid: false,
@@ -285,8 +286,8 @@ impl CycleBuilder {
             max_idx: 0.,
             flux: HashMap::new(),
             slope: HashMap::new(),
-            calc_r: HashMap::new(),
-            measurement_r: HashMap::new(),
+            calc_r2: HashMap::new(),
+            measurement_r2: HashMap::new(),
             measurement_range_start: 0.,
             measurement_range_end: 0.,
             diag_v: vec![],
@@ -300,6 +301,7 @@ impl CycleBuilder {
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
+            chamber_volume: 1.,
             is_valid: true,
             override_valid: None,
             manual_valid: false,
@@ -318,6 +320,7 @@ pub struct Cycle {
     pub end_time: chrono::DateTime<chrono::Utc>,
     pub air_temperature: f64,
     pub air_pressure: f64,
+    pub chamber_volume: f64,
     // pub has_errors: bool,
     pub error_code: ErrorMask,
     pub is_valid: bool,
@@ -340,8 +343,8 @@ pub struct Cycle {
     pub slope: HashMap<GasType, f64>,
     pub measurement_range_start: f64,
     pub measurement_range_end: f64,
-    pub measurement_r: HashMap<GasType, f64>,
-    pub calc_r: HashMap<GasType, f64>,
+    pub measurement_r2: HashMap<GasType, f64>,
+    pub calc_r2: HashMap<GasType, f64>,
 
     // datetime vectors
     pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
@@ -562,8 +565,8 @@ impl Cycle {
             let dt_vv: Vec<f64> =
                 self.measurement_dt_v.iter().map(|x| x.timestamp() as f64).collect();
             // self.measurement_r = stats::pearson_correlation(&dt_vv, &filtered_gas_v).unwrap_or(0.0);
-            self.measurement_r
-                .insert(gas_type, stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0));
+            self.measurement_r2
+                .insert(gas_type, stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0).powi(2));
         }
     }
     // pub fn prepare_plot_data(&mut self) {
@@ -600,9 +603,9 @@ impl Cycle {
 
             let dt_vv: Vec<f64> = dt_v.iter().map(|x| x.timestamp() as f64).collect();
             // self.calc_r = stats::pearson_correlation(&dt_vv, &filtered_gas_v).unwrap_or(0.0);
-            self.calc_r.insert(
+            self.calc_r2.insert(
                 gas_type,
-                stats::pearson_correlation(&dt_vv, &filtered_gas_v).unwrap_or(0.0),
+                stats::pearson_correlation(&dt_vv, &filtered_gas_v).unwrap_or(0.0).powi(2),
             );
         }
     }
@@ -637,7 +640,7 @@ impl Cycle {
                 }
             }
 
-            self.calc_r.insert(gas_type, max_r);
+            self.calc_r2.insert(gas_type, max_r);
             self.calc_range_start
                 .insert(gas_type, self.measurement_dt_v[start_idx].timestamp() as f64);
             self.calc_range_end
@@ -716,9 +719,9 @@ impl Cycle {
                 let dt_vv: Vec<f64> =
                     self.measurement_dt_v.iter().map(|x| x.timestamp() as f64).collect();
 
-                self.measurement_r.insert(
+                self.measurement_r2.insert(
                     gas_type,
-                    stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0).abs(),
+                    stats::pearson_correlation(&dt_vv, gas_v).unwrap_or(0.0).abs().powi(2),
                 );
             }
         }
@@ -764,7 +767,7 @@ impl Cycle {
                         }
 
                         // Compute Pearson correlation only for valid continuous data
-                        let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0);
+                        let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0).powi(2);
 
                         if r > max_r {
                             max_r = r;
@@ -782,7 +785,7 @@ impl Cycle {
                 }
 
                 // 🔹 Store results safely
-                self.calc_r.insert(gas_type, max_r);
+                self.calc_r2.insert(gas_type, max_r);
                 self.calc_range_start.insert(
                     gas_type,
                     self.measurement_dt_v.get(start_idx).map_or(0.0, |dt| dt.timestamp() as f64),
@@ -825,7 +828,7 @@ impl Cycle {
     //     }
     // }
     pub fn check_main_r(&mut self) {
-        if self.measurement_r.get(&self.main_gas).unwrap_or(&0.0) < &0.98 {
+        if self.measurement_r2.get(&self.main_gas).unwrap_or(&0.0) < &0.98 {
             self.add_error(ErrorCode::LowR);
         } else {
             self.remove_error(ErrorCode::LowR)
@@ -976,7 +979,7 @@ impl Cycle {
         self.flux.insert(
             gas_type,
             self.slope.get(&gas_type).unwrap() / 1_000_000.0
-                * 1.0
+                * self.chamber_volume
                 * ((mol_mass * (self.air_pressure * 1000.0))
                     / (8.314 * (self.air_temperature + 273.15)))
                 * 1000.0,

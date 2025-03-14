@@ -1,5 +1,5 @@
 use crate::app_plotting::{
-    create_gas_plot, init_calc_r_plot, init_flux_plot, init_lag_plot, init_measurement_r_plot,
+    init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
 use crate::csv_parse;
 use crate::index::Index;
@@ -24,6 +24,7 @@ use egui_plot::{PlotPoints, PlotUi, Polygon};
 use rusqlite::{params, types::ValueRef, Connection, Result, Row};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::time::Duration;
 use std::{
     ffi::OsStr,
@@ -57,7 +58,6 @@ pub struct MainApp {
     validation_panel: ValidationApp,
     table_panel: TableApp,
     empty_panel: EmptyPanel,
-    project_panel: ProjectTab,
     index: usize,
 }
 impl MainApp {
@@ -151,8 +151,8 @@ pub struct ValidationApp {
     pub end_time_idx: f64,
     pub calc_range_start: HashMap<GasType, f64>,
     pub calc_range_end: HashMap<GasType, f64>,
-    pub calc_r: HashMap<GasType, f64>,
-    pub measurement_r: HashMap<GasType, f64>,
+    pub calc_r2: HashMap<GasType, f64>,
+    pub measurement_r2: HashMap<GasType, f64>,
     pub flux: HashMap<GasType, f64>,
     pub measurement_max_y: HashMap<GasType, f64>,
     pub measurement_min_y: HashMap<GasType, f64>,
@@ -191,12 +191,6 @@ pub struct ValidationApp {
     pub initiated: bool,
     pub selected_project: Option<String>,
     pub proj_serial: String,
-    // project_name: String,
-    // main_gas: Option<GasType>,
-    // instrument: InstrumentType,
-    // projects: Vec<String>,
-    // initiated: bool,
-    // selected_project: Option<String>,
 }
 
 impl Default for ValidationApp {
@@ -238,8 +232,8 @@ impl Default for ValidationApp {
             calc_range_end: HashMap::new(),
             // max_y: HashMap::new(),
             // min_y: HashMap::new(),
-            calc_r: HashMap::new(),
-            measurement_r: HashMap::new(),
+            calc_r2: HashMap::new(),
+            measurement_r2: HashMap::new(),
             flux: HashMap::new(),
             chamber_id: String::new(),
             is_valid: true,
@@ -252,7 +246,7 @@ impl Default for ValidationApp {
             calc_area_color: Color32::from_gray(100), // Default gray color
             calc_area_adjust_color: Color32::from_gray(150),
             calc_area_stroke_color: Color32::from_gray(200),
-            min_calc_area_range: 240.0,
+            min_calc_area_range: 180.0,
             index: Index::default(), // Assuming Index implements Default
             lag_vec: Vec::new(),
             start_vec: Vec::new(),
@@ -277,7 +271,8 @@ impl Default for ValidationApp {
                 .and_utc(),
             opened_files: None,
             open_file_dialog: None,
-            initial_path: Some(PathBuf::from("/home/eerokos/code/rust/fluxrs/")),
+            // initial_path: Some(PathBuf::from("./")),
+            initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             selected_data_type: None,
             log_messages: Vec::new(),
             show_invalids: true,
@@ -455,8 +450,8 @@ impl ValidationApp {
                 ui.vertical(|ui| {
                     for gas in &self.enabled_gases {
                         // let r_val = match self.cycles[*self.index].calc_r.get(gas) {
-                        let r_val = match self.cycles[*self.index].calc_r.get(gas) {
-                            Some(r) => format!("calc_r {} : {:.6}", gas, r),
+                        let r_val = match self.cycles[*self.index].calc_r2.get(gas) {
+                            Some(r) => format!("calc_r2 {} : {:.6}", gas, r),
                             None => "Calc r: N/A".to_string(), // Handle missing data
                         };
                         ui.label(r_val);
@@ -475,12 +470,12 @@ impl ValidationApp {
                     }
                 });
             });
-            let measurement_r = match self.cycles[*self.index].measurement_r.get(&main_gas) {
-                Some(r) => format!("measurement r: {:.6}", r),
+            let measurement_r2 = match self.cycles[*self.index].measurement_r2.get(&main_gas) {
+                Some(r) => format!("measurement r2: {:.6}", r),
                 None => "Measurement r: N/A".to_string(), // Handle missing data
             };
             // );
-            ui.label(measurement_r);
+            ui.label(measurement_r2);
             ui.label(format!("{}", error_messages.join("\n")));
             // let flux = format!("flux: {:.6}", self.cycles[*self.index].flux);
 
@@ -498,7 +493,7 @@ impl ValidationApp {
         let mut prev_clicked = false;
         let mut next_clicked = false;
         let mut highest_r = false;
-        let mut find_lag = false;
+        let mut reset_cycle = false;
         let mut find_bad = false;
         let mut toggle_valid = false;
         let mut show_invalids_clicked = false;
@@ -513,9 +508,8 @@ impl ValidationApp {
         show_valids_clicked = ui.checkbox(&mut self.show_valids, "Show valids").clicked();
         show_invalids_clicked = ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
-            highest_r = ui.add(egui::Button::new("Find r")).clicked();
-            find_lag = ui.add(egui::Button::new("Find lag")).clicked();
-            find_bad = ui.add(egui::Button::new("Find bad")).clicked();
+            highest_r = ui.add(egui::Button::new("Find highest r")).clicked();
+            reset_cycle = ui.add(egui::Button::new("Reset cycle")).clicked();
             toggle_valid = ui.add(egui::Button::new("Toggle validity")).clicked();
         });
 
@@ -547,6 +541,11 @@ impl ValidationApp {
                         self.zoom_to_measurement = !self.zoom_to_measurement;
                     }
                 }
+                if let egui::Event::Key { key: Key::R, pressed, .. } = event {
+                    if *pressed {
+                        reset_cycle = true;
+                    }
+                }
 
                 if let egui::Event::Key { key: Key::S, pressed, .. } = event {
                     if *pressed && *self.index > 0 {
@@ -565,6 +564,7 @@ impl ValidationApp {
                                 + chrono::TimeDelta::seconds(current_cycle.open_offset)
                                 + chrono::TimeDelta::seconds(current_cycle.lag_s as i64);
                             current_cycle.get_peak_near_timestamp(main_gas, target.timestamp());
+                            self.update_current_cycle();
                             self.update_plots();
                         }
                     }
@@ -610,7 +610,7 @@ impl ValidationApp {
             self.find_bad_measurement(main_gas);
         }
 
-        if find_lag {
+        if reset_cycle {
             self.cycles[*self.index].reset();
             self.update_current_cycle();
             self.update_plots();
@@ -685,7 +685,7 @@ impl ValidationApp {
                 ui.vertical(|ui| {
                     for gas_type in self.enabled_gases.clone() {
                         if self.is_gas_enabled(&gas_type) {
-                            let gas_plot = create_gas_plot(
+                            let gas_plot = init_gas_plot(
                                 &gas_type,
                                 self.start_time_idx,
                                 self.end_time_idx,
@@ -749,7 +749,7 @@ impl ValidationApp {
                                 plot_ui,
                                 &gas,
                                 |cycle, gas_type| {
-                                    *cycle.measurement_r.get(gas_type).unwrap_or(&0.0)
+                                    *cycle.measurement_r2.get(gas_type).unwrap_or(&0.0)
                                 },
                                 "Measurement r",
                             );
@@ -770,7 +770,7 @@ impl ValidationApp {
                             self.render_attribute_plot(
                                 plot_ui,
                                 &gas,
-                                |cycle, gas_type| *cycle.calc_r.get(gas_type).unwrap_or(&0.0),
+                                |cycle, gas_type| *cycle.calc_r2.get(gas_type).unwrap_or(&0.0),
                                 "Calc r",
                             );
                         });
@@ -947,6 +947,12 @@ impl ValidationApp {
                     self.index.set(0);
                     self.cycles = cycles;
                     self.update_plots();
+                },
+                // invalidquery returned if cycles is empty
+                Err(rusqlite::Error::InvalidQuery) => {
+                    self.log_messages
+                        .push("No cycles found in db, have you initiated the data?".to_owned());
+                    eprintln!("No cycles found in db, have you initiated the data?")
                 },
                 Err(e) => eprintln!("Error processing cycles: {}", e),
             }
@@ -1325,12 +1331,10 @@ impl ValidationApp {
     fn load_projects_from_db(&mut self) -> Result<()> {
         let mut conn = Connection::open("fluxrs.db")?;
 
-        // ✅ Fetch all project IDs
         let mut stmt = conn.prepare("SELECT project_id FROM projects")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         self.projects = rows.collect::<Result<Vec<String>, _>>()?;
 
-        // ✅ Fetch `project_id` and `instrument_serial` of the currently selected project
         let result: Result<(String, String, String), _> = conn.query_row(
             "SELECT project_id, instrument_serial, main_gas FROM projects WHERE current = 1",
             [],
@@ -1351,22 +1355,6 @@ impl ValidationApp {
 
         Ok(())
     }
-    // fn load_projects_from_db(&mut self) -> Result<()> {
-    //     let mut conn = Connection::open("fluxrs.db")?;
-    //     let mut stmt = conn.prepare("SELECT project_id FROM projects")?;
-    //     let rows = stmt.query_map([], |row| row.get(0))?;
-    //
-    //     self.projects = rows.collect::<Result<Vec<String>, _>>()?;
-    //
-    //     // ✅ Ensure the currently selected project is the one with `current = 1`
-    //     self.selected_project = conn
-    //         .query_row("SELECT project_id FROM projects WHERE current = 1", [], |row| row.get(0))
-    //         .ok();
-    //
-    //     Ok(())
-    // }
-
-    /// ✅ Save a new project and set it as `current`
     fn save_project_to_db(&mut self) -> Result<()> {
         let mut conn = Connection::open("fluxrs.db")?;
 
@@ -1375,10 +1363,8 @@ impl ValidationApp {
 
         let tx = conn.transaction()?; // ✅ Use transaction for consistency
 
-        // ✅ Step 1: Set all existing projects to `current = 0`
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
-        // ✅ Step 2: Insert or replace the project with `current = 1`
         tx.execute(
             "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, current)
              VALUES (?1, ?2, ?3, ?4, 1)",
@@ -1392,33 +1378,27 @@ impl ValidationApp {
             self.project_name, main_gas, instrument_model
         );
 
-        // ✅ Refresh the projects list after adding
         self.load_projects_from_db()?;
 
         Ok(())
     }
 
-    /// ✅ Set an existing project as the current project
     fn set_current_project(&mut self, project_name: &str) -> Result<()> {
         let mut conn = Connection::open("fluxrs.db")?;
         let tx = conn.transaction()?;
 
-        // ✅ Step 1: Reset all projects to `current = 0`
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
-        // ✅ Step 2: Set the selected project as `current = 1`
         tx.execute("UPDATE projects SET current = 1 WHERE project_id = ?1", [project_name])?;
 
         tx.commit()?;
         println!("Current project set: {}", project_name);
 
-        // ✅ Update `selected_project` after changing the current project
         self.selected_project = Some(project_name.to_string());
 
         Ok(())
     }
 
-    /// ✅ UI for project selection & creation
     pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Project Management");
 
@@ -1498,7 +1478,6 @@ impl ValidationApp {
 
         ui.add_space(10.);
 
-        // ✅ Save new project when button is clicked
         if ui.button("Add Project").clicked() {
             if let Err(err) = self.save_project_to_db() {
                 eprintln!("Failed to save project: {}", err);
@@ -1631,7 +1610,6 @@ pub struct TableApp {
 }
 
 impl TableApp {
-    // Initialize TableApp with DB connection
     pub fn new(db_path: &str) -> Self {
         let conn = Connection::open(db_path).expect("Failed to open database");
         // let table_names = Self::fetch_table_names(&conn).unwrap_or_default();
@@ -1676,7 +1654,6 @@ impl TableApp {
 
         let conn = Connection::open("fluxrs.db").expect("Failed to open database");
 
-        // Fetch column names
         let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table_name)).unwrap();
         self.column_names = stmt
             .query_map([], |row| row.get::<_, String>(1))
@@ -1684,7 +1661,6 @@ impl TableApp {
             .collect::<Result<Vec<String>, _>>()
             .unwrap_or_default();
 
-        // Fetch table data dynamically
         let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name)).unwrap();
         let column_count = stmt.column_count();
 
@@ -1776,15 +1752,3 @@ impl TableApp {
         }
     }
 }
-
-#[derive(Default)]
-pub struct ProjectTab {
-    project_name: String,
-    main_gas: Option<GasType>,
-    instrument: InstrumentType,
-    projects: Vec<String>,
-    initiated: bool,
-    selected_project: Option<String>,
-}
-
-impl ProjectTab {}
