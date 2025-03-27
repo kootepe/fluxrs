@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::ops::RangeInclusive;
 
 use eframe::egui::{
-    Color32, Id, Layout, PointerButton, Pos2, Rect, RichText, Sense, Ui, Vec2, Vec2b,
+    Color32, Id, Layout, PointerButton, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2, Vec2b,
 };
 use egui_plot::{
     CoordinatesFormatter, Corner, GridInput, GridMark, MarkerShape, Plot, PlotBounds, PlotPoint,
@@ -83,14 +83,30 @@ impl ValidationApp {
 
         let adj_x_open: f64 = self.start_time_idx + self.open_offset + lag_s;
         let adj_x_close = self.start_time_idx + self.close_offset + lag_s;
-        let adj_open_line = VLine::new(adj_x_open).name("Lagtime").width(2.0).allow_hover(true);
-        let adj_close_line =
-            VLine::new(adj_x_close).name("Close time").width(2.0).allow_hover(true);
+        let adj_open_line = VLine::new(adj_x_open)
+            .name("Lagtime")
+            .width(2.0)
+            .allow_hover(true)
+            .stroke(Stroke::new(1.0, Color32::DARK_GREEN));
+
+        let adj_close_line = VLine::new(adj_x_close)
+            .name("Close time")
+            .width(2.0)
+            .allow_hover(true)
+            .stroke(Stroke::new(1.0, Color32::RED));
 
         let x_open: f64 = self.start_time_idx + self.open_offset;
         let x_close = self.start_time_idx + self.close_offset;
-        let open_line = VLine::new(x_open).name("Unadjusted open").width(2.0).allow_hover(true);
-        let close_line = VLine::new(x_close).name("Unadjusted close").width(2.0).allow_hover(true);
+        let open_line = VLine::new(x_open)
+            .name("Unadjusted open")
+            .width(2.0)
+            .allow_hover(true)
+            .stroke(Stroke::new(1.0, Color32::LIGHT_GREEN));
+        let close_line = VLine::new(x_close)
+            .name("Unadjusted close")
+            .width(2.0)
+            .allow_hover(true)
+            .stroke(Stroke::new(1.0, Color32::LIGHT_RED));
 
         // plot_ui.polygon(main_polygon);
         // plot_ui.polygon(left_polygon);
