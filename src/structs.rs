@@ -250,7 +250,7 @@ impl CycleBuilder {
             manual_valid: false,
         })
     }
-    pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error>> {
+    pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error + Send + Sync>> {
         let start = self.start_time.ok_or("Start time is required")?;
         let chamber = self.chamber_id.ok_or("Chamber ID is required")?;
         let close = self.close_offset.ok_or("Close offset is required")?;
@@ -1026,6 +1026,7 @@ impl Cycle {
     // }
 }
 
+#[derive(Clone)]
 pub struct GasData {
     pub header: StringRecord,
     pub instrument_model: String,
@@ -1229,7 +1230,7 @@ impl VolumeData {
     //     VolumeData { datetime: Vec::new(), chamber_id: Vec::new(), volume: Vec::new() }
     // }
 }
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct MeteoData {
     pub datetime: Vec<i64>,
     pub temperature: Vec<f64>,

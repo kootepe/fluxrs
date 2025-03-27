@@ -725,7 +725,7 @@ fn process_cycles(
     sorted_data: &HashMap<String, structs::GasData>,
     meteo_data: &structs::MeteoData,
     project: String,
-) -> Result<Vec<structs::Cycle>, Box<dyn Error>> {
+) -> Result<Vec<structs::Cycle>, Box<dyn Error + Send + Sync>> {
     println!("Processing cycles");
     let mut cycle_vec = Vec::new();
     let mut no_data_for_day = false;

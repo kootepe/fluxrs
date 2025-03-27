@@ -21,10 +21,12 @@ use eframe::egui::{
 };
 use egui_file::FileDialog;
 use egui_plot::{PlotPoints, PlotUi, Polygon};
+use futures::future::join_all;
 use rusqlite::{params, types::ValueRef, Connection, Result, Row};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{
     ffi::OsStr,
@@ -118,6 +120,7 @@ impl MainApp {
 
 // #[derive(Default)]
 pub struct ValidationApp {
+    runtime: tokio::runtime::Runtime,
     pub current_project: Option<String>,
     pub instrument_serial: String,
     pub r_lim: f32,
@@ -196,6 +199,7 @@ pub struct ValidationApp {
 impl Default for ValidationApp {
     fn default() -> Self {
         Self {
+            runtime: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
             current_project: None,
             instrument_serial: String::new(),
             proj_serial: String::new(),
@@ -1032,89 +1036,59 @@ impl ValidationApp {
         if self.start_date > self.end_date {
             self.log_messages.push("End date can't be before start date.".to_owned());
         }
+
         if ui.button("Use range").clicked() {
-            let mut conn = match Connection::open("fluxrs.db") {
+            let start_date = self.start_date;
+            let end_date = self.end_date;
+            let project = self.selected_project.as_ref().unwrap().clone();
+            let instrument_serial = self.instrument_serial.clone();
+            // let runtime = tokio::runtime::Runtime::new().unwrap();
+
+            // Create connection and wrap in Arc<Mutex<>>
+            let conn = match Connection::open("fluxrs.db") {
                 Ok(conn) => conn,
                 Err(e) => {
                     eprintln!("Failed to open database: {}", e);
-                    return; // Exit early if connection fails
+                    return;
                 },
             };
-
+            let arc_conn = Arc::new(Mutex::new(conn)); // ✅ stays alive
+            let conn_guard = arc_conn.lock().unwrap();
+            // Now query with the conn before it moves
             match (
-                query_cycles(
-                    &conn,
-                    self.start_date,
-                    self.end_date,
-                    self.selected_project.as_ref().unwrap().clone(),
-                ),
-                query_gas(
-                    &conn,
-                    self.start_date,
-                    self.end_date,
-                    self.selected_project.as_ref().unwrap().clone(),
-                    self.instrument_serial.clone(),
-                ),
-                query_meteo(
-                    &conn,
-                    self.start_date,
-                    self.end_date,
-                    self.selected_project.as_ref().unwrap().clone(),
-                ),
+                query_cycles(&conn_guard, start_date, end_date, project.clone()),
+                query_gas(&conn_guard, start_date, end_date, project.clone(), instrument_serial),
+                query_meteo(&conn_guard, start_date, end_date, project.clone()),
             ) {
                 (Ok(times), Ok(gas_data), Ok(meteo_data)) => {
                     if times.start_time.is_empty() {
                         self.log_messages.push(format!(
-                            "NO CYCLES FOUND IN IN RANGE {} - {}",
-                            self.start_date, self.end_date
-                        ))
+                            "NO CYCLES FOUND IN RANGE {} - {}",
+                            start_date, end_date
+                        ));
                     }
                     if gas_data.is_empty() {
                         self.log_messages.push(format!(
-                            "NO GAS DATA FOUND IN IN RANGE {} - {}",
-                            self.start_date, self.end_date
-                        ))
+                            "NO GAS DATA FOUND IN RANGE {} - {}",
+                            start_date, end_date
+                        ));
                     }
-                    if times.start_time.is_empty() || gas_data.is_empty() {
-                        self.cycles = Vec::new();
-                    } else {
-                        match process_cycles(
-                            &times,
-                            &gas_data,
-                            &meteo_data,
-                            self.selected_project.as_ref().unwrap().clone(),
-                        ) {
-                            Ok(cycle_vec) => {
-                                println!("Successfully processed cycles!");
-                                println!("Start Date: {}", self.start_date);
-                                println!("End Date: {}", self.end_date);
-                                if cycle_vec.is_empty() {
-                                    self.log_messages.push(format!(
-                                        "NO CYCLES WITH DATA FOUND IN IN RANGE {} - {}",
-                                        self.start_date, self.end_date
-                                    ))
-                                }
 
-                                // insert_fluxes(&mut conn, &cycle_vec);
-                                match insert_fluxes_ignore_duplicates(
-                                    &mut conn,
-                                    &cycle_vec,
-                                    self.selected_project.as_ref().unwrap().clone(),
-                                ) {
-                                    Ok(_) => println!("Fluxes inserted successfully!"),
-                                    Err(e) => eprintln!("Error inserting fluxes: {}", e),
-                                }
-                                // self.cycles = cycle_vec;
-                                // self.index.set(0);
-                                // self.update_plots();
-                            },
-                            Err(e) => eprintln!("Error processing cycles: {}", e),
-                        }
+                    if !times.start_time.is_empty() && !gas_data.is_empty() {
+                        println!("Run processing.");
+                        let arc_conn_clone = arc_conn.clone(); // ✅ now this is valid
+                        self.runtime.spawn(async move {
+                            run_processing(times, gas_data, meteo_data, project, arc_conn_clone)
+                                .await;
+                        });
+                    } else {
+                        println!("Empty data.")
                     }
                 },
-                e => eprintln!("Failed to query database. {:?}", e),
+                e => eprintln!("Failed to query database: {:?}", e),
             }
         }
+
         self.log_display(ui);
     }
     pub fn file_ui(&mut self, ui: &mut Ui, ctx: &Context) {
@@ -1750,5 +1724,102 @@ impl TableApp {
                 });
             });
         }
+    }
+}
+
+async fn run_processing(
+    times: TimeData,
+    gas_data: HashMap<String, GasData>,
+    meteo_data: MeteoData,
+    project: String,
+    conn: Arc<Mutex<rusqlite::Connection>>,
+) {
+    if times.start_time.is_empty() || gas_data.is_empty() {
+        println!("Empty data — skipping");
+        return;
+    }
+
+    println!("Splitting into chunks...");
+
+    let gas_data_arc = Arc::new(gas_data);
+    let all_dates: Vec<String> = times
+        .start_time
+        .iter()
+        .map(|dt| dt.format("%Y-%m-%d").to_string())
+        .collect::<HashSet<_>>() // remove duplicates
+        .into_iter()
+        .collect();
+
+    let num_chunks = 10;
+    let date_chunks = chunk_dates(all_dates, num_chunks);
+
+    let mut tasks = Vec::new();
+
+    for date_group in date_chunks {
+        let dates_set: HashSet<String> = date_group.iter().cloned().collect();
+        let filtered_times = filter_time_data_by_dates(&times, &dates_set);
+        let meteo_clone = meteo_data.clone();
+        let project_clone = project.clone();
+
+        let mut gas_data_for_thread = HashMap::new();
+        for date in &date_group {
+            if let Some(day_data) = gas_data_arc.get(date) {
+                gas_data_for_thread.insert(date.clone(), day_data.clone());
+            }
+        }
+
+        let task = tokio::task::spawn_blocking(move || {
+            process_cycles(&filtered_times, &gas_data_for_thread, &meteo_clone, project_clone)
+        });
+
+        tasks.push(task);
+    }
+
+    let results = futures::future::join_all(tasks).await;
+
+    let mut all_cycles: Vec<Cycle> = Vec::new();
+
+    for result in results {
+        match result {
+            Ok(Ok(mut cycles)) => all_cycles.append(&mut cycles),
+            Ok(Err(e)) => eprintln!("❌ Error processing cycles: {}", e),
+            Err(e) => eprintln!("❌ Thread join error: {}", e),
+        }
+    }
+
+    if all_cycles.is_empty() {
+        println!("NO CYCLES WITH DATA FOUND");
+    } else {
+        match insert_fluxes_ignore_duplicates(&mut conn.lock().unwrap(), &all_cycles, project) {
+            Ok(_) => println!("Fluxes inserted successfully!"),
+            Err(e) => eprintln!("Error inserting fluxes: {}", e),
+        }
+    }
+}
+
+fn chunk_dates(dates: Vec<String>, num_chunks: usize) -> Vec<Vec<String>> {
+    let mut chunks = vec![vec![]; num_chunks];
+    for (i, date) in dates.into_iter().enumerate() {
+        chunks[i % num_chunks].push(date);
+    }
+    chunks
+}
+
+fn filter_time_data_by_dates(times: &TimeData, dates: &HashSet<String>) -> TimeData {
+    let mut indices = Vec::new();
+
+    for (i, dt) in times.start_time.iter().enumerate() {
+        if dates.contains(&dt.format("%Y-%m-%d").to_string()) {
+            indices.push(i);
+        }
+    }
+
+    TimeData {
+        chamber_id: indices.iter().map(|&i| times.chamber_id[i].clone()).collect(),
+        start_time: indices.iter().map(|&i| times.start_time[i]).collect(),
+        close_offset: indices.iter().map(|&i| times.close_offset[i]).collect(),
+        open_offset: indices.iter().map(|&i| times.open_offset[i]).collect(),
+        end_offset: indices.iter().map(|&i| times.end_offset[i]).collect(),
+        project: indices.iter().map(|&i| times.project[i].clone()).collect(),
     }
 }
