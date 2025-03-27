@@ -1,4 +1,5 @@
 use std::env;
+use std::path::Path;
 use std::process;
 
 use fluxrs::myapp;
@@ -17,10 +18,20 @@ fn main() -> eframe::Result {
     //     println!("App error: {e}.")
     // }
 
-    match fluxrs::query::initiate_tables() {
-        Ok(_) => println!("Successfully initiated db tables"),
-        Err(e) => println!("Err:\n {}", e),
+    if !Path::new("fluxrs.db").exists() {
+        match fluxrs::query::initiate_tables() {
+            Ok(_) => println!("Successfully initiated db tables"),
+            Err(e) => println!("Err:\n {}", e),
+        }
+    } else {
+        match fluxrs::query::migrate_db() {
+            Ok(0) => println!("No migrations done."),
+            Ok(1) => println!("Successfully migrated db tables"),
+            Ok(_) => println!("ASD"),
+            Err(e) => println!("Err:\n {}", e),
+        }
     }
+
     // let mut data = fluxrs::run(config).unwrap();
 
     let app = myapp::MyApp::new();

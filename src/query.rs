@@ -8,6 +8,8 @@ use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::hash::Hash;
 
+const DB_VERSION: i32 = 1;
+
 pub fn query_cycles(
     conn: &Connection,
     start: DateTime<Utc>,
@@ -174,11 +176,27 @@ pub fn init_measurement_db(conn: &Connection) {
     }
 }
 
+pub fn migrate_db() -> Result<i32> {
+    let mut conn = Connection::open("fluxrs.db")?;
+    let current_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
+    let mut migrated = 0;
+    println!("Current db version: {current_version}");
+
+    if current_version < 1 {
+        println!("Applying migration 1: Setting PRAGMA to 1");
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+        migrated = 1;
+    }
+
+    Ok(migrated)
+}
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
-    println!("Initiating db.");
     let mut conn = Connection::open("fluxrs.db")?;
     // conn.execute("PRAGMA journal_mode=WAL;", [])?;
-    let wal_mode: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))?;
+    // let wal_mode: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))?;
+
+    conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+    // conn.execute("PRAGMA journal_mode = WAL;", [])?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS volume (
@@ -293,6 +311,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         )",
         [],
     )?;
+
     // insert_measurements(&mut conn, gases)?;
     // insert_cycles(&mut conn, times)?;
     Ok(())
