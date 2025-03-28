@@ -120,7 +120,7 @@ impl MainApp {
 
 // #[derive(Default)]
 pub struct ValidationApp {
-    runtime: tokio::runtime::Runtime,
+    pub runtime: tokio::runtime::Runtime,
     pub current_project: Option<String>,
     pub instrument_serial: String,
     pub r_lim: f32,
@@ -1042,7 +1042,6 @@ impl ValidationApp {
             let end_date = self.end_date;
             let project = self.selected_project.as_ref().unwrap().clone();
             let instrument_serial = self.instrument_serial.clone();
-            // let runtime = tokio::runtime::Runtime::new().unwrap();
 
             // Create connection and wrap in Arc<Mutex<>>
             let conn = match Connection::open("fluxrs.db") {
@@ -1054,7 +1053,6 @@ impl ValidationApp {
             };
             let arc_conn = Arc::new(Mutex::new(conn)); // ✅ stays alive
             let conn_guard = arc_conn.lock().unwrap();
-            // Now query with the conn before it moves
             match (
                 query_cycles(&conn_guard, start_date, end_date, project.clone()),
                 query_gas(&conn_guard, start_date, end_date, project.clone(), instrument_serial),
@@ -1739,8 +1737,6 @@ async fn run_processing(
         return;
     }
 
-    println!("Splitting into chunks...");
-
     let gas_data_arc = Arc::new(gas_data);
     let all_dates: Vec<String> = times
         .start_time
@@ -1782,8 +1778,8 @@ async fn run_processing(
     for result in results {
         match result {
             Ok(Ok(mut cycles)) => all_cycles.append(&mut cycles),
-            Ok(Err(e)) => eprintln!("❌ Error processing cycles: {}", e),
-            Err(e) => eprintln!("❌ Thread join error: {}", e),
+            Ok(Err(e)) => eprintln!("Error processing cycles: {}", e),
+            Err(e) => eprintln!("Thread join error: {}", e),
         }
     }
 
