@@ -68,8 +68,6 @@ pub fn query_gas(
     // let mut data = HashMap::new();
     println!("Querying gas data");
     let mut grouped_data: HashMap<String, GasData> = HashMap::new();
-    println!("{}", instrument_serial);
-    println!("{}", project);
 
     let mut stmt = conn.prepare(
         "SELECT datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model
@@ -533,50 +531,6 @@ pub fn update_fluxes(
     tx.commit()?;
     Ok(())
 }
-// pub fn insert_or_update_fluxes(
-//     conn: &mut Connection,
-//     cycles: &[Cycle],
-//     project: String,
-// ) -> Result<()> {
-//     let tx = conn.transaction()?; // Start transaction for consistency
-//     {
-//         let mut insert_stmt = tx.prepare(
-//             "INSERT OR IGNORE INTO fluxes (
-//             instrument_model, instrument_serial, chamber_id, main_gas, start_time,
-//             close_offset, open_offset, end_offset, lag_s, air_pressure, air_temperature,
-//             error_code, is_valid, main_gas_r2, ch4_flux, ch4_r2, ch4_measurement_r2, ch4_slope,
-//             ch4_calc_range_start, ch4_calc_range_end, co2_flux, co2_r2, co2_measurement_r2, co2_slope,
-//             co2_calc_range_start, co2_calc_range_end, h2o_flux, h2o_r2, h2o_measurement_r2, h2o_slope,
-//             h2o_calc_range_start, h2o_calc_range_end, n2o_flux, n2o_r2, n2o_measurement_r2, n2o_slope,
-//             n2o_calc_range_start, n2o_calc_range_end, project_id, manual_adjusted
-//         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-//                   ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
-//                   ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)",
-//         )?;
-//
-//         let mut update_stmt = tx.prepare(
-//             "UPDATE fluxes SET
-//             instrument_model = ?1, chamber_id = ?2, main_gas = ?3, close_offset = ?4,
-//             open_offset = ?5, end_offset = ?6, lag_s = ?7, air_pressure = ?8,
-//             air_temperature = ?9, error_code = ?10, is_valid = ?11, main_gas_r2 = ?12,
-//             ch4_flux = ?13, ch4_r2 = ?14, ch4_measurement_r2 = ?15, ch4_slope = ?16,
-//             ch4_calc_range_start = ?17, ch4_calc_range_end = ?18, co2_flux = ?19,
-//             co2_r2 = ?20, co2_measurement_r2 = ?21, co2_slope = ?22, co2_calc_range_start = ?23,
-//             co2_calc_range_end = ?24, h2o_flux = ?25, h2o_r2 = ?26, h2o_measurement_r2 = ?27,
-//             h2o_slope = ?28, h2o_calc_range_start = ?29, h2o_calc_range_end = ?30, n2o_flux = ?31,
-//             n2o_r2 = ?32, n2o_measurement_r2 = ?33, n2o_slope = ?34, n2o_calc_range_start = ?35,
-//             n2o_calc_range_end = ?36, project_id = ?37, manual_adjusted = ?38
-//          WHERE instrument_serial = ?39 AND start_time = ?40",
-//         )?;
-//
-//         for cycle in cycles {
-//             execute_insert(&mut insert_stmt, cycle, &project)?;
-//             execute_update(&mut update_stmt, cycle, &project)?;
-//         }
-//     }
-//     tx.commit()?;
-//     Ok(())
-// }
 
 fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
     stmt.execute(params![
