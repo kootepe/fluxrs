@@ -1,6 +1,6 @@
-use crate::structs;
-use crate::structs::{MeteoData, TimeData, VolumeData};
-use crate::GasData;
+use crate::meteodata::MeteoData;
+use crate::timedata::TimeData;
+use crate::volumedata::VolumeData;
 use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};

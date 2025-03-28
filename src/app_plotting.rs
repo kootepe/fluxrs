@@ -1,7 +1,9 @@
+use crate::cycle::Cycle;
+use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
+use crate::errorcode::ErrorCode;
 use crate::index::Index;
 pub use crate::instruments::GasType;
-use crate::query::{insert_fluxes_ignore_duplicates, update_fluxes};
-use crate::structs::{Cycle, ErrorCode};
+// use crate::query::{insert_fluxes_ignore_duplicates, update_fluxes};
 use crate::validation_app::ValidationApp;
 use crate::validation_app::{
     create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,

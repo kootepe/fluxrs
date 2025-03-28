@@ -4,8 +4,6 @@ use csv::StringRecord;
 // use chrono::{DateTime, Utc};
 use crate::instruments::InstrumentType;
 use csv::Writer;
-use query::query_cycles;
-use query::query_gas;
 use rusqlite::{params, Connection, Result};
 // use gas_plot::draw_gas_plot;
 use std::fs::File;
@@ -13,11 +11,18 @@ use std::process;
 
 use instruments::Li7810;
 use std::error::Error;
-use structs::EqualLen;
 
 pub mod app_plotting;
 mod csv_parse;
+pub mod cycle;
+pub mod errorcode;
 mod gas_plot;
+pub mod gasdata;
+pub mod meteodata;
+pub mod timedata;
+pub mod traits;
+pub mod volumedata;
+// pub mod gastype;
 mod get_paths;
 mod html_report;
 mod index;
@@ -25,16 +30,20 @@ mod instruments;
 pub mod myapp;
 pub mod query;
 mod stats;
-mod structs;
 mod validation_app;
+use crate::gasdata::{query_gas, GasData};
+use crate::meteodata::MeteoData;
+use crate::timedata::TimeData;
+use crate::traits::EqualLen;
+use crate::volumedata::VolumeData;
 use instruments::GasType;
-use structs::GasData;
 // mod app;
 // mod plot_demo;
 
 use std::collections::HashMap;
 use std::io::Write; // Import Write trait
 
+use cycle::{Cycle, CycleBuilder};
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,
     flux: Vec<f64>,
@@ -223,11 +232,7 @@ impl Config {
     }
 }
 
-fn insert_cycles(
-    conn: &mut Connection,
-    cycles: &structs::TimeData,
-    project: String,
-) -> Result<usize> {
+fn insert_cycles(conn: &mut Connection, cycles: &TimeData, project: String) -> Result<usize> {
     let close_vec = &cycles.close_offset;
     let open_vec = &cycles.open_offset;
     let end_vec = &cycles.end_offset;
@@ -282,7 +287,7 @@ fn insert_cycles(
 
     Ok(inserted)
 }
-// fn insert_cycles(conn: &mut Connection, cycles: &structs::TimeData) -> Result<usize> {
+// fn insert_cycles(conn: &mut Connection, cycles: &TimeData) -> Result<usize> {
 //     let close_vec = &cycles.close_offset;
 //     let open_vec = &cycles.open_offset;
 //     let end_vec = &cycles.end_offset;
@@ -566,10 +571,7 @@ fn query_and_group_gas_data(
 //     // insert_cycles(&mut conn, times)?;
 //     Ok(())
 // }
-pub fn initiate_db(
-    gases: &structs::GasData,
-    times: &structs::TimeData,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn initiate_db(gases: &GasData, times: &TimeData) -> Result<(), Box<dyn std::error::Error>> {
     println!("Initiating db.");
     let mut conn = Connection::open("fluxrs.db")?;
     conn.execute(
@@ -603,7 +605,7 @@ pub fn initiate_db(
     Ok(())
 }
 
-// pub fn run(config: Config) -> Result<Vec<structs::Cycle>, Box<dyn Error>> {
+// pub fn run(config: Config) -> Result<Vec<Cycle>, Box<dyn Error>> {
 //     let gases = get_gas_data(&config.gas_path)?;
 //     let times = get_time_data(&config.time_path)?;
 //     initiate_db(&gases, &times)?;
@@ -640,9 +642,9 @@ pub fn initiate_db(
 //     Ok(cycle_vec)
 // }
 
-fn get_gas_data(path: &str) -> Result<structs::GasData, Box<dyn Error>> {
+fn get_gas_data(path: &str) -> Result<GasData, Box<dyn Error>> {
     let gas_paths = get_paths::get_paths(path.to_owned(), "gas")?;
-    let mut all_gas = structs::GasData::new();
+    let mut all_gas = GasData::new();
 
     for path in gas_paths {
         let instrument = Li7810::default();
@@ -664,9 +666,9 @@ fn get_gas_data(path: &str) -> Result<structs::GasData, Box<dyn Error>> {
     Ok(all_gas)
 }
 
-fn get_time_data(path: &str) -> Result<structs::TimeData, Box<dyn Error>> {
+fn get_time_data(path: &str) -> Result<TimeData, Box<dyn Error>> {
     let time_paths = get_paths::get_paths(path.to_owned(), "time")?;
-    let mut all_times = structs::TimeData::new();
+    let mut all_times = TimeData::new();
     for path in time_paths {
         let res = csv_parse::read_time_csv(&path)?;
         if res.validate_lengths() {
@@ -681,21 +683,21 @@ fn get_time_data(path: &str) -> Result<structs::TimeData, Box<dyn Error>> {
     Ok(all_times)
 }
 
-fn sort_and_group_gas(all_gas: &structs::GasData) -> HashMap<String, structs::GasData> {
+fn sort_and_group_gas(all_gas: &GasData) -> HashMap<String, GasData> {
     group_gas_data_by_date(all_gas)
 }
 // pub fn init_from_db(
 //     start: String,
 //     end: String,
 //     db: String,
-// ) -> Result<Vec<structs::Cycle>, Box<dyn Error>> {
+// ) -> Result<Vec<Cycle>, Box<dyn Error>> {
 //     Ok(Vec::from())
 // }
 fn query_cycles_within_timerange(
     conn: &Connection,
     start_time: DateTime<Utc>,
     end_time: DateTime<Utc>,
-) -> Result<Vec<structs::Cycle>, rusqlite::Error> {
+) -> Result<Vec<Cycle>, rusqlite::Error> {
     // pub fn _to_html_row(&self) -> Result<String, Box<dyn Error>> {
     let start_timestamp = start_time.timestamp(); // Convert to i64 (UNIX time)
     let end_timestamp = end_time.timestamp();
@@ -708,7 +710,7 @@ fn query_cycles_within_timerange(
 
     let cycle_iter = stmt.query_map(params![start_timestamp, end_timestamp], |row| {
         let raw_timestamp: i64 = row.get(2)?; // Get as i64
-        Ok(structs::CycleBuilder::new()
+        Ok(CycleBuilder::new()
             .chamber_id(row.get(0)?) // chamber_id as String
             .start_time(DateTime::from_timestamp(row.get(1)?, 0).unwrap()) // start_time as i64 (UNIX timestamp)
             .close_offset(row.get(2)?) // close_offset as i32
@@ -721,11 +723,11 @@ fn query_cycles_within_timerange(
 }
 
 fn process_cycles(
-    timev: &structs::TimeData,
-    sorted_data: &HashMap<String, structs::GasData>,
-    meteo_data: &structs::MeteoData,
+    timev: &TimeData,
+    sorted_data: &HashMap<String, GasData>,
+    meteo_data: &MeteoData,
     project: String,
-) -> Result<Vec<structs::Cycle>, Box<dyn Error + Send + Sync>> {
+) -> Result<Vec<Cycle>, Box<dyn Error + Send + Sync>> {
     println!("Processing cycles");
     let mut cycle_vec = Vec::new();
     let mut no_data_for_day = false;
@@ -733,7 +735,7 @@ fn process_cycles(
     let total_cycles = timev.start_time.len();
     let mut processed_cycles: u32 = 0;
     for (chamber, start, close, open, end, project_id) in timev.iter() {
-        let mut cycle = structs::CycleBuilder::new()
+        let mut cycle = CycleBuilder::new()
             .chamber_id(chamber.to_owned())
             .start_time(*start)
             .close_offset(*close)

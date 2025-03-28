@@ -1,8 +1,3 @@
-use super::structs::Cycle;
-use plotters::element::DashedPathElement;
-use plotters::prelude::*;
-use std::error::Error;
-
 pub const PLOT_HEIGHT: u32 = 40;
 pub const PLOT_WIDTH: u32 = PLOT_HEIGHT * 2;
 

@@ -2,17 +2,19 @@ use crate::app_plotting::{
     init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
 use crate::csv_parse;
+use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
+use crate::errorcode::ErrorCode;
+use crate::gasdata::GasData;
 use crate::index::Index;
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
-use crate::query::{
-    insert_fluxes_ignore_duplicates, insert_meteo_data, insert_volume_data, load_fluxes,
-    query_meteo, update_fluxes,
-};
-use crate::query_cycles;
+use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
 use crate::query_gas;
-use crate::structs::ErrorCode;
-use crate::structs::{Cycle, EqualLen, GasData, MeteoData, TimeData, VolumeData};
+use crate::EqualLen;
+// use crate::structs::EqualLen;
+use crate::timedata::{query_cycles, TimeData};
+use crate::volumedata::{insert_volume_data, VolumeData};
+use crate::Cycle;
 use crate::{insert_cycles, insert_measurements, process_cycles};
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, Utc};
 use eframe::egui::{

@@ -1,5 +1,4 @@
-use crate::structs;
-use crate::structs::GasData;
+use crate::gasdata::GasData;
 use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};
