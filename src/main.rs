@@ -25,8 +25,8 @@ fn main() -> eframe::Result {
         }
     } else {
         match fluxrs::query::migrate_db() {
-            Ok(0) => println!("No migrations done."),
-            Ok(1) => println!("Successfully migrated db tables"),
+            Ok(0) => println!("No migrations necessary."),
+            Ok(1) => println!("Successfully migrated db tables."),
             Ok(_) => println!("ASD"),
             Err(e) => println!("Err:\n {}", e),
         }
