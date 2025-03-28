@@ -6,7 +6,7 @@ use crate::validation_app::ValidationApp;
 use crate::validation_app::{
     create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use egui::Align2;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -118,7 +118,7 @@ impl ValidationApp {
             let error_messages: Vec<String> =
                 errors.iter().map(|error| error.to_string()).collect();
 
-            let msg = format!("{}", error_messages.join("\n"));
+            let msg = error_messages.join("\n");
             let has_errors = Id::new(format!("haserrors{}", gas_type));
 
             plot_ui.text(
@@ -208,11 +208,6 @@ impl ValidationApp {
 
         let cycles = vec![cycle];
 
-        // self.runtime.spawn(async move {
-        //     let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
-        //     update_fluxes(&mut conn, &cycles, project).await
-        // });
-
         self.runtime.spawn_blocking(move || {
             let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
             if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
@@ -276,46 +271,6 @@ impl ValidationApp {
         self.flux = self.cycles[index].flux.clone();
         self.gases = self.cycles[index].gases.clone();
         self.cycles[index].check_errors();
-        // self.min_y = cycle
-        //     .gas_v
-        //     .iter()
-        //     .copied()
-        //     .filter(|v| !v.is_nan())
-        //     .fold(f64::INFINITY, f64::min);
-        // self.max_y = cycle
-        //     .gas_v
-        //     .iter()
-        //     .copied()
-        //     .filter(|v| !v.is_nan())
-        //     .fold(f64::NEG_INFINITY, f64::max);
-        // self.lag_vec = self.cycles.iter().map(|x| x.lag_s).collect();
-        // self.start_vec = self
-        //     .cycles
-        //     .iter()
-        //     .map(|x| x.start_time.timestamp() as f64)
-        //     .collect();
-        // self.lag_plot = self
-        //     .start_vec
-        //     .iter()
-        //     .copied() // Copy each f64 from the iterator
-        //     .zip(self.lag_vec.iter().copied()) // Iterate and copy gas_v
-        //     .map(|(x, y)| [x, y]) // Convert each tuple into an array
-        //     .collect();
-        // self.flux_plot = self
-        //     .start_vec
-        //     .iter()
-        //     .copied() // Copy each f64 from the iterator
-        //     .zip(self.lag_vec.iter().copied()) // Iterate and copy gas_v
-        //     .map(|(x, y)| [x, y]) // Convert each tuple into an array
-        //     .collect();
-        // self.flux_plot = for (timestamp, flux_map) in self.start_vec.iter().zip(self.flux.iter()) {
-        //     for (&gas, &value) in flux_map.iter() {
-        //         self.flux_plot
-        //             .entry(gas)
-        //             .or_insert_with(Vec::new)
-        //             .push([*timestamp, value]); // Store [timestamp, flux_value]
-        //     }
-        // }
     }
 
     pub fn get_visible_indexes(&mut self) {
@@ -336,22 +291,6 @@ impl ValidationApp {
             }
         }
     }
-    // pub fn get_visible_indexes(&mut self) {
-    //     self.cycles
-    //         .iter()
-    //         .enumerate()
-    //         .filter_map(|(index, cycle)| {
-    //             let chamber_id = &cycle.chamber_id;
-    //
-    //             // Check if chamber is visible
-    //             if let visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true) {
-    //                 Some(index) // Keep the index
-    //             } else {
-    //                 None // Exclude this index
-    //             }
-    //         })
-    //         .collect();
-    // }
 
     pub fn create_traces<F>(
         &mut self,
@@ -409,56 +348,6 @@ impl ValidationApp {
 
         (valid_traces, invalid_traces)
     }
-    // pub fn create_lag_traces(&mut self) -> HashMap<String, Vec<[f64; 2]>> {
-    //     let mut flux_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-    //
-    //     for &index in &self.visible_cycles {
-    //         let cycle = &self.cycles[index]; // Get cycle by precomputed index
-    //         let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-    //
-    //         // Apply additional filters based on validity settings
-    //
-    //         let lag_value = cycle.lag_s; // Get lag value
-    //         let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-    //
-    //         flux_map
-    //             .entry(chamber_id)
-    //             .or_insert_with(Vec::new)
-    //             .push([start_time, lag_value]);
-    //     }
-    //
-    //     flux_map
-    // }
-    // pub fn create_lag_traces(&mut self) -> HashMap<String, Vec<[f64; 2]>> {
-    //     let mut flux_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-    //
-    //     for cycle in &self.cycles {
-    //         let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-    //
-    //         if self
-    //             .visible_traces
-    //             .get(&chamber_id)
-    //             .cloned()
-    //             .unwrap_or(true)
-    //         {
-    //             if !self.show_valids && cycle.is_valid {
-    //                 continue;
-    //             }
-    //             if !self.show_invalids && !cycle.is_valid {
-    //                 continue;
-    //             }
-    //             let lag_value = cycle.lag_s; // Get flux value
-    //             let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-    //
-    //             flux_map
-    //                 .entry(chamber_id)
-    //                 .or_insert_with(Vec::new)
-    //                 .push([start_time, lag_value]);
-    //         }
-    //     }
-    //
-    //     flux_map
-    // }
 
     pub fn get_calc_end(&self, gas_type: GasType) -> f64 {
         *self.cycles[self.index.count].calc_range_end.get(&gas_type).unwrap_or(&0.0)
@@ -1080,13 +969,7 @@ impl ValidationApp {
     }
 }
 
-pub fn init_gas_plot<'a>(
-    gas_type: &'a GasType,
-    start: f64,
-    end: f64,
-    w: f32,
-    h: f32,
-) -> egui_plot::Plot<'a> {
+pub fn init_gas_plot(gas_type: &GasType, start: f64, end: f64, w: f32, h: f32) -> egui_plot::Plot {
     let x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
         let timestamp = mark.value as i64;
 
@@ -1135,17 +1018,22 @@ pub fn init_gas_plot<'a>(
         .y_axis_label(format!("{}", gas_type))
     // .legend(Legend::default().position(Corner::LeftTop))
 }
-pub fn init_calc_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot::Plot<'a> {
+pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}calc_r2_plot", gas_type))
         .coordinates_formatter(
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                    .map(|dt| {
-                        DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
-                    })
+                let datetime = NaiveDateTime::UNIX_EPOCH
+                    .checked_add_signed(Duration::seconds(timestamp))
+                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| format!("{:.1}", value.x));
+                // let datetime = DateTime::from_timestamp(timestamp, 0)
+                //     .map(|dt| {
+                //         // DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
+                //         Utc::from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string()
+                //     })
+                //     .unwrap_or_else(|| format!("{:.1}", value.x));
 
                 format!("Time: {}\n{} r2: {:.5}", datetime, gas_type, value.y)
             }),
@@ -1157,18 +1045,21 @@ pub fn init_calc_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot:
         .x_axis_formatter(format_x_axis)
         .y_axis_label(format!("{} calc r2", gas_type))
 }
-pub fn init_measurement_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot::Plot<'a> {
+pub fn init_measurement_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}measurement_r2_plot", gas_type))
         .coordinates_formatter(
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                    .map(|dt| {
-                        DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
-                    })
+                // let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
+                //     .map(|dt| {
+                //         DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
+                //     })
+                //     .unwrap_or_else(|| format!("{:.1}", value.x));
+                let datetime = NaiveDateTime::UNIX_EPOCH
+                    .checked_add_signed(Duration::seconds(timestamp))
+                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| format!("{:.1}", value.x));
-
                 format!("Time: {}\n{} r2: {:.5}", datetime, gas_type, value.y)
             }),
         )
@@ -1179,18 +1070,21 @@ pub fn init_measurement_r_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egu
         .x_axis_formatter(format_x_axis)
         .y_axis_label(format!("{} measurement r2", gas_type))
 }
-pub fn init_flux_plot<'a>(gas_type: &'a GasType, w: f32, h: f32) -> egui_plot::Plot<'a> {
+pub fn init_flux_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}flux_plot", gas_type))
         .coordinates_formatter(
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                    .map(|dt| {
-                        DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
-                    })
+                // let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
+                //     .map(|dt| {
+                //         DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
+                //     })
+                //     .unwrap_or_else(|| format!("{:.1}", value.x));
+                let datetime = NaiveDateTime::UNIX_EPOCH
+                    .checked_add_signed(Duration::seconds(timestamp))
+                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| format!("{:.1}", value.x));
-
                 format!("Time: {}\n{} flux: {:.3} mg/m²/h", datetime, gas_type, value.y)
             }),
         )
@@ -1207,12 +1101,16 @@ pub fn init_lag_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                    .map(|dt| {
-                        DateTime::<Utc>::from_utc(dt, Utc)
-                            .format("%Y-%m-%d %H:%M:%S")
-                            .to_string()
-                    })
+                // let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
+                //     .map(|dt| {
+                //         DateTime::<Utc>::from_utc(dt, Utc)
+                //             .format("%Y-%m-%d %H:%M:%S")
+                //             .to_string()
+                //     })
+                //     .unwrap_or_else(|| format!("{:.1}", value.x));
+                let datetime = NaiveDateTime::UNIX_EPOCH
+                    .checked_add_signed(Duration::seconds(timestamp))
+                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| format!("{:.1}", value.x));
 
                 format!("Time: {}\n{} lag: {:.0} sec", datetime, gas_type, value.y)
