@@ -496,7 +496,11 @@ pub fn insert_fluxes_ignore_duplicates(
     tx.commit()?;
     Ok(())
 }
-pub fn update_fluxes(conn: &mut Connection, cycles: &[Cycle], project: String) -> Result<()> {
+pub fn update_fluxes(
+    conn: &mut Connection,
+    cycles: &[Cycle],
+    project: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tx = conn.transaction()?; // Start transaction for consistency
     {
         let mut update_stmt = tx.prepare(

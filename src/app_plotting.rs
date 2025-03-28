@@ -6,12 +6,10 @@ use crate::validation_app::ValidationApp;
 use crate::validation_app::{
     create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
 };
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use egui::Align2;
-use egui_file::FileDialog;
 use rusqlite::Connection;
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 
 use std::ops::RangeInclusive;
 
@@ -200,46 +198,29 @@ impl ValidationApp {
     pub fn get_measurement_max_y(&self, gas_type: &GasType) -> f64 {
         *self.measurement_max_y.get(gas_type).unwrap_or(&0.0)
     }
+
     pub fn update_current_cycle(&mut self) {
-        let proj = self.selected_project.as_ref().unwrap().clone();
-        self.cycles[*self.index].update_cycle(proj);
+        let cycle = self.cycles[*self.index].clone();
+        let project = self.selected_project.as_ref().unwrap().clone();
+
+        self.cycles[*self.index].update_cycle(project.clone());
         self.cycles[*self.index].manual_adjusted = true;
-        let mut conn = Connection::open("fluxrs.db").unwrap();
-        // let proj = self.selected_project.as_ref().unwrap().clone();
 
-        // update_fluxes(&mut conn, &[self.cycles[*self.index].clone()], proj);
+        let cycles = vec![cycle];
 
-        match update_fluxes(
-            &mut conn,
-            &[self.cycles[*self.index].clone()],
-            self.selected_project.as_ref().unwrap().clone(),
-        ) {
-            Ok(_) => println!("Fluxes inserted successfully!"),
-            Err(e) => eprintln!("Error inserting fluxes: {}", e),
-        }
+        // self.runtime.spawn(async move {
+        //     let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
+        //     update_fluxes(&mut conn, &cycles, project).await
+        // });
+
+        self.runtime.spawn_blocking(move || {
+            let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
+            if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
+                eprintln!("Flux update error: {}", e);
+            }
+        });
     }
-    // pub fn calculate_min_y(&mut self) {
-    //     let cycle = &self.cycles[self.index.count];
-    //     self.min_y.clear(); // Clear previous data
-    //
-    //     for (gas_type, gas_v) in &cycle.gas_v {
-    //         let min_value =
-    //             gas_v.iter().copied().filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min);
-    //
-    //         self.min_y.insert(*gas_type, min_value);
-    //     }
-    // }
-    // pub fn calculate_max_y(&mut self) {
-    //     let cycle = &self.cycles[self.index.count];
-    //     self.max_y.clear(); // Clear previous data
-    //
-    //     for (gas_type, gas_v) in &cycle.gas_v {
-    //         let min_value =
-    //             gas_v.iter().copied().filter(|v| !v.is_nan()).fold(f64::NEG_INFINITY, f64::max);
-    //
-    //         self.max_y.insert(*gas_type, min_value);
-    //     }
-    // }
+
     pub fn calculate_measurement_max_y(&mut self) {
         let cycle = &self.cycles[self.index.count];
         self.measurement_max_y.clear(); // Clear previous data
@@ -398,48 +379,6 @@ impl ValidationApp {
 
         (valid_traces, invalid_traces)
     }
-    // pub fn create_traces<F>(
-    //     &mut self,
-    //     gas_type: &GasType,
-    //     selector: F,
-    // ) -> HashMap<String, Vec<[f64; 2]>>
-    // where
-    //     F: Fn(&Cycle, &GasType) -> f64, // Selector function with gas_type
-    // {
-    //     let mut trace_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-    //
-    //     for &index in &self.visible_cycles {
-    //         let cycle = &self.cycles[index]; // Get cycle by precomputed index
-    //         let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-    //         let value = selector(cycle, gas_type); // Use the selector function with gas_type
-    //         let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-    //
-    //         trace_map.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);
-    //         // Append the point
-    //     }
-    //
-    //     trace_map
-    // }
-    // pub fn create_traces<F>(&mut self, selector: F) -> HashMap<String, Vec<[f64; 2]>>
-    // where
-    //     F: Fn(&Cycle) -> f64, // Selector function extracts the desired float value
-    // {
-    //     let mut trace_map: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-    //
-    //     for &index in &self.visible_cycles {
-    //         let cycle = &self.cycles[index]; // Get cycle by precomputed index
-    //         let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-    //         let value = selector(cycle, gas_type); // Use the selector function to get the desired value
-    //         let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-    //
-    //         trace_map
-    //             .entry(chamber_id)
-    //             .or_insert_with(Vec::new)
-    //             .push([start_time, value]); // Append the point
-    //     }
-    //
-    //     trace_map
-    // }
 
     pub fn create_lag_traces(
         &mut self,
@@ -553,144 +492,6 @@ impl ValidationApp {
         let x = s - x;
         self.cycles[self.index.count].calc_range_end.insert(gas_type, x);
     }
-    // pub fn new() -> Self {
-    //     Self {
-    //         cycles: Vec::new(),
-    //         gases: Vec::new(),
-    //         end_date: NaiveDate::from_ymd_opt(2025, 1, 14)
-    //             .unwrap()
-    //             .and_hms_opt(0, 0, 0)
-    //             .unwrap()
-    //             .and_utc(),
-    //         // end_date: Utc::now(),
-    //         start_date: Utc::now() - chrono::TimeDelta::weeks(1),
-    //         flux_traces: HashMap::new(),
-    //         lag_traces: HashMap::new(),
-    //         chamber_ids: Vec::new(),
-    //         lag_plot_w: 600.,
-    //         lag_plot_h: 350.,
-    //         gas_plot_w: 600.,
-    //         gas_plot_h: 350.,
-    //         flux_plot_w: 600.,
-    //         flux_plot_h: 350.,
-    //         all_traces: HashSet::new(),
-    //         visible_traces: HashMap::new(),
-    //         visible_cycles: Vec::new(),
-    //         selected_point: None,
-    //         dragged_point: None,
-    //         r_lim: 1.,
-    //         chamber_colors: HashMap::new(),
-    //         enabled_gases: HashSet::from([GasType::CH4, GasType::CO2]),
-    //         enabled_fluxes: HashSet::from([GasType::CH4, GasType::CO2]),
-    //         calc_area_color: Color32::default(),
-    //         calc_area_adjust_color: Color32::default(),
-    //         calc_area_stroke_color: Color32::default(),
-    //         drag_panel_width: 40.,
-    //         lag_idx: 0.,
-    //         close_idx: 0.,
-    //         open_idx: 0.,
-    //         open_offset: 0.,
-    //         close_offset: 0.,
-    //         start_time_idx: 0.,
-    //         end_time_idx: 0.,
-    //         calc_range_end: HashMap::new(),
-    //         calc_range_start: HashMap::new(),
-    //         max_y: HashMap::new(),
-    //         min_y: HashMap::new(),
-    //         calc_r: HashMap::new(),
-    //         measurement_r: HashMap::new(),
-    //         main_gas: GasType::CH4,
-    //         chamber_id: String::new(),
-    //         is_valid: true,
-    //         manual_valid: false,
-    //         override_valid: None,
-    //         flux: HashMap::new(),
-    //         measurement_max_y: HashMap::new(),
-    //         measurement_min_y: HashMap::new(),
-    //         min_calc_area_range: 240.,
-    //         index: Index::default(),
-    //         lag_vec: Vec::new(),
-    //         start_vec: Vec::new(),
-    //         lag_plot: Vec::new(),
-    //         opened_files: None,
-    //         open_file_dialog: None,
-    //         initial_path: Some(PathBuf::from(".")),
-    //         selected_data_type: None,
-    //         log_messages: Vec::new(),
-    //         show_valids: true,
-    //         show_invalids: true,
-    //         zoom_to_measurement: false,
-    //     }
-    // }
-    // pub fn new(mut cycles: Vec<Cycle>) -> Self {
-    //     let cycle = &mut cycles[0];
-    //     let lag_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
-    //     let close_idx = cycle.close_time.timestamp() as f64 + cycle.lag_s;
-    //     let open_idx = cycle.open_time.timestamp() as f64 + cycle.lag_s;
-    //     let open_offset = cycle.open_offset as f64;
-    //     let close_offset = cycle.close_offset as f64;
-    //     let start_time_idx = cycle.start_time.timestamp() as f64;
-    //     let end_time_idx = cycle.end_time.timestamp() as f64;
-    //     let calc_range_end = cycle.calc_range_end.clone();
-    //     let calc_range_start = cycle.calc_range_start.clone();
-    //     let min_y = cycle.min_y.clone();
-    //     let max_y = cycle.max_y.clone();
-    //     let gas_plot = cycle.gas_plot.clone();
-    //     let min_calc_area_range = 240.;
-    //     let lag_vec: Vec<f64> = cycles.iter().map(|x| x.lag_s).collect();
-    //     let start_vec: Vec<f64> = cycles
-    //         .iter()
-    //         .map(|x| x.start_time.timestamp() as f64)
-    //         .collect();
-    //     let lag_plot: Vec<[f64; 2]> = start_vec
-    //         .iter()
-    //         .copied() // Copy each f64 from the iterator
-    //         .zip(lag_vec.iter().copied()) // Iterate and copy gas_v
-    //         .map(|(x, y)| [x, y]) // Convert each tuple into an array
-    //         .collect();
-    //     let index = Index::default();
-    //     let drag_panel_width = 40.0;
-    //     let calc_area_color = Color32::from_rgba_unmultiplied(64, 242, 106, 4);
-    //     let calc_area_adjust_color = Color32::from_rgba_unmultiplied(64, 242, 106, 50);
-    //     let calc_area_stroke_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
-    //     let selected_point = None;
-    //     let dragged_point = None;
-    //     let gases = Vec::new();
-    //     Self {
-    //         cycles,
-    //         gases,
-    //         start_date: String::new(),
-    //         end_date: String::new(),
-    //         visible_traces: HashMap::new(),
-    //         selected_point,
-    //         dragged_point,
-    //         r_lim: 1.,
-    //         chamber_colors: HashMap::new(),
-    //         enabled_gases: HashSet::from([GasType::CH4, GasType::CO2]),
-    //         enabled_fluxes: HashSet::from([GasType::CH4, GasType::CO2]),
-    //         gas_plot,
-    //         calc_area_color,
-    //         calc_area_adjust_color,
-    //         calc_area_stroke_color,
-    //         drag_panel_width,
-    //         lag_idx,
-    //         close_idx,
-    //         open_idx,
-    //         open_offset,
-    //         close_offset,
-    //         start_time_idx,
-    //         end_time_idx,
-    //         calc_range_end,
-    //         calc_range_start,
-    //         max_y,
-    //         min_y,
-    //         min_calc_area_range,
-    //         index,
-    //         lag_vec,
-    //         start_vec,
-    //         lag_plot,
-    //     }
-    // }
 
     pub fn render_attribute_plot<F>(
         &mut self,
@@ -815,219 +616,6 @@ impl ValidationApp {
             }
         }
     }
-    // pub fn render_attribute_plot<F>(
-    //     &mut self,
-    //     plot_ui: &mut egui_plot::PlotUi,
-    //     gas_type: &GasType,
-    //     selector: F,
-    //     plot_name: &str,
-    // ) where
-    //     F: Fn(&Cycle, &GasType) -> f64, // Selector function for extracting data
-    // {
-    //     let traces = self.create_traces(gas_type, selector);
-    //     let mut hovered_point: Option<[f64; 2]> = None;
-    //
-    //     // Sort chamber IDs for consistent rendering
-    //     let mut chamber_ids: Vec<&String> = traces.keys().collect();
-    //     chamber_ids.sort();
-    //
-    //     for chamber_id in chamber_ids {
-    //         if let Some(points) = traces.get(chamber_id) {
-    //             let color = self
-    //                 .chamber_colors
-    //                 .entry(chamber_id.clone())
-    //                 .or_insert_with(|| generate_color(chamber_id));
-    //
-    //             let plot_points = PlotPoints::from(points.clone());
-    //
-    //             plot_ui.points(
-    //                 Points::new(plot_points)
-    //                     .name(format!("{} {}", plot_name, chamber_id))
-    //                     .shape(MarkerShape::Circle)
-    //                     .radius(2.)
-    //                     .color(*color),
-    //             );
-    //         }
-    //     }
-    //
-    //     // **Handle hovering logic**
-    //     if let transform = plot_ui.transform() {
-    //         if let Some(cursor_screen_pos) = plot_ui.ctx().pointer_latest_pos() {
-    //             hovered_point = find_closest_point_screen_space(
-    //                 &transform,
-    //                 Some(cursor_screen_pos),
-    //                 &traces,
-    //                 80.0,
-    //             );
-    //         }
-    //     }
-    //
-    //     if plot_ui.response().clicked() {
-    //         if let Some(closest) = hovered_point {
-    //             let x_coord = closest[0];
-    //
-    //             // Find the newest y-coordinate (flux value) for this x
-    //             if let Some(new_y) =
-    //                 traces.values().flatten().filter(|p| p[0] == x_coord).map(|p| p[1]).last()
-    //             {
-    //                 self.selected_point = Some([x_coord, new_y]);
-    //             }
-    //
-    //             // **Update index when clicking on a new measurement**
-    //             for (i, c) in self.cycles.iter().enumerate() {
-    //                 if c.start_time.timestamp() as f64 == x_coord {
-    //                     self.index.set(i);
-    //                 }
-    //             }
-    //             self.update_cycle();
-    //         }
-    //     }
-    //
-    //     // **Force `selected_point` to update whenever `index` changes**
-    //     if let Some(current_cycle) = self.cycles.get(self.index.count) {
-    //         let x_coord = current_cycle.start_time.timestamp() as f64;
-    //
-    //         if let Some(new_y) =
-    //             traces.values().flatten().filter(|p| p[0] == x_coord).map(|p| p[1]).last()
-    //         {
-    //             self.selected_point = Some([x_coord, new_y]); // Keep x, update y
-    //         }
-    //     }
-    //
-    //     // Draw updated selected point
-    //     if let Some(selected) = self.selected_point {
-    //         plot_ui.points(
-    //             Points::new(PlotPoints::from(vec![selected]))
-    //                 .name("Current")
-    //                 .shape(MarkerShape::Circle)
-    //                 .radius(5.0)
-    //                 .filled(false)
-    //                 .color(egui::Color32::RED),
-    //         );
-    //     }
-    //
-    //     // Draw hovered point (if not the selected point)
-    //     if let Some(hovered) = hovered_point {
-    //         if Some(hovered) != self.selected_point {
-    //             plot_ui.points(
-    //                 Points::new(PlotPoints::from(vec![hovered]))
-    //                     .name("Closest")
-    //                     .shape(MarkerShape::Circle)
-    //                     .radius(5.0)
-    //                     .filled(false)
-    //                     .color(egui::Color32::GREEN),
-    //             );
-    //         }
-    //     }
-    // }
-    // pub fn render_flux_plot(&mut self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType) {
-    //     // let flux_traces = self.create_traces(&gas_type,|self.cycles[*self.index], &gas_type| *cycle.flux.get(gas_type).unwrap_or(&0.0));
-    //     let flux_traces = self.create_traces(&gas_type, |cycle, gas_type| {
-    //         *cycle.flux.get(gas_type).unwrap_or(&0.0)
-    //     });
-    //     let mut hovered_point: Option<[f64; 2]> = None;
-    //
-    //     // Sort chamber IDs for consistent rendering
-    //     let mut chamber_ids: Vec<&String> = flux_traces.keys().collect();
-    //     chamber_ids.sort();
-    //
-    //     for chamber_id in chamber_ids {
-    //         if let Some(lag_points) = flux_traces.get(chamber_id) {
-    //             let color = self
-    //                 .chamber_colors
-    //                 .entry(chamber_id.clone())
-    //                 .or_insert_with(|| generate_color(chamber_id));
-    //
-    //             let plot_points = PlotPoints::from(lag_points.clone());
-    //
-    //             plot_ui.points(
-    //                 Points::new(plot_points)
-    //                     .name(format!("ID {}", chamber_id))
-    //                     .shape(MarkerShape::Circle)
-    //                     .radius(2.)
-    //                     .color(*color),
-    //             );
-    //         }
-    //     }
-    //
-    //     // **Ensure selected_point updates properly when clicking OR changing index**
-    //     if let transform = plot_ui.transform() {
-    //         if let Some(cursor_screen_pos) = plot_ui.ctx().pointer_latest_pos() {
-    //             hovered_point = find_closest_point_screen_space(
-    //                 &transform,
-    //                 Some(cursor_screen_pos),
-    //                 &flux_traces,
-    //                 80.0,
-    //             );
-    //         }
-    //     }
-    //
-    //     if plot_ui.response().clicked() {
-    //         if let Some(closest) = hovered_point {
-    //             let x_coord = closest[0];
-    //
-    //             // Find the newest y-coordinate (flux value) for this x
-    //             if let Some(new_y) = flux_traces
-    //                 .values()
-    //                 .flatten()
-    //                 .filter(|p| p[0] == x_coord)
-    //                 .map(|p| p[1])
-    //                 .last()
-    //             {
-    //                 self.selected_point = Some([x_coord, new_y]);
-    //             }
-    //
-    //             // **Update index when clicking on a new measurement**
-    //             for (i, c) in self.cycles.iter().enumerate() {
-    //                 if c.start_time.timestamp() as f64 == x_coord {
-    //                     self.index.set(i);
-    //                 }
-    //             }
-    //             self.update_cycle();
-    //         }
-    //     }
-    //
-    //     // **Force `selected_point` to update whenever `index` changes**
-    //     if let Some(current_cycle) = self.cycles.get(self.index.count) {
-    //         let x_coord = current_cycle.start_time.timestamp() as f64;
-    //
-    //         if let Some(new_y) = flux_traces
-    //             .values()
-    //             .flatten()
-    //             .filter(|p| p[0] == x_coord)
-    //             .map(|p| p[1])
-    //             .last()
-    //         {
-    //             self.selected_point = Some([x_coord, new_y]); // Keep x, update y
-    //         }
-    //     }
-    //
-    //     // Draw updated selected point
-    //     if let Some(selected) = self.selected_point {
-    //         plot_ui.points(
-    //             Points::new(PlotPoints::from(vec![selected]))
-    //                 .name("Current")
-    //                 .shape(MarkerShape::Circle)
-    //                 .radius(5.0)
-    //                 .filled(false)
-    //                 .color(egui::Color32::RED),
-    //         );
-    //     }
-    //
-    //     // Draw hovered point (if not the selected point)
-    //     if let Some(hovered) = hovered_point {
-    //         if Some(hovered) != self.selected_point {
-    //             plot_ui.points(
-    //                 Points::new(PlotPoints::from(vec![hovered]))
-    //                     .name("Closest")
-    //                     .shape(MarkerShape::Circle)
-    //                     .radius(5.0)
-    //                     .filled(false)
-    //                     .color(egui::Color32::GREEN),
-    //             );
-    //         }
-    //     }
-    // }
     fn merge_traces(
         &self,
         valid_traces: HashMap<String, Vec<[f64; 2]>>,
@@ -1117,31 +705,6 @@ impl ValidationApp {
             }
         }
 
-        // if let Some(dragged) = self.dragged_point {
-        //     if response.dragged_by(egui::PointerButton::Primary) {
-        //         let delta = response.drag_delta(); // Mouse movement in screen space
-        //
-        //         if let transform = plot_ui.transform() {
-        //             // ✅ Convert screen-space delta to plot-space delta
-        //             let plot_delta = transform.inverse().transform_vec2(delta.into());
-        //
-        //             let new_y = dragged[1] - plot_delta.y as f64; // ✅ Adjust using converted delta
-        //
-        //             self.dragged_point = Some([dragged[0], new_y]);
-        //
-        //             for cycle in &mut self.cycles {
-        //                 if cycle.start_time.timestamp() as f64 == dragged[0] {
-        //                     cycle.lag_s = new_y;
-        //                     self.close_idx = self.start_time_idx + self.close_offset + new_y;
-        //                     self.open_idx = self.start_time_idx + self.open_offset + new_y;
-        //                     cycle.recalc_r();
-        //                     cycle.change_measurement_range();
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-
         if let Some(dragged) = self.dragged_point {
             if response.dragged_by(egui::PointerButton::Primary) {
                 let delta = response.drag_delta(); // Mouse movement in screen space
@@ -1171,54 +734,6 @@ impl ValidationApp {
                 }
             }
         }
-        // if let Some(dragged) = self.dragged_point {
-        //     if response.dragged_by(egui::PointerButton::Primary) {
-        //         let delta = response.drag_delta();
-        //
-        //         if let transform = plot_ui.transform() {
-        //             let plot_delta = transform.dvalue_dpos();
-        //             println!("{:?}", transform.dvalue_dpos());
-        //             println!("{:?}", transform.dpos_dvalue());
-        //             // transform.position_from_point(PlotPoint::new())
-        //
-        //             // transform.position_from_point(&PlotPoint::new(point[0], point[1]));
-        //
-        //             // NOT THIS
-        //             // let new_y = dragged[1] + transform.dpos_dvalue_y(); // ✅ Corrected scaling
-        //
-        //             // transform.value_from_position(Pos2::new(dragged[0])[dragged[0], new_y]);
-        //             self.dragged_point = Some([dragged[0], new_y]);
-        //
-        //             for cycle in &mut self.cycles {
-        //                 if cycle.start_time.timestamp() as f64 == dragged[0] {
-        //                     cycle.lag_s = new_y;
-        //                     self.close_idx = self.start_time_idx + self.close_offset + new_y;
-        //                     self.open_idx = self.start_time_idx + self.open_offset + new_y;
-        //                     cycle.recalc_r();
-        //                     cycle.change_measurement_range();
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
-        // if let Some(dragged) = self.dragged_point {
-        //     if response.dragged_by(egui::PointerButton::Primary) {
-        //         let delta = response.drag_delta();
-        //         let new_y = self.dragged_point.unwrap()[1] - delta.y as f64;
-        //
-        //         self.dragged_point = Some([dragged[0], new_y]);
-        //
-        //         for (i, cycle) in &mut self.cycles.iter_mut().enumerate() {
-        //             if cycle.start_time.timestamp() as f64 == dragged[0] {
-        //                 cycle.lag_s = new_y;
-        //                 self.close_idx = self.start_time_idx + self.close_offset + new_y;
-        //                 self.open_idx = self.start_time_idx + self.open_offset + new_y;
-        //                 cycle.recalc_r();
-        //                 cycle.change_measurement_range();
-        //             }
-        //         }
-        //     }
-        // }
         if response.drag_stopped() {
             self.dragged_point = None;
             // self.cycles[*self.index].update_cycle();
@@ -1548,80 +1063,6 @@ impl ValidationApp {
             },
         );
     }
-    // pub fn render_legend(&mut self, ui: &mut Ui, traces: &HashMap<String, Color32>) {
-    //     let legend_width = 150.0;
-    //     let color_box_size = Vec2::new(16.0, 16.0);
-    //
-    //     // let mut sorted_traces: Vec<(&String, &Color32)> = traces.iter().collect();
-    //     let mut sorted_traces: Vec<String> = self.all_traces.iter().cloned().collect();
-    //
-    //     // Sort numerically
-    //     sorted_traces.sort_by(|(a), (b)| {
-    //         let num_a = a.parse::<f64>().ok();
-    //         let num_b = b.parse::<f64>().ok();
-    //         match (num_a, num_b) {
-    //             (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-    //             (Some(_), None) => std::cmp::Ordering::Less,
-    //             (None, Some(_)) => std::cmp::Ordering::Greater,
-    //             (None, None) => a.cmp(b),
-    //         }
-    //     });
-    //
-    //     ui.allocate_ui_with_layout(
-    //         Vec2::new(legend_width, ui.available_height()),
-    //         Layout::top_down(egui::Align::LEFT),
-    //         |ui| {
-    //             ui.label("Legend");
-    //
-    //             if self.visible_traces.is_empty() {
-    //                 self.visible_traces =
-    //                     sorted_traces.clone().into_iter().map(|s| (s, true)).collect();
-    //                 // self.visible_traces =
-    //                 // self.all_traces.into_iter().map(|s| (s, true)).collect();
-    //             }
-    //             for chamber_id in &sorted_traces {
-    //                 // if self.visible_traces.is_empty() {
-    //                 //     self.visible_traces = sorted_traces
-    //                 //         .clone()
-    //                 //         .into_iter()
-    //                 //         .map(|s| (s, true))
-    //                 //         .collect();
-    //                 //     // self.visible_traces =
-    //                 //     // self.all_traces.into_iter().map(|s| (s, true)).collect();
-    //                 // }
-    //                 let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-    //
-    //                 ui.horizontal(|ui| {
-    //                     let color = self.chamber_colors.get(chamber_id).unwrap().clone();
-    //                     // let mut checkbox_clicked = false;
-    //
-    //                     // Only allow disabling if more than one trace is visible
-    //                     if ui.checkbox(&mut visible, "").clicked() {
-    //                         // checkbox_clicked = true;
-    //                         // println!("{:?}", self.visible_traces);
-    //                         self.toggle_visibility(chamber_id);
-    //                         self.update_cycle();
-    //                     }
-    //
-    //                     // self.visible_traces.insert(chamber_id.clone(), visible);
-    //
-    //                     // Count how many traces are currently visible
-    //                     // let visible_count = self.visible_traces.values().filter(|&&v| v).count();
-    //
-    //                     // if checkbox_clicked && !visible && visible_count == 1 {
-    //                     //     visible = true; // Prevent disabling the last visible trace
-    //                     //     self.update_cycle();
-    //                     // }
-    //                     let (rect, _response) =
-    //                         ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //                     ui.painter().rect_filled(rect, 2.0, color);
-    //                     ui.label(chamber_id);
-    //                     // self.update_cycle();
-    //                 });
-    //             }
-    //         },
-    //     );
-    // }
     pub fn toggle_visibility(&mut self, chamber_id: &String) {
         // Count currently visible traces
         let visible_count = self.visible_traces.values().filter(|&&v| v).count();
@@ -1637,211 +1078,6 @@ impl ValidationApp {
         // Toggle visibility
         self.visible_traces.insert(chamber_id.clone(), !is_visible);
     }
-    // pub fn render_legend(&mut self, ui: &mut Ui, traces: &HashMap<String, Color32>) {
-    //     let legend_width = 150.0; // Fixed width for the legend
-    //     let color_box_size = Vec2::new(16.0, 16.0); // Size of color indicator
-    //
-    //     // Ensure all traces are always available in legend
-    //     let mut sorted_traces: Vec<(&String, &Color32)> = if traces.is_empty() {
-    //         // If all traces are hidden, use `all_traces` to show legend items
-    //         self.all_traces
-    //             .iter()
-    //             .map(|id| (id, self.chamber_colors.get(id).unwrap_or(&Color32::GRAY)))
-    //             .collect()
-    //     } else {
-    //         traces.iter().collect()
-    //     };
-    //
-    //     // Sort traces numerically when possible
-    //     sorted_traces.sort_by(|(a, _), (b, _)| {
-    //         let num_a = a.parse::<f64>().ok();
-    //         let num_b = b.parse::<f64>().ok();
-    //
-    //         match (num_a, num_b) {
-    //             (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal), // Numeric sorting
-    //             (Some(_), None) => std::cmp::Ordering::Less, // Numbers come first
-    //             (None, Some(_)) => std::cmp::Ordering::Greater, // Strings come after numbers
-    //             (None, None) => a.cmp(b),                    // Default string sorting
-    //         }
-    //     });
-    //
-    //     // Always allocate UI for the legend, even if all traces are hidden
-    //     ui.allocate_ui_with_layout(
-    //         Vec2::new(legend_width, ui.available_height()),
-    //         Layout::top_down(egui::Align::LEFT),
-    //         |ui| {
-    //             ui.label("Legend");
-    //
-    //             for (chamber_id, color) in sorted_traces {
-    //                 let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-    //
-    //                 ui.horizontal(|ui| {
-    //                     if ui.checkbox(&mut visible, "").changed() {
-    //                         self.visible_traces.insert(chamber_id.clone(), visible);
-    //                     }
-    //
-    //                     let (rect, _response) =
-    //                         ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //                     ui.painter().rect_filled(rect, 2.0, *color);
-    //                     ui.label(chamber_id);
-    //                 });
-    //             }
-    //         },
-    //     );
-    // }
-
-    // pub fn render_legend(&mut self, ui: &mut Ui, traces: &HashMap<String, Color32>) {
-    //     let legend_width = 150.0; // Fixed width for the legend
-    //     let color_box_size = Vec2::new(16.0, 16.0); // Size of color indicator
-    //
-    //     // 🔹 Convert trace names into (numeric value, original name)
-    //     let mut sorted_traces: Vec<(&String, &Color32)> = traces.iter().collect();
-    //
-    //     // sorted traces as numbers
-    //     sorted_traces.sort_by(|(a, _), (b, _)| {
-    //         let num_a = a.parse::<f64>().ok();
-    //         let num_b = b.parse::<f64>().ok();
-    //
-    //         match (num_a, num_b) {
-    //             (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal), // Numeric sorting
-    //             (Some(_), None) => std::cmp::Ordering::Less, // Numbers come first
-    //             (None, Some(_)) => std::cmp::Ordering::Greater, // Strings come after numbers
-    //             (None, None) => a.cmp(b),                    // Default string sorting
-    //         }
-    //     });
-    //
-    //     let mut sorted_traces: Vec<_> = self.all_traces.iter().collect();
-    //
-    //     // Sort numerically
-    //     sorted_traces.sort_by(|a, b| {
-    //         let num_a = a.parse::<i64>().unwrap_or(i64::MAX); // Convert string to number, or max if invalid
-    //         let num_b = b.parse::<i64>().unwrap_or(i64::MAX);
-    //         num_a.cmp(&num_b)
-    //     });
-    //
-    //     ui.allocate_ui_with_layout(
-    //         Vec2::new(legend_width, ui.available_height()),
-    //         Layout::top_down(egui::Align::LEFT),
-    //         |ui| {
-    //             ui.label("Legend");
-    //
-    //             for chamber_id in sorted_traces {
-    //                 // Sorted numerically
-    //                 let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-    //
-    //                 ui.horizontal(|ui| {
-    //                     if ui.checkbox(&mut visible, "").changed() {
-    //                         self.visible_traces.insert(chamber_id.clone(), visible);
-    //                     }
-    //
-    //                     let (rect, _response) =
-    //                         ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //
-    //                     let color = self
-    //                         .chamber_colors
-    //                         .get(chamber_id)
-    //                         .unwrap_or(&egui::Color32::GRAY);
-    //                     ui.painter().rect_filled(rect, 2.0, *color);
-    //
-    //                     ui.label(chamber_id);
-    //                 });
-    //             }
-    //         },
-    //     );
-    //     // ui.allocate_ui_with_layout(
-    //     //     Vec2::new(legend_width, ui.available_height()),
-    //     //     Layout::top_down(egui::Align::LEFT),
-    //     //     |ui| {
-    //     //         ui.label("Legend");
-    //     //
-    //     //         for chamber_id in sorted_traces {
-    //     //             // Sorted numerically
-    //     //             let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-    //     //
-    //     //             ui.horizontal(|ui| {
-    //     //                 if ui.checkbox(&mut visible, "").changed() {
-    //     //                     self.visible_traces.insert(chamber_id.clone(), visible);
-    //     //                 }
-    //     //
-    //     //                 let (rect, _response) =
-    //     //                     ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //     //
-    //     //                 let color = self
-    //     //                     .chamber_colors
-    //     //                     .get(chamber_id)
-    //     //                     .unwrap_or(&egui::Color32::GRAY);
-    //     //                 ui.painter().rect_filled(rect, 2.0, *color);
-    //     //
-    //     //                 ui.label(chamber_id);
-    //     //             });
-    //     //         }
-    //     //     },
-    //     // );
-    //     // ui.allocate_ui_with_layout(
-    //     //     Vec2::new(legend_width, ui.available_height()), // Fixed width
-    //     //     Layout::top_down(egui::Align::LEFT),
-    //     //     |ui| {
-    //     //         ui.label("Legend");
-    //     //
-    //     //         for chamber_id in &self.all_traces {
-    //     //             // Always iterate over all traces
-    //     //             let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-    //     //
-    //     //             ui.horizontal(|ui| {
-    //     //                 // 🔹 Checkbox for toggling visibility
-    //     //                 if ui.checkbox(&mut visible, "").changed() {
-    //     //                     self.visible_traces.insert(chamber_id.clone(), visible);
-    //     //                 }
-    //     //
-    //     //                 // 🔹 Reserve space for the color box
-    //     //                 let (rect, _response) =
-    //     //                     ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //     //
-    //     //                 // 🔹 Draw the color box
-    //     //                 let color = self
-    //     //                     .chamber_colors
-    //     //                     .get(chamber_id)
-    //     //                     .unwrap_or(&egui::Color32::GRAY);
-    //     //                 ui.painter().rect_filled(rect, 2.0, *color);
-    //     //
-    //     //                 // 🔹 Show trace name
-    //     //                 ui.label(chamber_id);
-    //     //             });
-    //     //         }
-    //     //     },
-    //     // );
-    //     // ui.allocate_ui_with_layout(
-    //     //     Vec2::new(legend_width, ui.available_height()), // Fixed width
-    //     //     Layout::top_down(egui::Align::LEFT),
-    //     //     |ui| {
-    //     //         ui.label("Legend");
-    //     //
-    //     //         for (chamber_id, color) in sorted_traces.iter() {
-    //     //             ui.horizontal(|ui| {
-    //     //                 // 🔹 Checkbox for toggling visibility
-    //     //                 let mut visible = self
-    //     //                     .visible_traces
-    //     //                     .get(*chamber_id)
-    //     //                     .cloned()
-    //     //                     .unwrap_or(true);
-    //     //                 if ui.checkbox(&mut visible, "").changed() {
-    //     //                     // No label on checkbox to avoid overlap
-    //     //                     self.visible_traces.insert((*chamber_id).clone(), visible);
-    //     //                 }
-    //     //
-    //     //                 // 🔹 Reserve space for the color box
-    //     //                 let (rect, _response) =
-    //     //                     ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //     //
-    //     //                 // 🔹 Draw the color box inside the allocated rect
-    //     //                 ui.painter().rect_filled(rect, 2.0, **color);
-    //     //                 // 🔹 Show trace name separately for spacing
-    //     //                 ui.label(*chamber_id);
-    //     //             });
-    //     //         }
-    //     //     },
-    //     // );
-    // }
 }
 
 pub fn init_gas_plot<'a>(
