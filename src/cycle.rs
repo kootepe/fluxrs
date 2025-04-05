@@ -1296,6 +1296,10 @@ pub fn load_fluxes(
     project: String,
     instrument_serial: String,
 ) -> Result<Vec<Cycle>> {
+    let ch4_col = 14;
+    let co2_col = 20;
+    let h2o_col = 26;
+    let n2o_col = 32;
     let mut stmt = conn.prepare(
         "SELECT instrument_model,
                 instrument_serial,
@@ -1360,8 +1364,8 @@ pub fn load_fluxes(
         let main_gas = GasType::from_str(&main_gas_str).unwrap_or(GasType::CH4);
 
         let start_timestamp: i64 = row.get(4)?;
-        let naive = NaiveDateTime::from_timestamp(start_timestamp, 0);
-        let start_time = DateTime::<Utc>::from_utc(naive, Utc);
+        let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+
         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
 
         let close_offset: i64 = row.get(5)?;
@@ -1384,8 +1388,12 @@ pub fn load_fluxes(
         let open_time = start_time + TimeDelta::seconds(open_offset);
         let end_time = start_time + TimeDelta::seconds(end_offset);
 
-        let gas_columns =
-            vec![(GasType::CH4, 14), (GasType::CO2, 20), (GasType::H2O, 26), (GasType::N2O, 32)];
+        let gas_columns = vec![
+            (GasType::CH4, ch4_col),
+            (GasType::CO2, co2_col),
+            (GasType::H2O, h2o_col),
+            (GasType::N2O, n2o_col),
+        ];
 
         let manual_adjusted = row.get(38)?;
         let project_name = row.get(39)?;
