@@ -1710,14 +1710,27 @@ impl TableApp {
             egui::ScrollArea::both().show(ui, |ui| {
                 egui::Grid::new("data_table").striped(true).show(ui, |ui| {
                     for col in &self.column_names {
-                        ui.label(col);
+                        ui.label(col); // show headers as-is
                     }
                     ui.end_row();
-
                     for row in &self.data[start_idx..end_idx] {
-                        for value in row {
-                            // ui.label(format!("{}", value));
-                            ui.label(value);
+                        for (i, value) in row.iter().enumerate() {
+                            let col_name = &self.column_names[i];
+                            let display = if col_name == "datetime" || col_name == "start_time" {
+                                if let Ok(ts) = value.parse::<i64>() {
+                                    if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
+                                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                                    } else {
+                                        format!("Invalid timestamp: {}", ts)
+                                    }
+                                } else {
+                                    format!("Invalid value: {}", value)
+                                }
+                            } else {
+                                value.to_string()
+                            };
+
+                            ui.label(display);
                         }
                         ui.end_row();
                     }
