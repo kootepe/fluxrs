@@ -660,6 +660,7 @@ fn process_cycles(
     timev: &TimeData,
     sorted_data: &HashMap<String, GasData>,
     meteo_data: &MeteoData,
+    volume_data: &VolumeData,
     project: String,
 ) -> Result<Vec<Cycle>, Box<dyn Error + Send + Sync>> {
     println!("Processing cycles");
@@ -735,6 +736,15 @@ fn process_cycles(
             };
             cycle.air_temperature = temp;
             cycle.air_pressure = pressure;
+
+            // let volume = match volume_data.get_nearest_previous_volume(target, &cycle.chamber_id) {
+            //     Some(volume) => volume,
+            //     None => 1.0,
+            // };
+            let volume =
+                volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
+            cycle.chamber_volume = volume;
+
             cycle_vec.push(cycle);
         } else {
             no_data_for_day = true;

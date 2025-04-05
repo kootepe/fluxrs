@@ -10,11 +10,11 @@ use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
 use crate::query_gas;
+use crate::volumedata::{insert_volume_data, query_volume, VolumeData};
 use crate::EqualLen;
 use std::sync::mpsc::{Receiver, Sender};
 // use crate::structs::EqualLen;
 use crate::timedata::{query_cycles, TimeData};
-use crate::volumedata::{insert_volume_data, VolumeData};
 use crate::Cycle;
 use crate::{insert_cycles, process_cycles};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
@@ -1073,8 +1073,9 @@ impl ValidationApp {
                 query_cycles(&conn_guard, start_date, end_date, project.clone()),
                 query_gas(&conn_guard, start_date, end_date, project.clone(), instrument_serial),
                 query_meteo(&conn_guard, start_date, end_date, project.clone()),
+                query_volume(&conn_guard, start_date, end_date, project.clone()),
             ) {
-                (Ok(times), Ok(gas_data), Ok(meteo_data)) => {
+                (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
                     // ui.add_enabled(false);
                     if times.start_time.is_empty() {
                         self.log_messages.push(format!(
@@ -1094,8 +1095,15 @@ impl ValidationApp {
                         let arc_conn_clone = arc_conn.clone(); // ✅ now this is valid
                         let sender = self.task_done_sender.clone(); // Channel to signal when done
                         self.runtime.spawn(async move {
-                            run_processing(times, gas_data, meteo_data, project, arc_conn_clone)
-                                .await;
+                            run_processing(
+                                times,
+                                gas_data,
+                                meteo_data,
+                                volume_data,
+                                project,
+                                arc_conn_clone,
+                            )
+                            .await;
                             let _ = sender.send(()); // done
                         });
                     } else {
@@ -1763,6 +1771,7 @@ async fn run_processing(
     times: TimeData,
     gas_data: HashMap<String, GasData>,
     meteo_data: MeteoData,
+    volume_data: VolumeData,
     project: String,
     conn: Arc<Mutex<rusqlite::Connection>>,
 ) {
@@ -1789,6 +1798,7 @@ async fn run_processing(
         let dates_set: HashSet<String> = date_group.iter().cloned().collect();
         let filtered_times = filter_time_data_by_dates(&times, &dates_set);
         let meteo_clone = meteo_data.clone();
+        let volume_clone = volume_data.clone();
         let project_clone = project.clone();
 
         let mut gas_data_for_thread = HashMap::new();
@@ -1799,7 +1809,13 @@ async fn run_processing(
         }
 
         let task = tokio::task::spawn_blocking(move || {
-            process_cycles(&filtered_times, &gas_data_for_thread, &meteo_clone, project_clone)
+            process_cycles(
+                &filtered_times,
+                &gas_data_for_thread,
+                &meteo_clone,
+                &volume_clone,
+                project_clone,
+            )
         });
 
         tasks.push(task);
