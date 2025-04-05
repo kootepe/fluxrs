@@ -1,5 +1,4 @@
-use crate::cycle::update_fluxes;
-use crate::cycle::Cycle;
+use crate::cycle::{update_fluxes, Cycle};
 use crate::errorcode::ErrorCode;
 pub use crate::instruments::GasType;
 use crate::validation_app::ValidationApp;
@@ -315,9 +314,7 @@ impl ValidationApp {
         (valid_traces, invalid_traces)
     }
 
-    pub fn create_lag_traces(
-        &mut self,
-    ) -> (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>) {
+    pub fn _create_lag_traces(&mut self) -> DataTrace {
         let mut valid_traces: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
         let mut invalid_traces: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
 
@@ -372,7 +369,7 @@ impl ValidationApp {
         let x = s + x;
         self.cycles[self.index.count].calc_range_end.insert(gas_type, x);
     }
-    pub fn decrement_calc_end(&mut self, gas_type: GasType, x: f64) {
+    pub fn _decrement_calc_end(&mut self, gas_type: GasType, x: f64) {
         let s = self.cycles[self.index.count].calc_range_end.get(&gas_type).unwrap_or(&0.0);
         let x = s - x;
         self.cycles[self.index.count].calc_range_end.insert(gas_type, x);
@@ -682,7 +679,7 @@ impl ValidationApp {
             }
         }
     }
-    pub fn find_closest_point(
+    pub fn _find_closest_point(
         &self,
         pointer: PlotPoint,
         traces: &HashMap<String, Vec<[f64; 2]>>, // All chamber traces
@@ -732,7 +729,7 @@ impl ValidationApp {
             .copied()
     }
 
-    pub fn create_lag_plot(&self) -> Plot {
+    pub fn _create_lag_plot(&self) -> Plot {
         Plot::new("Lag plot")
             // .x_grid_spacer(self.x_grid_spacer_lag())
             // .x_axis_formatter(self.x_axis_formatter_lag())
@@ -745,7 +742,7 @@ impl ValidationApp {
         // .legend(Legend::default().show(false))
     }
 
-    pub fn find_bad_measurement(&mut self, gas_type: GasType) {
+    pub fn _find_bad_measurement(&mut self, gas_type: GasType) {
         let mut idx = self.index.count + 1;
         while idx < self.cycles.len() - 1
             && *self.cycles[idx].measurement_r2.get(&gas_type).unwrap_or(&0.0) > 0.995
@@ -867,16 +864,16 @@ impl ValidationApp {
                 // self.cycles[self.index.count].calculate_fluxes();
             }
             limit_to_bounds(plot_ui, self, &gas_type);
-            let x_range = (self.end_time_idx - self.start_time_idx) * 0.05;
+            // let x_range = (self.end_time_idx - self.start_time_idx) * 0.05;
             let y_range = (self.get_max_y(&gas_type) - self.get_min_y(&gas_type)) * 0.05;
-            let x_min = self.start_time_idx - x_range;
-            let x_max = self.end_time_idx + x_range;
+            // let x_min = self.start_time_idx - x_range;
+            // let x_max = self.end_time_idx + x_range;
             // let x_min = x_open - 90.;
             // let x_max = x_open + 90.;
             // let mut y_min = self.get_min_y(&gas_type) - 50.;
             // let mut y_max = self.get_max_y(&gas_type) + 50.;
-            let mut y_min = self.get_min_y(&gas_type) - y_range;
-            let mut y_max = self.get_max_y(&gas_type) + y_range;
+            let y_min = self.get_min_y(&gas_type) - y_range;
+            let y_max = self.get_max_y(&gas_type) + y_range;
 
             if self.zoom_to_measurement {
                 let x_min = x_open - 60.;
@@ -889,7 +886,7 @@ impl ValidationApp {
         }
     }
 
-    pub fn render_legend(&mut self, ui: &mut Ui, traces: &HashMap<String, Color32>) {
+    pub fn render_legend(&mut self, ui: &mut Ui, _traces: &HashMap<String, Color32>) {
         let legend_width = 150.0;
         let color_box_size = Vec2::new(16.0, 16.0);
 
