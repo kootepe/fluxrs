@@ -85,15 +85,13 @@ impl ValidationApp {
         let adj_x_close = self.start_time_idx + self.close_offset + lag_s;
         let adj_open_line = VLine::new(adj_x_open)
             .name("Lagtime")
-            .width(2.0)
             .allow_hover(true)
-            .stroke(Stroke::new(1.0, Color32::DARK_GREEN));
+            .stroke(Stroke::new(2.0, Color32::DARK_GREEN));
 
         let adj_close_line = VLine::new(adj_x_close)
             .name("Close time")
-            .width(2.0)
             .allow_hover(true)
-            .stroke(Stroke::new(1.0, Color32::RED));
+            .stroke(Stroke::new(2.0, Color32::RED));
 
         let x_open: f64 = self.start_time_idx + self.open_offset;
         let x_close = self.start_time_idx + self.close_offset;
@@ -101,12 +99,14 @@ impl ValidationApp {
             .name("Unadjusted open")
             .width(2.0)
             .allow_hover(true)
-            .stroke(Stroke::new(1.0, Color32::LIGHT_GREEN));
+            .style(egui_plot::LineStyle::Dashed { length: (10.) })
+            .stroke(Stroke::new(2.0, Color32::DARK_GREEN));
         let close_line = VLine::new(x_close)
             .name("Unadjusted close")
             .width(2.0)
             .allow_hover(true)
-            .stroke(Stroke::new(1.0, Color32::LIGHT_RED));
+            .style(egui_plot::LineStyle::Dashed { length: (10.) })
+            .stroke(Stroke::new(2.0, Color32::RED));
 
         // plot_ui.polygon(main_polygon);
         // plot_ui.polygon(left_polygon);
