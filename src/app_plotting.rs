@@ -1,27 +1,24 @@
+use crate::cycle::update_fluxes;
 use crate::cycle::Cycle;
-use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
 use crate::errorcode::ErrorCode;
-use crate::index::Index;
 pub use crate::instruments::GasType;
-// use crate::query::{insert_fluxes_ignore_duplicates, update_fluxes};
 use crate::validation_app::ValidationApp;
 use crate::validation_app::{
     create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
 };
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use egui::Align2;
-use rusqlite::Connection;
 use std::collections::HashMap;
 
 use std::ops::RangeInclusive;
 
-use eframe::egui::{
-    Color32, Id, Layout, PointerButton, Pos2, Rect, RichText, Sense, Stroke, Ui, Vec2, Vec2b,
-};
+use eframe::egui::{Color32, Id, Layout, PointerButton, Pos2, RichText, Stroke, Ui, Vec2};
 use egui_plot::{
     CoordinatesFormatter, Corner, GridInput, GridMark, MarkerShape, Plot, PlotBounds, PlotPoint,
     PlotPoints, PlotTransform, Points, Text, VLine,
 };
+
+type DataTrace = (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>);
 
 impl ValidationApp {
     pub fn is_gas_enabled(&self, gas_type: &GasType) -> bool {
@@ -194,10 +191,10 @@ impl ValidationApp {
         *self.cycles[*self.index].max_y.get(gas_type).unwrap_or(&0.0)
     }
 
-    pub fn get_measurement_min_y(&self, gas_type: &GasType) -> f64 {
+    pub fn _get_measurement_min_y(&self, gas_type: &GasType) -> f64 {
         *self.measurement_min_y.get(gas_type).unwrap_or(&0.0)
     }
-    pub fn get_measurement_max_y(&self, gas_type: &GasType) -> f64 {
+    pub fn _get_measurement_max_y(&self, gas_type: &GasType) -> f64 {
         *self.measurement_max_y.get(gas_type).unwrap_or(&0.0)
     }
 
@@ -294,11 +291,7 @@ impl ValidationApp {
         }
     }
 
-    pub fn create_traces<F>(
-        &mut self,
-        gas_type: &GasType,
-        selector: F,
-    ) -> (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>)
+    pub fn create_traces<F>(&mut self, gas_type: &GasType, selector: F) -> DataTrace
     where
         F: Fn(&Cycle, &GasType) -> f64, // Selector function with gas_type
     {
@@ -312,6 +305,7 @@ impl ValidationApp {
             let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
 
             if cycle.is_valid {
+                // valid_traces.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);
                 valid_traces.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);
             } else {
                 invalid_traces.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);

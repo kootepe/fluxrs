@@ -1,12 +1,5 @@
-use crate::instruments::{GasType, InstrumentType};
+use rusqlite::{Connection, Result};
 
-use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone, Utc};
-use csv::StringRecord;
-use rusqlite::{params, Connection, Result};
-use std::collections::HashMap;
-use std::hash::Hash;
-
-use crate::gasdata::GasData;
 const DB_VERSION: i32 = 1;
 
 pub fn init_cycle_db(conn: &Connection) {
@@ -47,7 +40,7 @@ pub fn init_measurement_db(conn: &Connection) {
 }
 
 pub fn migrate_db() -> Result<i32> {
-    let mut conn = Connection::open("fluxrs.db")?;
+    let conn = Connection::open("fluxrs.db")?;
     let current_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
     let mut migrated = 0;
     println!("Current db version: {current_version}");
@@ -61,7 +54,7 @@ pub fn migrate_db() -> Result<i32> {
     Ok(migrated)
 }
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
-    let mut conn = Connection::open("fluxrs.db")?;
+    let conn = Connection::open("fluxrs.db")?;
     // conn.execute("PRAGMA journal_mode=WAL;", [])?;
     // let wal_mode: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))?;
 
@@ -182,8 +175,6 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
 
-    // insert_measurements(&mut conn, gases)?;
-    // insert_cycles(&mut conn, times)?;
     Ok(())
 }
 

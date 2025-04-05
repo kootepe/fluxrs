@@ -221,3 +221,73 @@ pub fn query_gas(
     }
     Ok(grouped_data)
 }
+
+pub fn insert_measurements(
+    conn: &mut Connection,
+    all_gas: &GasData,
+    project: String,
+) -> Result<usize> {
+    let diag_vec = &all_gas.diag;
+    let datetime_vec = all_gas.datetime.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
+
+    let ch4_vec = all_gas.gas.get(&GasType::CH4).unwrap();
+    let co2_vec = all_gas.gas.get(&GasType::CO2).unwrap();
+    let h2o_vec = all_gas.gas.get(&GasType::H2O).unwrap();
+
+    if datetime_vec.len() != ch4_vec.len()
+        || datetime_vec.len() != co2_vec.len()
+        || datetime_vec.len() != h2o_vec.len()
+    {
+        println!("Error: Mismatched data lengths");
+        return Err(rusqlite::Error::InvalidQuery); // Ensure equal-length data
+    }
+
+    let tx = conn.transaction()?;
+    let mut duplicates = 0;
+    let mut inserted = 0;
+
+    // Prepare the statement for insertion
+    let mut stmt = tx.prepare(
+        "INSERT INTO measurements (datetime, ch4, co2, h2o, diag, instrument_serial, instrument_model, project_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    )?;
+
+    println!("Pushing data!");
+    for i in 0..datetime_vec.len() {
+        // Check for duplicates first
+        let mut check_stmt = tx
+            .prepare("SELECT 1 FROM measurements WHERE datetime = ?1 AND instrument_serial = ?2 AND project_id = ?3")?;
+        let mut rows =
+            check_stmt.query(params![datetime_vec[i], all_gas.instrument_serial, project])?;
+
+        if let Some(_) = rows.next()? {
+            // If a duplicate exists, log it
+            duplicates += 1;
+            println!(
+                "Warning: Duplicate record found for datetime: {} and instrument_serial: {}",
+                datetime_vec[i], all_gas.instrument_serial
+            );
+        } else {
+            // If no duplicate, insert the new record
+            stmt.execute(params![
+                datetime_vec[i],           // ✅ Individual timestamp
+                ch4_vec[i],                // ✅ Individual CH4 value
+                co2_vec[i],                // ✅ Individual CO2 value
+                h2o_vec[i],                // ✅ Individual H2O value
+                diag_vec[i],               // ✅ Individual diag value
+                all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
+                all_gas.instrument_model,  // Example: Instrument model
+                project
+            ])?;
+            inserted += 1;
+        }
+    }
+
+    drop(stmt);
+    tx.commit()?;
+
+    // Print how many rows were inserted and how many were duplicates
+    println!("Inserted {} rows into measurements, {} duplicates skipped.", inserted, duplicates);
+
+    Ok(inserted)
+}

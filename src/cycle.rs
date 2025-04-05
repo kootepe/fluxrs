@@ -4,14 +4,11 @@ use crate::instruments::{get_instrument_by_model, InstrumentType};
 use crate::query::{calculate_max_y_from_vec, calculate_min_y_from_vec};
 use crate::query_gas;
 use crate::stats;
-use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeDelta, Utc};
 use rusqlite::{params, Connection, Error, Result};
 
-// use rusqlite::Error;
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
-use std::ops::{BitOr, BitOrAssign};
 
 // the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: usize = 180;
@@ -72,7 +69,7 @@ pub struct Cycle {
 
 impl fmt::Debug for Cycle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let len: usize = self.measurement_dt_v.len();
+        // let len: usize = self.measurement_dt_v.len();
         write!(
             f,
             // "Cycle id: {}, \nlag: {}, \nstart: {}, \nmeas_s: {}, \nmeas_e: {}",
@@ -727,7 +724,7 @@ impl Cycle {
                 * 1000.0,
         );
     }
-    pub fn update_cycle(&mut self, project: String) {
+    pub fn update_cycle(&mut self, _project: String) {
         // let mut conn = match Connection::open("fluxrs.db") {
         //     Ok(conn) => conn,
         //     Err(e) => {
@@ -1098,7 +1095,8 @@ pub fn insert_fluxes_ignore_duplicates(
     conn: &mut Connection,
     cycles: &[Cycle],
     project: String,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut inserted = 0;
     let tx = conn.transaction()?; // Start transaction for bulk insertion
 
     {
@@ -1117,11 +1115,12 @@ pub fn insert_fluxes_ignore_duplicates(
         )?;
         for cycle in cycles {
             execute_insert(&mut insert_stmt, cycle, &project)?;
+            inserted += 1;
         }
     }
 
     tx.commit()?;
-    Ok(())
+    Ok(inserted)
 }
 pub fn update_fluxes(
     conn: &mut Connection,

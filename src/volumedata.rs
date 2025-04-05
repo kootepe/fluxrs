@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, Error, Result};
+use rusqlite::{params, Connection, Result};
 pub const ERROR_INT: i64 = -9999;
 pub const ERROR_FLOAT: f64 = -9999.;
 
@@ -18,7 +18,8 @@ pub fn insert_volume_data(
     conn: &mut Connection,
     project_id: &str,
     volume_data: &VolumeData,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut inserted: usize = 0;
     if volume_data.datetime.len() != volume_data.chamber_id.len()
         || volume_data.datetime.len() != volume_data.volume.len()
     {
@@ -41,8 +42,32 @@ pub fn insert_volume_data(
                 volume_data.datetime[i],
                 volume_data.volume[i]
             ])?;
+            inserted += 1;
         }
     }
     tx.commit()?;
-    Ok(())
+    Ok(inserted)
+}
+pub fn get_previous_volume(
+    conn: &Connection,
+    project: String,
+    chamber_id: String,
+    time: i64,
+) -> Result<f64> {
+    let mut stmt = conn.prepare(
+        "SELECT volume
+             FROM volume
+             WHERE project_id = ?1
+             AND datetime - ?3 < 0
+             AND chamber_id = ?2
+             ORDER BY datetime - ?3
+             LIMIT 1",
+    )?;
+
+    let result = stmt.query_row(params![&project, &chamber_id, time], |row| (row.get(0)));
+
+    match result {
+        Ok(volume) => Ok(volume),
+        Err(_) => Ok(1.0), // Return defaults if no data is found
+    }
 }

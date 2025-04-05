@@ -2,38 +2,31 @@ use crate::app_plotting::{
     init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
 use crate::csv_parse;
-use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
+use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes};
 use crate::errorcode::ErrorCode;
-use crate::gasdata::GasData;
+use crate::gasdata::{insert_measurements, GasData};
 use crate::index::Index;
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
 use crate::query_gas;
 use crate::EqualLen;
+use std::sync::mpsc::{Receiver, Sender};
 // use crate::structs::EqualLen;
 use crate::timedata::{query_cycles, TimeData};
 use crate::volumedata::{insert_volume_data, VolumeData};
 use crate::Cycle;
-use crate::{insert_cycles, insert_measurements, process_cycles};
-use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, Utc};
-use eframe::egui::{
-    Align2, Button, Color32, Context, Id, Key, PointerButton, Pos2, Rect, RichText, Sense, Stroke,
-    Ui, Vec2, WidgetInfo, WidgetText, WidgetType,
-};
+use crate::{insert_cycles, process_cycles};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetInfo, WidgetType};
 use egui_file::FileDialog;
 use egui_plot::{PlotPoints, PlotUi, Polygon};
-use futures::future::join_all;
-use rusqlite::{params, types::ValueRef, Connection, Result, Row};
+use rusqlite::{types::ValueRef, Connection, Result, Row};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-};
 pub enum DataType {
     Gas,
     Cycle,
@@ -62,7 +55,6 @@ pub struct MainApp {
     validation_panel: ValidationApp,
     table_panel: TableApp,
     empty_panel: EmptyPanel,
-    index: usize,
 }
 impl MainApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -93,6 +85,9 @@ impl MainApp {
             });
         });
         ui.separator();
+        if !self.validation_panel.initiated {
+            self.validation_panel.load_projects_from_db().unwrap();
+        }
 
         match self.current_panel {
             Panel::Validation => {
@@ -123,20 +118,24 @@ impl MainApp {
 // #[derive(Default)]
 pub struct ValidationApp {
     pub runtime: tokio::runtime::Runtime,
-    pub current_project: Option<String>,
+    init_enabled: bool,
+    init_in_progress: bool,
+    pub task_done_sender: Sender<()>,
+    pub task_done_receiver: Receiver<()>,
+    // pub current_project: Option<String>,
     pub instrument_serial: String,
-    pub r_lim: f32,
+    // pub r_lim: f32,
     pub enabled_gases: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub enabled_fluxes: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub enabled_calc_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub enabled_measurement_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub cycles: Vec<Cycle>,
     pub gases: Vec<GasType>,
-    pub chamber_id: String,
-    pub is_valid: bool,
-    pub manual_valid: bool,
-    pub override_valid: Option<bool>,
-    pub lag_plot: Vec<[f64; 2]>, // Add a vecxy tor of values to your struct
+    // pub chamber_id: String,
+    // pub is_valid: bool,
+    // pub manual_valid: bool,
+    // pub override_valid: Option<bool>,
+    // pub lag_plot: Vec<[f64; 2]>, // Add a vecxy tor of values to your struct
     pub lag_plot_w: f32,
     pub lag_plot_h: f32,
     pub gas_plot_w: f32,
@@ -163,13 +162,13 @@ pub struct ValidationApp {
     pub measurement_min_y: HashMap<GasType, f64>,
     pub zoom_to_measurement: bool,
     pub drag_panel_width: f64,
-    pub calc_area_color: Color32,
-    pub calc_area_adjust_color: Color32,
-    pub calc_area_stroke_color: Color32,
+    // pub calc_area_color: Color32,
+    // pub calc_area_adjust_color: Color32,
+    // pub calc_area_stroke_color: Color32,
     pub min_calc_area_range: f64,
     pub index: Index,
-    pub lag_vec: Vec<f64>,
-    pub start_vec: Vec<f64>,
+    // pub lag_vec: Vec<f64>,
+    // pub start_vec: Vec<f64>,
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
@@ -178,9 +177,9 @@ pub struct ValidationApp {
     pub visible_cycles: Vec<usize>,
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
-    pub flux_traces: HashMap<String, Vec<[f64; 2]>>,
-    pub lag_traces: HashMap<String, Vec<[f64; 2]>>,
-    pub chamber_ids: Vec<String>,
+    // pub flux_traces: HashMap<String, Vec<[f64; 2]>>,
+    // pub lag_traces: HashMap<String, Vec<[f64; 2]>>,
+    // pub chamber_ids: Vec<String>,
     // pub dialog: FileDialog,
     pub opened_files: Option<Vec<PathBuf>>,
     pub open_file_dialog: Option<FileDialog>,
@@ -200,23 +199,28 @@ pub struct ValidationApp {
 
 impl Default for ValidationApp {
     fn default() -> Self {
+        let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
         Self {
             runtime: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
-            current_project: None,
+            task_done_sender,
+            task_done_receiver,
+            init_enabled: true,
+            init_in_progress: false,
+            // current_project: None,
             instrument_serial: String::new(),
             proj_serial: String::new(),
-            r_lim: 0.0,
+            // r_lim: 0.0,
             enabled_gases: HashSet::new(),
             enabled_fluxes: HashSet::new(),
             enabled_measurement_rs: HashSet::new(),
             enabled_calc_rs: HashSet::new(),
-            flux_traces: HashMap::new(),
-            lag_traces: HashMap::new(),
+            // flux_traces: HashMap::new(),
+            // lag_traces: HashMap::new(),
             cycles: Vec::new(),
             gases: Vec::new(),
             // main_gas: GasType::CH4,
-            lag_plot: Vec::new(),
-            chamber_ids: Vec::new(),
+            // lag_plot: Vec::new(),
+            // chamber_ids: Vec::new(),
             lag_plot_w: 600.,
             lag_plot_h: 350.,
             gas_plot_w: 600.,
@@ -241,21 +245,21 @@ impl Default for ValidationApp {
             calc_r2: HashMap::new(),
             measurement_r2: HashMap::new(),
             flux: HashMap::new(),
-            chamber_id: String::new(),
-            is_valid: true,
-            manual_valid: false,
-            override_valid: None,
+            // chamber_id: String::new(),
+            // is_valid: true,
+            // manual_valid: false,
+            // override_valid: None,
             measurement_max_y: HashMap::new(),
             measurement_min_y: HashMap::new(),
             zoom_to_measurement: false,
             drag_panel_width: 40.0, // Default width for UI panel
-            calc_area_color: Color32::from_gray(100), // Default gray color
-            calc_area_adjust_color: Color32::from_gray(150),
-            calc_area_stroke_color: Color32::from_gray(200),
+            // calc_area_color: Color32::from_gray(100), // Default gray color
+            // calc_area_adjust_color: Color32::from_gray(150),
+            // calc_area_stroke_color: Color32::from_gray(200),
             min_calc_area_range: 180.0,
             index: Index::default(), // Assuming Index implements Default
-            lag_vec: Vec::new(),
-            start_vec: Vec::new(),
+            // lag_vec: Vec::new(),
+            // start_vec: Vec::new(),
             selected_point: None,
             dragged_point: None,
             chamber_colors: HashMap::new(),
@@ -482,7 +486,7 @@ impl ValidationApp {
             };
             // );
             ui.label(measurement_r2);
-            ui.label(format!("{}", error_messages.join("\n")));
+            ui.label(error_messages.join("\n"));
             // let flux = format!("flux: {:.6}", self.cycles[*self.index].flux);
 
             // egui::SidePanel::left("my_left_panel").show(ctx, |ui| {});
@@ -500,19 +504,19 @@ impl ValidationApp {
         let mut next_clicked = false;
         let mut highest_r = false;
         let mut reset_cycle = false;
-        let mut find_bad = false;
         let mut toggle_valid = false;
-        let mut show_invalids_clicked = false;
-        let mut show_valids_clicked = false;
-        let mut zoom_clicked = false;
+        // let mut show_invalids_clicked = false;
+        // let mut show_valids_clicked = false;
+        // let mut zoom_clicked = false;
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
             next_clicked = ui.add(egui::Button::new("Next measurement")).clicked();
         });
 
-        show_valids_clicked = ui.checkbox(&mut self.show_valids, "Show valids").clicked();
-        show_invalids_clicked = ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
+        let show_valids_clicked = ui.checkbox(&mut self.show_valids, "Show valids").clicked();
+        let mut show_invalids_clicked =
+            ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             highest_r = ui.add(egui::Button::new("Find highest r")).clicked();
             reset_cycle = ui.add(egui::Button::new("Reset cycle")).clicked();
@@ -612,10 +616,6 @@ impl ValidationApp {
             self.update_plots();
         }
 
-        if find_bad {
-            self.find_bad_measurement(main_gas);
-        }
-
         if reset_cycle {
             self.cycles[*self.index].reset();
             self.update_current_cycle();
@@ -665,7 +665,7 @@ impl ValidationApp {
             }
         }
 
-        let mut lag_s = self.cycles[*self.index].lag_s;
+        let lag_s = self.cycles[*self.index].lag_s;
 
         let drag_panel_width = 40.;
         let mut calc_area_color = Color32::BLACK;
@@ -681,7 +681,7 @@ impl ValidationApp {
             calc_area_stroke_color = Color32::from_rgba_unmultiplied(0, 0, 0, 90);
         }
 
-        let close_line_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
+        // let close_line_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
         let left_id = Id::new("left_test");
         let main_id = Id::new("main_area");
         let right_id = Id::new("right_area");
@@ -853,15 +853,15 @@ impl ValidationApp {
             }
         });
     }
-    pub fn display_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
-        if self.cycles.len() == 0 {
+    pub fn _display_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
+        if self.cycles.is_empty() {
             println!("No cycles");
             return;
         }
 
         ui.heading("Plot selection");
     }
-    pub fn load_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
+    pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
@@ -965,7 +965,13 @@ impl ValidationApp {
         }
         self.log_display(ui);
     }
-    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
+    pub fn init_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
+        if self.task_done_receiver.try_recv().is_ok() {
+            // while let Ok(_) = self.task_done_receiver.try_recv() {
+            self.init_in_progress = false;
+            self.init_enabled = true;
+            self.log_messages.push("Processing complete.".to_string());
+        }
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
@@ -1035,11 +1041,19 @@ impl ValidationApp {
                 };
             });
         });
+
         if self.start_date > self.end_date {
             self.log_messages.push("End date can't be before start date.".to_owned());
         }
-
-        if ui.button("Use range").clicked() {
+        if ui
+            .add_enabled(
+                self.init_enabled && !self.init_in_progress,
+                egui::Button::new("Use range"),
+            )
+            .clicked()
+        {
+            self.init_enabled = false;
+            self.init_in_progress = true;
             let start_date = self.start_date;
             let end_date = self.end_date;
             let project = self.selected_project.as_ref().unwrap().clone();
@@ -1061,6 +1075,7 @@ impl ValidationApp {
                 query_meteo(&conn_guard, start_date, end_date, project.clone()),
             ) {
                 (Ok(times), Ok(gas_data), Ok(meteo_data)) => {
+                    // ui.add_enabled(false);
                     if times.start_time.is_empty() {
                         self.log_messages.push(format!(
                             "NO CYCLES FOUND IN RANGE {} - {}",
@@ -1077,9 +1092,11 @@ impl ValidationApp {
                     if !times.start_time.is_empty() && !gas_data.is_empty() {
                         println!("Run processing.");
                         let arc_conn_clone = arc_conn.clone(); // ✅ now this is valid
+                        let sender = self.task_done_sender.clone(); // Channel to signal when done
                         self.runtime.spawn(async move {
                             run_processing(times, gas_data, meteo_data, project, arc_conn_clone)
                                 .await;
+                            let _ = sender.send(()); // done
                         });
                     } else {
                         println!("Empty data.")
@@ -1111,7 +1128,7 @@ impl ValidationApp {
             }
             if ui.button("Select Volume Files").clicked() {
                 self.selected_data_type = Some(DataType::Volume);
-                // self.open_file_dialog();
+                self.open_file_dialog();
             }
         });
 
@@ -1175,7 +1192,8 @@ impl ValidationApp {
         }
         match insert_meteo_data(conn, &self.selected_project.as_ref().unwrap().clone(), &meteos) {
             Ok(row_count) => {
-                self.log_messages.push("Successfully inserted {} rows into DB.".to_owned());
+                self.log_messages
+                    .push(format!("Successfully inserted {} rows into DB.", row_count));
             },
             Err(e) => {
                 self.log_messages.push(format!("Failed to insert cycle data to db.Error {}", e));
@@ -1200,7 +1218,8 @@ impl ValidationApp {
         }
         match insert_volume_data(conn, &self.selected_project.as_ref().unwrap().clone(), &volumes) {
             Ok(row_count) => {
-                self.log_messages.push("Successfully inserted {} rows into DB.".to_owned());
+                self.log_messages
+                    .push(format!("Successfully inserted {} rows into DB.", row_count));
             },
             Err(e) => {
                 self.log_messages.push(format!("Failed to insert cycle data to db.Error {}", e));

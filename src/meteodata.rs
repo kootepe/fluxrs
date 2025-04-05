@@ -1,5 +1,5 @@
-use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone, Utc};
-use rusqlite::{params, Connection, Error, Result};
+use chrono::{DateTime, Utc};
+use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
 
 pub const ERROR_INT: i64 = -9999;
@@ -73,64 +73,13 @@ impl MeteoData {
             },
         }
     }
-    // pub fn get_nearest(&self, target_timestamp: i64) -> Option<(f64, f64)> {
-    //     if self.datetime.is_empty() || self.temperature.is_empty() || self.pressure.is_empty() {
-    //         return None; // Return None if no data is available
-    //     }
-    //
-    //     let mut left = 0;
-    //     let mut right = self.datetime.len() - 1;
-    //
-    //     while left < right {
-    //         let mid = (left + right) / 2;
-    //         match self.datetime[mid].cmp(&target_timestamp) {
-    //             Ordering::Less => left = mid + 1,
-    //             Ordering::Greater => {
-    //                 if mid > 0 {
-    //                     right = mid - 1;
-    //                 } else {
-    //                     break;
-    //                 }
-    //             },
-    //             Ordering::Equal => return Some((self.temperature[mid], self.pressure[mid])),
-    //         }
-    //     }
-    //
-    //     // Edge case: If left is at the start, return first entry
-    //     if left == 0 {
-    //         return Some((self.temperature[0], self.pressure[0]));
-    //     }
-    //
-    //     // Edge case: If left is at the end, return last entry
-    //     if left >= self.datetime.len() {
-    //         return Some((
-    //             self.temperature[self.datetime.len() - 1],
-    //             self.pressure[self.datetime.len() - 1],
-    //         ));
-    //     }
-    //
-    //     // Find the closest timestamp
-    //     let prev_idx = left - 1;
-    //     let next_idx = left;
-    //
-    //     let prev_diff = (self.datetime[prev_idx] - target_timestamp).abs();
-    //     let next_diff = (self.datetime[next_idx] - target_timestamp).abs();
-    //
-    //     let nearest_idx = if prev_diff <= next_diff { prev_idx } else { next_idx };
-    //
-    //     if nearest_diff <= 1800 {
-    //         Some((self.temperature[nearest_idx], self.pressure[nearest_idx]))
-    //     } else {
-    //         None // No valid data within 30 min
-    //     }
-    //     // Some((self.temperature[nearest_idx], self.pressure[nearest_idx]))
-    // }
 }
 pub fn insert_meteo_data(
     conn: &mut Connection,
     project_id: &str,
     meteo_data: &MeteoData,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut inserted = 0;
     if meteo_data.datetime.len() != meteo_data.temperature.len()
         || meteo_data.datetime.len() != meteo_data.pressure.len()
     {
@@ -150,12 +99,13 @@ pub fn insert_meteo_data(
             let datetime = meteo_data.datetime[i];
             let temperature = meteo_data.temperature[i];
             let pressure = meteo_data.pressure[i];
+            inserted += 1;
 
             stmt.execute(params![project_id, datetime, temperature, pressure])?;
         }
     }
     tx.commit()?;
-    Ok(())
+    Ok(inserted)
 }
 
 pub fn get_nearest_meteo_data(conn: &Connection, project: String, time: i64) -> Result<(f64, f64)> {
