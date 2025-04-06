@@ -702,27 +702,41 @@ impl Cycle {
         }
     }
 
+    pub fn recalculate_fluxes(&mut self) {
+        for &gas in &self.gases.clone() {
+            self.recalculate_flux(gas);
+        }
+    }
+    pub fn recalculate_flux(&mut self, gas_type: GasType) {
+        let mol_mass = gas_type.mol_mass();
+        let slope_ppm = self.slope.get(&gas_type).unwrap() * gas_type.conv_factor();
+        let slope_ppm_hour = slope_ppm * 60. * 60.;
+        let flux = slope_ppm_hour / 1_000_000.0
+            * self.chamber_volume
+            * ((mol_mass * (self.air_pressure * 1000.0))
+                / (8.314 * (self.air_temperature + 273.15)))
+            * 1000.0;
+
+        self.flux.insert(gas_type, flux);
+    }
     pub fn calculate_fluxes(&mut self) {
         for &gas in &self.gases.clone() {
             self.calculate_flux(gas);
         }
     }
+
     pub fn calculate_flux(&mut self, gas_type: GasType) {
         self.calculate_slope(gas_type);
-        let mol_mass = match gas_type {
-            GasType::CO2 => 44.0,
-            GasType::CH4 => 16.0,
-            GasType::H2O => 18.0,
-            GasType::N2O => 44.0,
-        };
-        self.flux.insert(
-            gas_type,
-            self.slope.get(&gas_type).unwrap() / 1_000_000.0
-                * self.chamber_volume
-                * ((mol_mass * (self.air_pressure * 1000.0))
-                    / (8.314 * (self.air_temperature + 273.15)))
-                * 1000.0,
-        );
+        let mol_mass = gas_type.mol_mass();
+        let slope_ppm = self.slope.get(&gas_type).unwrap() * gas_type.conv_factor();
+        let slope_ppm_hour = slope_ppm * 60. * 60.;
+        let flux = slope_ppm_hour / 1_000_000.0
+            * self.chamber_volume
+            * ((mol_mass * (self.air_pressure * 1000.0))
+                / (8.314 * (self.air_temperature + 273.15)))
+            * 1000.0;
+
+        self.flux.insert(gas_type, flux);
     }
     pub fn update_cycle(&mut self, _project: String) {
         // let mut conn = match Connection::open("fluxrs.db") {

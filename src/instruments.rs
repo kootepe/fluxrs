@@ -53,11 +53,28 @@ impl GasType {
             GasType::N2O => Color32::LIGHT_RED,
         }
     }
+    pub fn mol_mass(&self) -> f64 {
+        match self {
+            GasType::CH4 => 16.0,
+            GasType::CO2 => 44.0,
+            GasType::H2O => 18.0,
+            GasType::N2O => 44.0,
+        }
+    }
+    pub fn conv_factor(&self) -> f64 {
+        //
+        match self {
+            GasType::CH4 => 1000.0,
+            GasType::CO2 => 1.0,
+            GasType::H2O => 1.0,
+            GasType::N2O => 1000.0,
+        }
+    }
     pub fn unit(&self) -> &str {
         match self {
-            GasType::H2O => "ppm",
-            GasType::CO2 => "ppm",
             GasType::CH4 => "ppb",
+            GasType::CO2 => "ppm",
+            GasType::H2O => "ppm",
             GasType::N2O => "ppb",
         }
     }
