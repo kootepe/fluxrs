@@ -6,7 +6,8 @@ use crate::validation_app::{
     create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
 };
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
-use egui::Align2;
+use ecolor::Hsva;
+use egui::{Align2, Rgba};
 use std::collections::HashMap;
 
 use std::ops::RangeInclusive;
@@ -526,14 +527,6 @@ impl ValidationApp {
 
         let mut chamber_ids: Vec<&String> = lag_traces.keys().collect();
         chamber_ids.sort();
-
-        fn generate_color(seed: &str) -> Color32 {
-            let hash = fxhash::hash(seed) as u32;
-            let r = ((hash >> 24) & 255) as u8;
-            let g = ((hash >> 8) & 255) as u8;
-            let b = (hash & 255) as u8;
-            Color32::from_rgb(r, g, b)
-        }
 
         for chamber_id in chamber_ids {
             // if let Some(lag_points) = lag_traces.clone().get_mut(chamber_id) {
@@ -1191,10 +1184,27 @@ pub fn find_closest_point_screen_space(
 
     closest_point
 }
+
 fn generate_color(seed: &str) -> Color32 {
     let hash = fxhash::hash(seed) as u32;
     let r = ((hash >> 16) & 255) as u8;
     let g = ((hash >> 8) & 255) as u8;
     let b = (hash & 255) as u8;
     Color32::from_rgb(r, g, b)
+}
+
+fn _generate_color(seed: &str) -> Color32 {
+    // alternate function for generating plot point colors from hsv values
+    let hash = fxhash::hash(seed);
+
+    // Map hash to a hue between 0 and 360
+    let hue = (hash % 360) as f32 / 360.0;
+
+    // Use fixed saturation and value for vividness
+    let saturation = 0.85;
+    let value = 0.9;
+    let alpha = 1.;
+
+    let hsva = Hsva::new(hue, saturation, value, alpha);
+    Color32::from(Rgba::from(hsva))
 }
