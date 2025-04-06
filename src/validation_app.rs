@@ -2,7 +2,7 @@ use crate::app_plotting::{
     init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
 use crate::csv_parse;
-use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes};
+use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
 use crate::errorcode::ErrorCode;
 use crate::gasdata::{insert_measurements, GasData};
 use crate::index::Index;
@@ -10,23 +10,26 @@ use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
 use crate::query_gas;
-use crate::volumedata::{insert_volume_data, query_volume, VolumeData};
-use crate::EqualLen;
-use std::sync::mpsc::{Receiver, Sender};
-// use crate::structs::EqualLen;
 use crate::timedata::{query_cycles, TimeData};
+use crate::volumedata::{insert_volume_data, query_volume, VolumeData};
 use crate::Cycle;
+use crate::EqualLen;
 use crate::{insert_cycles, process_cycles};
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+
 use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetInfo, WidgetType};
 use egui_file::FileDialog;
 use egui_plot::{PlotPoints, PlotUi, Polygon};
-use rusqlite::{types::ValueRef, Connection, Result, Row};
+
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use rusqlite::{types::ValueRef, Connection, Result, Row};
+
 pub enum DataType {
     Gas,
     Cycle,
@@ -122,20 +125,13 @@ pub struct ValidationApp {
     init_in_progress: bool,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
-    // pub current_project: Option<String>,
     pub instrument_serial: String,
-    // pub r_lim: f32,
     pub enabled_gases: HashSet<GasType>, // Stores which gases are enabled for plotting
-    pub enabled_fluxes: HashSet<GasType>, // Stores which gases are enabled for plotting
-    pub enabled_calc_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
+    pub enabled_fluxes: HashSet<GasType>, // Stores which fluxes are enabled for plotting
+    pub enabled_calc_rs: HashSet<GasType>, // Stores which r values are enabled for plotting
     pub enabled_measurement_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub cycles: Vec<Cycle>,
     pub gases: Vec<GasType>,
-    // pub chamber_id: String,
-    // pub is_valid: bool,
-    // pub manual_valid: bool,
-    // pub override_valid: Option<bool>,
-    // pub lag_plot: Vec<[f64; 2]>, // Add a vecxy tor of values to your struct
     pub lag_plot_w: f32,
     pub lag_plot_h: f32,
     pub gas_plot_w: f32,
@@ -162,25 +158,16 @@ pub struct ValidationApp {
     pub measurement_min_y: HashMap<GasType, f64>,
     pub zoom_to_measurement: bool,
     pub drag_panel_width: f64,
-    // pub calc_area_color: Color32,
-    // pub calc_area_adjust_color: Color32,
-    // pub calc_area_stroke_color: Color32,
     pub min_calc_area_range: f64,
     pub index: Index,
-    // pub lag_vec: Vec<f64>,
-    // pub start_vec: Vec<f64>,
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
-    pub visible_traces: HashMap<String, bool>,    // Stores colors per chamber
+    pub visible_traces: HashMap<String, bool>,
     pub all_traces: HashSet<String>,
     pub visible_cycles: Vec<usize>,
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
-    // pub flux_traces: HashMap<String, Vec<[f64; 2]>>,
-    // pub lag_traces: HashMap<String, Vec<[f64; 2]>>,
-    // pub chamber_ids: Vec<String>,
-    // pub dialog: FileDialog,
     pub opened_files: Option<Vec<PathBuf>>,
     pub open_file_dialog: Option<FileDialog>,
     pub initial_path: Option<PathBuf>,
@@ -206,21 +193,14 @@ impl Default for ValidationApp {
             task_done_receiver,
             init_enabled: true,
             init_in_progress: false,
-            // current_project: None,
             instrument_serial: String::new(),
             proj_serial: String::new(),
-            // r_lim: 0.0,
             enabled_gases: HashSet::new(),
             enabled_fluxes: HashSet::new(),
             enabled_measurement_rs: HashSet::new(),
             enabled_calc_rs: HashSet::new(),
-            // flux_traces: HashMap::new(),
-            // lag_traces: HashMap::new(),
             cycles: Vec::new(),
             gases: Vec::new(),
-            // main_gas: GasType::CH4,
-            // lag_plot: Vec::new(),
-            // chamber_ids: Vec::new(),
             lag_plot_w: 600.,
             lag_plot_h: 350.,
             gas_plot_w: 600.,
@@ -240,40 +220,26 @@ impl Default for ValidationApp {
             end_time_idx: 0.0,
             calc_range_start: HashMap::new(),
             calc_range_end: HashMap::new(),
-            // max_y: HashMap::new(),
-            // min_y: HashMap::new(),
             calc_r2: HashMap::new(),
             measurement_r2: HashMap::new(),
             flux: HashMap::new(),
-            // chamber_id: String::new(),
-            // is_valid: true,
-            // manual_valid: false,
-            // override_valid: None,
             measurement_max_y: HashMap::new(),
             measurement_min_y: HashMap::new(),
             zoom_to_measurement: false,
             drag_panel_width: 40.0, // Default width for UI panel
-            // calc_area_color: Color32::from_gray(100), // Default gray color
-            // calc_area_adjust_color: Color32::from_gray(150),
-            // calc_area_stroke_color: Color32::from_gray(200),
             min_calc_area_range: 180.0,
             index: Index::default(), // Assuming Index implements Default
-            // lag_vec: Vec::new(),
-            // start_vec: Vec::new(),
             selected_point: None,
             dragged_point: None,
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
             visible_cycles: Vec::new(),
-            // end_date: Utc::now(),
-            // start_date: Utc::now() - chrono::TimeDelta::weeks(4),
             end_date: NaiveDate::from_ymd_opt(2024, 9, 25)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_utc(),
-            // end_date: Utc::now(),
             start_date: NaiveDate::from_ymd_opt(2024, 9, 23)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -281,7 +247,6 @@ impl Default for ValidationApp {
                 .and_utc(),
             opened_files: None,
             open_file_dialog: None,
-            // initial_path: Some(PathBuf::from("./")),
             initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             selected_data_type: None,
             log_messages: Vec::new(),
@@ -948,6 +913,7 @@ impl ValidationApp {
                 self.end_date,
                 self.selected_project.as_ref().unwrap().clone(),
                 self.instrument_serial.clone(),
+                None,
             ) {
                 Ok(cycles) => {
                     self.index.set(0);
@@ -980,139 +946,208 @@ impl ValidationApp {
         let mut picker_end = self.end_date.date_naive();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.label("Pick start date:");
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label("Pick start date:");
 
-                if ui
-                    .add(
-                        egui_extras::DatePickerButton::new(&mut picker_start)
-                            .highlight_weekends(false)
-                            .id_salt("start_date"),
-                    )
-                    .changed()
-                {
-                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                        NaiveDateTime::from(picker_start),
-                        Utc,
-                    );
-                    if pick > self.end_date {
-                        self.log_messages.push("Start date can't be after end date.".to_owned());
-                    } else {
-                        self.start_date = pick
-                    }
-                };
-                let delta_days = self.end_date - self.start_date;
-                if ui
-                    .button(format!("Next {} days", delta_days.to_std().unwrap().as_secs() / 86400))
-                    .clicked()
-                {
-                    self.start_date += delta_days;
-                    self.end_date += delta_days;
-                }
-                if ui
-                    .button(format!(
-                        "Previous {:?} days",
-                        delta_days.to_std().unwrap().as_secs() / 86400
-                    ))
-                    .clicked()
-                {
-                    self.start_date -= delta_days;
-                    self.end_date -= delta_days;
-                }
+                        if ui
+                            .add(
+                                egui_extras::DatePickerButton::new(&mut picker_start)
+                                    .highlight_weekends(false)
+                                    .id_salt("start_date"),
+                            )
+                            .changed()
+                        {
+                            let pick = DateTime::<Utc>::from_naive_utc_and_offset(
+                                NaiveDateTime::from(picker_start),
+                                Utc,
+                            );
+                            if pick > self.end_date {
+                                self.log_messages
+                                    .push("Start date can't be after end date.".to_owned());
+                            } else {
+                                self.start_date = pick
+                            }
+                        };
+                        let delta_days = self.end_date - self.start_date;
+                        if ui
+                            .button(format!(
+                                "Next {} days",
+                                delta_days.to_std().unwrap().as_secs() / 86400
+                            ))
+                            .clicked()
+                        {
+                            self.start_date += delta_days;
+                            self.end_date += delta_days;
+                        }
+                        if ui
+                            .button(format!(
+                                "Previous {:?} days",
+                                delta_days.to_std().unwrap().as_secs() / 86400
+                            ))
+                            .clicked()
+                        {
+                            self.start_date -= delta_days;
+                            self.end_date -= delta_days;
+                        }
+                        if ui
+                            .add_enabled(
+                                self.init_enabled && !self.init_in_progress,
+                                egui::Button::new("Use range"),
+                            )
+                            .clicked()
+                        {
+                            self.init_enabled = false;
+                            self.init_in_progress = true;
+                            let start_date = self.start_date;
+                            let end_date = self.end_date;
+                            let project = self.selected_project.as_ref().unwrap().clone();
+                            let instrument_serial = self.instrument_serial.clone();
+
+                            // Create connection and wrap in Arc<Mutex<>>
+                            let conn = match Connection::open("fluxrs.db") {
+                                Ok(conn) => conn,
+                                Err(e) => {
+                                    eprintln!("Failed to open database: {}", e);
+                                    return;
+                                },
+                            };
+                            let arc_conn = Arc::new(Mutex::new(conn)); //   stays alive
+                            let conn_guard = arc_conn.lock().unwrap();
+                            match (
+                                query_cycles(&conn_guard, start_date, end_date, project.clone()),
+                                query_gas(
+                                    &conn_guard,
+                                    start_date,
+                                    end_date,
+                                    project.clone(),
+                                    instrument_serial,
+                                ),
+                                query_meteo(&conn_guard, start_date, end_date, project.clone()),
+                                query_volume(&conn_guard, start_date, end_date, project.clone()),
+                            ) {
+                                (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
+                                    // ui.add_enabled(false);
+                                    if times.start_time.is_empty() {
+                                        self.log_messages.push(format!(
+                                            "NO CYCLES FOUND IN RANGE {} - {}",
+                                            start_date, end_date
+                                        ));
+                                    }
+                                    if gas_data.is_empty() {
+                                        self.log_messages.push(format!(
+                                            "NO GAS DATA FOUND IN RANGE {} - {}",
+                                            start_date, end_date
+                                        ));
+                                    }
+
+                                    if !times.start_time.is_empty() && !gas_data.is_empty() {
+                                        println!("Run processing.");
+                                        let arc_conn_clone = arc_conn.clone(); //   now this is valid
+                                        let sender = self.task_done_sender.clone(); // Channel to signal when done
+                                        self.runtime.spawn(async move {
+                                            run_processing(
+                                                times,
+                                                gas_data,
+                                                meteo_data,
+                                                volume_data,
+                                                project,
+                                                arc_conn_clone,
+                                            )
+                                            .await;
+                                            let _ = sender.send(()); // done
+                                        });
+                                    } else {
+                                        println!("Empty data.")
+                                    }
+                                },
+                                e => eprintln!("Failed to query database: {:?}", e),
+                            }
+                        }
+                    });
+                    ui.vertical(|ui| {
+                        ui.label("Pick end date:");
+                        if ui
+                            .add(
+                                egui_extras::DatePickerButton::new(&mut picker_end)
+                                    .highlight_weekends(false)
+                                    .id_salt("end_date"),
+                            )
+                            .changed()
+                        {
+                            let pick = DateTime::<Utc>::from_naive_utc_and_offset(
+                                NaiveDateTime::from(picker_end),
+                                Utc,
+                            );
+                            if pick < self.start_date {
+                                self.log_messages
+                                    .push("End date can't be before start date.".to_owned());
+                            } else {
+                                self.end_date = pick
+                            }
+                        };
+                    });
+                    // ui.vertical(|ui| {
+                    //     ui.label("");
+                    //     ui.button("inittest");
+                    // });
+                });
             });
+            if self.start_date > self.end_date {
+                self.log_messages.push("End date can't be before start date.".to_owned());
+            }
+
+            ui.separator();
             ui.vertical(|ui| {
-                ui.label("Pick end date:");
-                if ui
-                    .add(
-                        egui_extras::DatePickerButton::new(&mut picker_end)
-                            .highlight_weekends(false)
-                            .id_salt("end_date"),
-                    )
-                    .changed()
-                {
-                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                        NaiveDateTime::from(picker_end),
-                        Utc,
-                    );
-                    if pick < self.start_date {
-                        self.log_messages.push("End date can't be before start date.".to_owned());
-                    } else {
-                        self.end_date = pick
+                ui.label(
+                    "Compare the current chamber volume of all calculated fluxes and recalculate if a new one is found.",
+                );
+                ui.label(
+                    "Only changes the fluxes and volume, no need to redo manual validation.",
+                );
+                if ui.button("Recalculate.").clicked() {
+                    let mut conn = match Connection::open("fluxrs.db") {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            eprintln!("Failed to open database: {}", e);
+                            return; // Exit early if connection fails
+                        },
+                    };
+                    let project = self.project_name.clone();
+                    match (load_fluxes(
+                        &mut conn,
+                        self.start_date,
+                        self.end_date,
+                        self.selected_project.as_ref().unwrap().clone(),
+                        self.instrument_serial.clone(),
+                        None,
+                        ),
+                        query_volume(&mut conn, self.start_date, self.end_date, self.project_name.clone())) {
+                        (Ok(mut cycles), Ok(volumes)) => {
+                            println!("volumes: {}", volumes.datetime.len());
+                            self.runtime.spawn_blocking(move || {
+                                for c in &mut cycles {
+                                    c.chamber_volume = volumes.get_nearest_previous_volume(c.start_time.timestamp(),&c.chamber_id).unwrap_or(1.0);
+                                    c.calculate_fluxes();
+                            }
+                                let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
+                                if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
+                                    eprintln!("Flux update error: {}", e);
+                                }
+                            });
+                        },
+                        // invalidquery returned if cycles is empty
+                        (Err(rusqlite::Error::InvalidQuery), Err(e)) => {
+                            self.log_messages
+                                .push("No cycles found in db, have you initiated the data?".to_owned());
+                            eprintln!("No cycles found in db, have you initiated the data?")
+                        },
+                        e => eprintln!("Error processing cycles"),
+                        // (Err(_), Err(_)) => eprintln!("Error processing cycles.")
                     }
-                };
+                }
             });
         });
-
-        if self.start_date > self.end_date {
-            self.log_messages.push("End date can't be before start date.".to_owned());
-        }
-        if ui
-            .add_enabled(
-                self.init_enabled && !self.init_in_progress,
-                egui::Button::new("Use range"),
-            )
-            .clicked()
-        {
-            self.init_enabled = false;
-            self.init_in_progress = true;
-            let start_date = self.start_date;
-            let end_date = self.end_date;
-            let project = self.selected_project.as_ref().unwrap().clone();
-            let instrument_serial = self.instrument_serial.clone();
-
-            // Create connection and wrap in Arc<Mutex<>>
-            let conn = match Connection::open("fluxrs.db") {
-                Ok(conn) => conn,
-                Err(e) => {
-                    eprintln!("Failed to open database: {}", e);
-                    return;
-                },
-            };
-            let arc_conn = Arc::new(Mutex::new(conn)); // ✅ stays alive
-            let conn_guard = arc_conn.lock().unwrap();
-            match (
-                query_cycles(&conn_guard, start_date, end_date, project.clone()),
-                query_gas(&conn_guard, start_date, end_date, project.clone(), instrument_serial),
-                query_meteo(&conn_guard, start_date, end_date, project.clone()),
-                query_volume(&conn_guard, start_date, end_date, project.clone()),
-            ) {
-                (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
-                    // ui.add_enabled(false);
-                    if times.start_time.is_empty() {
-                        self.log_messages.push(format!(
-                            "NO CYCLES FOUND IN RANGE {} - {}",
-                            start_date, end_date
-                        ));
-                    }
-                    if gas_data.is_empty() {
-                        self.log_messages.push(format!(
-                            "NO GAS DATA FOUND IN RANGE {} - {}",
-                            start_date, end_date
-                        ));
-                    }
-
-                    if !times.start_time.is_empty() && !gas_data.is_empty() {
-                        println!("Run processing.");
-                        let arc_conn_clone = arc_conn.clone(); // ✅ now this is valid
-                        let sender = self.task_done_sender.clone(); // Channel to signal when done
-                        self.runtime.spawn(async move {
-                            run_processing(
-                                times,
-                                gas_data,
-                                meteo_data,
-                                volume_data,
-                                project,
-                                arc_conn_clone,
-                            )
-                            .await;
-                            let _ = sender.send(()); // done
-                        });
-                    } else {
-                        println!("Empty data.")
-                    }
-                },
-                e => eprintln!("Failed to query database: {:?}", e),
-            }
-        }
 
         self.log_display(ui);
     }
@@ -1153,7 +1188,7 @@ impl ValidationApp {
 
         for path in &selected_paths {
             match csv_parse::read_time_csv(path) {
-                // ✅ Pass `path` directly
+                //   Pass `path` directly
                 Ok(res) => {
                     if res.validate_lengths() {
                         all_times.chamber_id.extend(res.chamber_id);
@@ -1187,7 +1222,7 @@ impl ValidationApp {
         let mut meteos = MeteoData::default();
         for path in &selected_paths {
             match csv_parse::read_meteo_csv(path) {
-                // ✅ Pass `path` directly
+                //   Pass `path` directly
                 Ok(res) => {
                     meteos.datetime.extend(res.datetime);
                     meteos.pressure.extend(res.pressure);
@@ -1213,7 +1248,7 @@ impl ValidationApp {
         let mut volumes = VolumeData::default();
         for path in &selected_paths {
             match csv_parse::read_volume_csv(path) {
-                // ✅ Pass `path` directly
+                //   Pass `path` directly
                 Ok(res) => {
                     volumes.datetime.extend(res.datetime);
                     volumes.chamber_id.extend(res.chamber_id);
@@ -1258,12 +1293,12 @@ impl ValidationApp {
                         dialog.selection().into_iter().map(|p: &Path| p.to_path_buf()).collect();
 
                     if !selected_paths.is_empty() {
-                        self.opened_files = Some(selected_paths.clone()); // ✅ Store files properly
+                        self.opened_files = Some(selected_paths.clone()); //   Store files properly
                         self.log_messages.push(format!("Selected files: {:?}", selected_paths));
                         self.process_files(selected_paths);
                     }
 
-                    self.open_file_dialog = None; // ✅ Close the dialog
+                    self.open_file_dialog = None; //   Close the dialog
                 },
                 egui_file::State::Cancelled | egui_file::State::Closed => {
                     self.log_messages.push("File selection cancelled.".to_string());
@@ -1362,7 +1397,7 @@ impl ValidationApp {
         let main_gas = self.main_gas.map_or("Unknown".to_string(), |g| g.to_string());
         let instrument_model = self.instrument.to_string();
 
-        let tx = conn.transaction()?; // ✅ Use transaction for consistency
+        let tx = conn.transaction()?; //   Use transaction for consistency
 
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
@@ -1372,7 +1407,7 @@ impl ValidationApp {
             [&self.project_name, &main_gas, &instrument_model, &self.proj_serial],
         )?;
 
-        tx.commit()?; // ✅ Commit the transaction
+        tx.commit()?; //   Commit the transaction
 
         println!(
             "Project set as current: {}, {}, {}",
@@ -1674,14 +1709,14 @@ impl TableApp {
                     Ok(ValueRef::Real(f)) => f.to_string(),
                     Ok(ValueRef::Text(s)) => String::from_utf8_lossy(s).to_string(),
                     Ok(ValueRef::Blob(_)) => "[BLOB]".to_string(), // Handle BLOBs gracefully
-                    Err(_) => "[ERROR]".to_string(), // ✅ Handle row errors explicitly
+                    Err(_) => "[ERROR]".to_string(),               //   Handle row errors explicitly
                 };
                 values.push(value);
             }
             Ok(values)
         });
 
-        self.data = rows.unwrap().filter_map(|res| res.ok()).collect(); // ✅ Collect valid rows only
+        self.data = rows.unwrap().filter_map(|res| res.ok()).collect(); //   Collect valid rows only
     }
     pub fn table_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui.heading("Database Table Viewer");

@@ -1,13 +1,6 @@
 use crate::EqualLen;
-use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone, Utc};
-use rusqlite::{params, Connection, Error, Result};
-
-pub const ERROR_INT: i64 = -9999;
-pub const ERROR_FLOAT: f64 = -9999.;
-
-// pub trait EqualLen {
-//     fn validate_lengths(&self) -> bool;
-// }
+use chrono::{DateTime, NaiveDateTime, Utc};
+use rusqlite::{params, Connection, Result};
 
 #[derive(Debug)]
 pub struct TimeData {

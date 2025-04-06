@@ -1,7 +1,5 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result};
-pub const ERROR_INT: i64 = -9999;
-pub const ERROR_FLOAT: f64 = -9999.;
 
 #[derive(Debug, Default, Clone)]
 pub struct VolumeData {
@@ -11,6 +9,7 @@ pub struct VolumeData {
 }
 
 impl VolumeData {
+    /// the the nearest volume to a given timestamp
     pub fn get_nearest_previous_volume(
         &self,
         target_datetime: i64,

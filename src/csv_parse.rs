@@ -133,7 +133,7 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn
     let file = File::open(file_path)?;
 
     let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(true) // ✅ Ensure headers are read
+        .has_headers(true) //   Ensure headers are read
         .from_reader(file);
 
     let mut datetime = Vec::new();
@@ -163,7 +163,7 @@ pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<d
     let file = File::open(file_path)?;
 
     let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(true) // ✅ Ensure headers are read
+        .has_headers(true) //   Ensure headers are read
         .from_reader(file);
 
     let mut datetime = Vec::new();

@@ -4,10 +4,10 @@ use crate::instruments::{get_instrument_by_model, InstrumentType};
 use crate::query::{calculate_max_y_from_vec, calculate_min_y_from_vec};
 use crate::query_gas;
 use crate::stats;
-use chrono::{DateTime, NaiveDateTime, TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::{params, Connection, Error, Result};
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 // the window of max r must be at least 240 seconds
@@ -1295,6 +1295,7 @@ pub fn load_fluxes(
     end: DateTime<Utc>,
     project: String,
     instrument_serial: String,
+    only_flux_keys: Option<&HashSet<(String, i64)>>, // <-- optional filter
 ) -> Result<Vec<Cycle>> {
     let ch4_col = 14;
     let co2_col = 20;
@@ -1303,9 +1304,9 @@ pub fn load_fluxes(
     let mut stmt = conn.prepare(
         "SELECT instrument_model,
                 instrument_serial,
+                start_time,
                 chamber_id,
                 main_gas,
-                start_time,
                 close_offset,
                 open_offset,
                 end_offset,
@@ -1354,16 +1355,23 @@ pub fn load_fluxes(
         // Basic fields
         let instrument_model: String = row.get(0)?;
         let instrument_serial: String = row.get(1)?;
-        let chamber_id: String = row.get(2)?;
+        let start_timestamp: i64 = row.get(2)?;
+        let chamber_id: String = row.get(3)?;
+        let flux_key = (chamber_id.clone(), start_timestamp);
+
+        if let Some(filter_set) = only_flux_keys {
+            if !filter_set.contains(&flux_key) {
+                return Ok(None); // skip flux
+            }
+        }
 
         let gases = get_instrument_by_model(&instrument_model).unwrap().base.gas_cols;
         let gastypes: Vec<GasType> =
             gases.iter().filter_map(|name| GasType::from_str(name)).collect();
 
-        let main_gas_str: String = row.get(3)?;
+        let main_gas_str: String = row.get(4)?;
         let main_gas = GasType::from_str(&main_gas_str).unwrap_or(GasType::CH4);
 
-        let start_timestamp: i64 = row.get(4)?;
         let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
 
         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
@@ -1501,7 +1509,7 @@ pub fn load_fluxes(
             }
             for &gas in &gastypes {
                 if let Some(g_values) = gas_data_day.gas.get(&gas) {
-                    let (full_dt, full_vals) = filter_data_in_range(
+                    let (_full_dt, full_vals) = filter_data_in_range(
                         &gas_data_day.datetime,
                         g_values,
                         start_time.timestamp() as f64,
@@ -1594,7 +1602,7 @@ fn filter_data_in_range(
             let t = dt.timestamp() as f64;
             t >= range_start && t <= range_end
         })
-        .map(|(dt, &v)| (dt.clone(), v))
+        .map(|(dt, &v)| (dt, v))
         .unzip()
 }
 fn filter_diag_data(
@@ -1610,6 +1618,6 @@ fn filter_diag_data(
             let t = dt.timestamp() as f64;
             t >= range_start && t <= range_end
         })
-        .map(|(dt, &d)| (dt.clone(), d))
+        .map(|(dt, &d)| (dt, d))
         .unzip()
 }

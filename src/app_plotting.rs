@@ -326,7 +326,7 @@ impl ValidationApp {
             let lag_value = cycle.lag_s; // Get lag value
             let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
 
-            // ✅ Store valid and invalid points separately
+            //   Store valid and invalid points separately
             if is_valid {
                 valid_traces
                     .entry(chamber_id.clone())
@@ -506,12 +506,12 @@ impl ValidationApp {
     ) -> HashMap<String, Vec<[f64; 2]>> {
         let mut merged_traces = HashMap::new();
 
-        // ✅ Insert all valid traces
+        //   Insert all valid traces
         for (key, points) in valid_traces {
             merged_traces.entry(key).or_insert_with(Vec::new).extend(points);
         }
 
-        // ✅ Insert all invalid traces (merge if key already exists)
+        //   Insert all invalid traces (merge if key already exists)
         for (key, points) in invalid_traces {
             merged_traces.entry(key).or_insert_with(Vec::new).extend(points);
         }
@@ -585,11 +585,11 @@ impl ValidationApp {
                 let delta = response.drag_delta(); // Mouse movement in screen space
 
                 if let transform = plot_ui.transform() {
-                    let scale_factors = transform.dvalue_dpos(); // ✅ Get scale factor for UI → Plot conversion
+                    let scale_factors = transform.dvalue_dpos(); //   Get scale factor for UI → Plot conversion
 
-                    let plot_dy = delta.y as f64 * scale_factors[1]; // ✅ Correct scaling for Y-axis
+                    let plot_dy = delta.y as f64 * scale_factors[1]; //   Correct scaling for Y-axis
 
-                    let new_y = dragged[1] + plot_dy; // ✅ Apply correct scaled movement
+                    let new_y = dragged[1] + plot_dy; //   Apply correct scaled movement
 
                     self.dragged_point = Some([dragged[0], new_y]);
 

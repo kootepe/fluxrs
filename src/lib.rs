@@ -1,8 +1,6 @@
-use chrono::TimeDelta;
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use csv::StringRecord;
-// use chrono::{DateTime, Utc};
 use crate::instruments::InstrumentType;
+use chrono::{DateTime, NaiveDateTime, Utc};
+use csv::StringRecord;
 use csv::Writer;
 use rusqlite::{params, Connection, Result};
 // use gas_plot::draw_gas_plot;
@@ -22,7 +20,8 @@ pub mod meteodata;
 pub mod timedata;
 pub mod traits;
 pub mod volumedata;
-// pub mod gastype;
+pub mod constants;
+mod config;
 mod get_paths;
 mod html_report;
 mod index;
@@ -41,7 +40,6 @@ use instruments::GasType;
 // mod plot_demo;
 
 use std::collections::HashMap;
-use std::io::Write; // Import Write trait
 
 use cycle::{Cycle, CycleBuilder};
 pub struct Flux {
@@ -130,67 +128,6 @@ fn _group_gas_data_by_date(gas_data: &GasData) -> HashMap<String, GasData> {
     grouped_data
 }
 
-// pub fn group_gas_data_by_date(gas_data: &GasData) -> HashMap<String, GasData> {
-//     let mut grouped_data: HashMap<String, GasData> = HashMap::new();
-//
-//     for (dt, diag) in gas_data.datetime.iter().zip(&gas_data.diag) {
-//         let date_key = dt.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
-//
-//         // Get or insert the daily GasData entry
-//         let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
-//             header: gas_data.header.clone(),
-//             datetime: Vec::new(),
-//             gas: HashMap::new(),
-//             diag: Vec::new(),
-//         });
-//
-//         // Add values to the daily entry
-//         // println!("{}", dt.len());
-//         entry.datetime.push(*dt);
-//         entry.diag.push(*diag);
-//
-//         for (gas_type, values) in &gas_data.gas {
-//             println!("pushing: {}", values.len());
-//             entry
-//                 .gas
-//                 .entry(*gas_type)
-//                 .or_insert_with(Vec::new)
-//                 .extend(values.iter().copied());
-//         }
-//     }
-//
-//     grouped_data
-// }
-
-// pub fn group_gas_data_by_date(gas_data: &GasData) -> HashMap<String, GasData> {
-//     let mut grouped_data: HashMap<String, GasData> = HashMap::new();
-//
-//     for (dt, gas, diag) in gas_data
-//         .datetime
-//         .iter()
-//         .zip(&gas_data.gas)
-//         .zip(&gas_data.diag)
-//         .map(|((dt, gas), diag)| (dt, gas, diag))
-//     {
-//         let date_key = dt.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
-//
-//         // Get or insert the daily GasData entry
-//         let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
-//             header: gas_data.header.clone(),
-//             datetime: Vec::new(),
-//             gas: Vec::new(),
-//             diag: Vec::new(),
-//         });
-//
-//         // Add values to the daily entry
-//         entry.datetime.push(*dt);
-//         entry.gas.push(*gas);
-//         entry.diag.push(*diag);
-//     }
-//
-//     grouped_data
-// }
-
 pub struct Config {
     pub gas_path: String,
     pub time_path: String,
@@ -244,7 +181,7 @@ fn insert_cycles(conn: &mut Connection, cycles: &TimeData, project: String) -> R
     let mut inserted = 0;
     // let site_id = "oulanka_fen"; // Example site
 
-    // ✅ Prepare the statements **before** the loop
+    //   Prepare the statements **before** the loop
     let mut insert_stmt = tx.prepare(
         "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, project_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -259,14 +196,14 @@ fn insert_cycles(conn: &mut Connection, cycles: &TimeData, project: String) -> R
         // Check for duplicates first
         let mut rows = check_stmt.query(params![start_vec[i], chamber_vec[i], project])?;
         if rows.next()?.is_some() {
-            // ✅ Duplicate found, skip insert
+            //   Duplicate found, skip insert
             duplicates += 1;
             println!(
                 "Warning: Duplicate record found for start_time: {}, chamber_id: {}, site: {}",
                 start_vec[i], chamber_vec[i], project
             );
         } else {
-            // ✅ Insert new record
+            //   Insert new record
             insert_stmt.execute(params![
                 start_vec[i],
                 close_vec[i],
@@ -287,84 +224,8 @@ fn insert_cycles(conn: &mut Connection, cycles: &TimeData, project: String) -> R
 
     Ok(inserted)
 }
-// fn insert_cycles(conn: &mut Connection, cycles: &TimeData) -> Result<usize> {
-//     let close_vec = &cycles.close_offset;
-//     let open_vec = &cycles.open_offset;
-//     let end_vec = &cycles.end_offset;
-//     let chamber_vec = &cycles.chamber_id;
-//     let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
-//
-//     let tx = conn.transaction()?;
-//     // ✅ Insert rows one-by-one
-//     {
-//         let mut stmt = tx.prepare(
-//             "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, site)
-//          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-//         )?;
-//
-//         println!("Pushing data!");
-//         for i in 0..start_vec.len() {
-//             stmt.execute(params![
-//                 start_vec[i],
-//                 close_vec[i],
-//                 open_vec[i],
-//                 end_vec[i],
-//                 chamber_vec[i],
-//                 "oulanka_fen",
-//             ])?;
-//         }
-//     }
-//     tx.commit()?;
-//     println!("Inserted {} rows into cycles.", start_vec.len());
-//     Ok(start_vec.len())
-// }
 
-// use rusqlite::{params, Connection, Result};
-
-// fn insert_measurements(conn: &mut Connection, all_gas: &GasData) -> Result<(usize)> {
-//     println!("Inserting");
-//     let diag_vec = &all_gas.diag;
-//     let datetime_vec = all_gas.datetime.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
-//
-//     let ch4_vec = all_gas.gas.get(&GasType::CH4).unwrap();
-//     let co2_vec = all_gas.gas.get(&GasType::CO2).unwrap();
-//     let h2o_vec = all_gas.gas.get(&GasType::H2O).unwrap();
-//
-//     if datetime_vec.len() != ch4_vec.len()
-//         || datetime_vec.len() != co2_vec.len()
-//         || datetime_vec.len() != h2o_vec.len()
-//     {
-//         println!("Error");
-//         return Err(rusqlite::Error::InvalidQuery); // Ensure equal-length data
-//     }
-//
-//     let tx = conn.transaction()?;
-//     // ✅ Insert rows one-by-one
-//     {
-//         let mut stmt = tx.prepare(
-//         "INSERT INTO measurements (datetime, ch4, co2, h2o, diag, instrument_serial, instrument_model)
-//          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-//     )?;
-//
-//         println!("Pushing data!");
-//         for i in 0..datetime_vec.len() {
-//             stmt.execute(params![
-//                 datetime_vec[i],           // ✅ Individual timestamp
-//                 ch4_vec[i],                // ✅ Individual CH4 value
-//                 co2_vec[i],                // ✅ Individual CO2 value
-//                 h2o_vec[i],                // ✅ Individual H2O value
-//                 diag_vec[i],               // ✅ Individual H2O value
-//                 all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
-//                 all_gas.instrument_model   // Example: Instrument model
-//             ])?;
-//         }
-//     }
-//     tx.commit()?;
-//     println!("Inserted {} rows into measurements.", datetime_vec.len());
-//     Ok(datetime_vec.len())
-// }
-
-fn query_and_group_gas_data(
+fn _query_and_group_gas_data(
     conn: &Connection,
     start_timestamp: i64,
     end_timestamp: i64,
@@ -398,10 +259,10 @@ fn query_and_group_gas_data(
     for row in rows {
         let (datetime, ch4, co2, h2o, n2o, diag, serial, model) = row?;
 
-        // ✅ Extract YYYY-MM-DD for grouping
+        //   Extract YYYY-MM-DD for grouping
         let date_key = datetime.format("%Y-%m-%d").to_string();
 
-        // ✅ Get or create a new GasData entry
+        //   Get or create a new GasData entry
         let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
             header: StringRecord::new(),
             instrument_model: String::new(),
@@ -411,7 +272,7 @@ fn query_and_group_gas_data(
             diag: Vec::new(),
         });
 
-        // ✅ Append values
+        //   Append values
         entry.datetime.push(datetime);
         entry.diag.push(diag);
         entry.instrument_model = model;
@@ -419,7 +280,7 @@ fn query_and_group_gas_data(
         // entry.instrument_model.push(instrument_model);
         // entry.instrument_serial.push(instrument_serial);
 
-        // ✅ Store each gas type in the `HashMap`
+        //   Store each gas type in the `HashMap`
         if let Some(v) = ch4 {
             entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(v);
         }
@@ -436,76 +297,8 @@ fn query_and_group_gas_data(
 
     Ok(grouped_data)
 }
-// pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
-//     println!("Initiating db.");
-//     let mut conn = Connection::open("fluxrs.db")?;
-//     conn.execute(
-//         "CREATE TABLE IF NOT EXISTS cycles (
-//             id INTEGER PRIMARY KEY AUTOINCREMENT,
-//             chamber_id TEXT NOT NULL,
-//             start_time integer NOT NULL,
-//             close_offset integer NOT NULL,
-//             open_offset integer NOT NULL,
-//             end_offset integer NOT NULL,
-//             site TEXT NOT NULL
-//         )",
-//         [],
-//     )?;
-//     conn.execute(
-//         "CREATE TABLE IF NOT EXISTS measurements (
-//             id INTEGER PRIMARY KEY AUTOINCREMENT,
-//             instrument_model TEXT NOT NULL,
-//             instrument_serial TEXT NOT NULL,
-//             datetime integer NOT NULL,
-//             ch4 float,
-//             co2 float,
-//             h2o float,
-//             n2o float,
-//             diag integer
-//         )",
-//         [],
-//     )?;
-//     conn.execute(
-//         "CREATE TABLE IF NOT EXISTS fluxes (
-//             id INTEGER PRIMARY KEY AUTOINCREMENT,
-//             instrument_model TEXT NOT NULL,
-//             instrument_serial TEXT NOT NULL,
-//             chamber_id TEXT NOT NULL,
-//
-//             start_time integer NOT NULL,
-//             close_offset integer NOT NULL,
-//             open_offset integer NOT NULL,
-//             end_offset integer NOT NULL,
-//             lag_s integer NOT NULL,
-//
-//             air_pressure float,
-//             air_temperature float,
-//
-//             error_code integer,
-//             is_valid bool,
-//             main_gas_r float,
-//             error_code integer,
-//
-//             ch4_flux float,
-//             ch4_r float,
-//             ch4_slope float,
-//             co2_flux float,
-//             co2_r float,
-//             co2_slope float,
-//             h2o_flux float,
-//             h2o_r float,
-//             h2o_slope float,
-//             n2o_flux float,
-//             n2o_r float,
-//             n2o_slope float
-//         )",
-//         [],
-//     )?;
-//     // insert_measurements(&mut conn, gases)?;
-//     // insert_cycles(&mut conn, times)?;
-//     Ok(())
-// }
-pub fn initiate_db(gases: &GasData, times: &TimeData) -> Result<(), Box<dyn std::error::Error>> {
+
+pub fn initiate_db() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initiating db.");
     let mut conn = Connection::open("fluxrs.db")?;
     conn.execute(

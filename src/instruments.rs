@@ -110,6 +110,11 @@ pub struct Instrument {
     has_header: bool,
 }
 
+pub struct Li7810_test {
+    pub base: Instrument,
+    pub model: String,
+}
+
 pub struct Li7810 {
     pub base: Instrument,
     pub model: String,
@@ -124,6 +129,29 @@ impl Instrument {
             .flexible(true)
             .from_reader(file);
         Ok(rdr)
+    }
+}
+
+impl Default for Li7810_test {
+    fn default() -> Self {
+        Self {
+            base: Instrument {
+                sep: b'\t',
+                skiprows: 4,
+                skip_after_header: 1,
+                time_col: "SECONDS".to_string(),
+                gas_cols: vec![
+                    "CO2".to_string(),
+                    "CH4".to_string(),
+                    "H2O".to_string(),
+                    "N2O".to_string(),
+                ],
+                flux_cols: vec!["CO2".to_string(), "CH4".to_string(), "N2O".to_string()],
+                diag_col: "DIAG".to_string(),
+                has_header: true,
+            },
+            model: "LI-7810_test".to_owned(),
+        }
     }
 }
 impl Default for Li7810 {

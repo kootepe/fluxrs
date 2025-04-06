@@ -1,3 +1,4 @@
+use crate::constants::{ERROR_FLOAT, ERROR_INT};
 use crate::EqualLen;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, Utc};
@@ -10,9 +11,6 @@ use csv::StringRecord;
 
 // use crate::errorcode::EqualLen;
 use crate::instruments::GasType;
-
-pub const ERROR_INT: i64 = -9999;
-pub const ERROR_FLOAT: f64 = -9999.;
 
 // pub trait EqualLen {
 //     fn validate_lengths(&self) -> bool;
@@ -186,10 +184,10 @@ pub fn query_gas(
     for row in rows {
         let (datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model) = row?;
 
-        // ✅ Extract YYYY-MM-DD for grouping
+        //   Extract YYYY-MM-DD for grouping
         let date_key = datetime.format("%Y-%m-%d").to_string();
 
-        // ✅ Get or create a new GasData entry
+        //   Get or create a new GasData entry
         let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
             header: StringRecord::new(),
             instrument_model: String::new(),
@@ -199,13 +197,13 @@ pub fn query_gas(
             diag: Vec::new(),
         });
 
-        // ✅ Append values
+        //   Append values
         entry.datetime.push(datetime);
         entry.diag.push(diag);
         entry.instrument_model = instrument_model.unwrap();
         entry.instrument_serial = instrument_serial.unwrap();
 
-        // ✅ Store each gas type in the `HashMap`
+        //   Store each gas type in the `HashMap`
         if let Some(v) = ch4 {
             entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(v);
         }
@@ -270,11 +268,11 @@ pub fn insert_measurements(
         } else {
             // If no duplicate, insert the new record
             stmt.execute(params![
-                datetime_vec[i],           // ✅ Individual timestamp
-                ch4_vec[i],                // ✅ Individual CH4 value
-                co2_vec[i],                // ✅ Individual CO2 value
-                h2o_vec[i],                // ✅ Individual H2O value
-                diag_vec[i],               // ✅ Individual diag value
+                datetime_vec[i],           //   Individual timestamp
+                ch4_vec[i],                //   Individual CH4 value
+                co2_vec[i],                //   Individual CO2 value
+                h2o_vec[i],                //   Individual H2O value
+                diag_vec[i],               //   Individual diag value
                 all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
                 all_gas.instrument_model,  // Example: Instrument model
                 project
