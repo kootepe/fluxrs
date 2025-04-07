@@ -27,6 +27,7 @@ impl fmt::Display for GasType {
         }
     }
 }
+
 impl GasType {
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
@@ -45,6 +46,26 @@ impl GasType {
             GasType::N2O => "N2O",
         }
     }
+
+    pub fn flux_col(&self) -> String {
+        format!("{}_flux", self.column_name())
+    }
+    pub fn r2_col(&self) -> String {
+        format!("{}_r2", self.column_name())
+    }
+    pub fn measurement_r2_col(&self) -> String {
+        format!("{}_measurement_r2", self.column_name())
+    }
+    pub fn slope_col(&self) -> String {
+        format!("{}_slope", self.column_name())
+    }
+    pub fn calc_range_start_col(&self) -> String {
+        format!("{}_calc_range_start", self.column_name())
+    }
+    pub fn calc_range_end_col(&self) -> String {
+        format!("{}_calc_range_end", self.column_name())
+    }
+
     pub fn color(&self) -> Color32 {
         match self {
             GasType::CH4 => Color32::GREEN,
