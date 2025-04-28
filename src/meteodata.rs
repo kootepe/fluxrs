@@ -127,6 +127,7 @@ pub fn query_meteo(
     end: DateTime<Utc>,
     project: String,
 ) -> Result<MeteoData> {
+    println!("Querying meteo data");
     // let mut data = HashMap::new();
 
     let mut stmt = conn.prepare(

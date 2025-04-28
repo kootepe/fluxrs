@@ -1,4 +1,7 @@
 use crate::errorcode::{ErrorCode, ErrorMask};
+use crate::fluxes_schema::{
+    fluxes_col, make_insert_or_ignore_fluxes, make_select_fluxes, make_update_fluxes,
+};
 use crate::instruments::GasType;
 use crate::instruments::{get_instrument_by_model, InstrumentType};
 use crate::query::{calculate_max_y_from_vec, calculate_min_y_from_vec};
@@ -6,7 +9,6 @@ use crate::query_gas;
 use crate::stats;
 use chrono::{DateTime, TimeDelta, Utc};
 use rusqlite::{params, Connection, Error, Result};
-
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
@@ -778,6 +780,7 @@ impl Cycle {
     //     }
     // }
 }
+#[derive(Debug, Default, Clone)]
 pub struct CycleBuilder {
     chamber_id: Option<String>,
     start_time: Option<DateTime<Utc>>,
@@ -861,17 +864,12 @@ impl CycleBuilder {
             open_offset: open,
             end_offset: end,
             main_gas: GasType::CH4,
-            // has_errors: false,
             error_code: ErrorMask(0),
             manual_adjusted: false,
-            // calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
-            // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
-            // gas_plot: HashMap::new(),
             calc_range_end: HashMap::new(),
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
-            // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
             lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
@@ -917,18 +915,13 @@ impl CycleBuilder {
             close_offset: close,
             open_offset: open,
             end_offset: end,
-            // has_errors: false,
             error_code: ErrorMask(0),
             main_gas: GasType::CH4,
             manual_adjusted: false,
-            // calc_range_end: (start + chrono::Duration::seconds(open)).timestamp() as f64,
-            // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
-            // gas_plot: HashMap::new(),
             calc_range_end: HashMap::new(),
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
-            // calc_range_start: (start + chrono::Duration::seconds(close)).timestamp() as f64,
             lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
@@ -956,155 +949,6 @@ impl CycleBuilder {
     }
 }
 
-pub fn insert_flux(conn: &Connection, cycle: &Cycle) -> Result<()> {
-    // Compute/collect the values that are common to both queries.
-    let start_timestamp = cycle.start_time.timestamp();
-    let close_offset = cycle.close_offset;
-    let open_offset = cycle.open_offset;
-    let end_offset = cycle.end_offset;
-    let lag_s = cycle.lag_s as i64;
-
-    // Gas values (defaulting to 0.0 if absent).
-    let ch4_flux = cycle.flux.get(&GasType::CH4).copied().unwrap_or(0.0);
-    let ch4_r2 = cycle.calc_r2.get(&GasType::CH4).copied().unwrap_or(0.0);
-    let ch4_measurement_r2 = cycle.measurement_r2.get(&GasType::CH4).copied().unwrap_or(0.0);
-    let ch4_slope = cycle.slope.get(&GasType::CH4).copied().unwrap_or(0.0);
-
-    let co2_flux = cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0);
-    let co2_r2 = cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(0.0);
-    let co2_measurement_r2 = cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(0.0);
-    let co2_slope = cycle.slope.get(&GasType::CO2).copied().unwrap_or(0.0);
-
-    let h2o_flux = cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0);
-    let h2o_r2 = cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(0.0);
-    let h2o_measurement_r2 = cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(0.0);
-    let h2o_slope = cycle.slope.get(&GasType::H2O).copied().unwrap_or(0.0);
-
-    let n2o_flux = cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0);
-    let n2o_r2 = cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(0.0);
-    let n2o_measurement_r2 = cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(0.0);
-    let n2o_slope = cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0);
-
-    // r value for the main gas.
-    let main_gas_r2 = cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(0.0);
-
-    // Convert error code.
-    let error_code = cycle.error_code.0;
-    let chamber_volume = cycle.chamber_volume;
-
-    // First, attempt an INSERT OR IGNORE.
-    conn.execute(
-        "INSERT OR IGNORE INTO fluxes (
-            instrument_model, instrument_serial, chamber_id, start_time, close_offset,
-            open_offset, end_offset, lag_s, air_pressure, air_temperature, error_code,
-            is_valid, main_gas_r2, ch4_flux, ch4_r2, ch4_measurement_r2, ch4_slope, co2_flux, co2_r2, co2_measurement_r2, co2_slope,
-            h2o_flux, h2o_r2, h2o_measurement_r2, h2o_slope, n2o_flux, n2o_r2, n2o_measurement_r2, n2o_slope,
-            chamber_volume
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                  ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30)",
-        params![
-            cycle.instrument_model.to_string(),
-            cycle.instrument_serial,
-            cycle.chamber_id,
-            start_timestamp,
-            close_offset,
-            open_offset,
-            end_offset,
-            lag_s,
-            cycle.air_pressure,
-            cycle.air_temperature,
-            error_code,
-            cycle.is_valid,
-            main_gas_r2,
-            ch4_flux,
-            ch4_r2,
-            ch4_measurement_r2,
-            ch4_slope,
-            co2_flux,
-            co2_r2,
-            co2_measurement_r2,
-            co2_slope,
-            h2o_flux,
-            h2o_r2,
-            h2o_measurement_r2,
-            h2o_slope,
-            n2o_flux,
-            n2o_r2,
-            n2o_measurement_r2,
-            n2o_slope,
-            chamber_volume,
-        ],
-    )?;
-
-    // Then, update the row (even if it was just inserted) with the latest values.
-    // We use instrument_serial and start_time as the unique keys to identify the record.
-    conn.execute(
-        "UPDATE fluxes SET
-            instrument_model = ?1,
-            chamber_id = ?2,
-            close_offset = ?3,
-            open_offset = ?4,
-            end_offset = ?5,
-            lag_s = ?6,
-            air_pressure = ?7,
-            air_temperature = ?8,
-            error_code = ?9,
-            is_valid = ?10,
-            main_gas_r2 = ?11,
-            ch4_flux = ?12,
-            ch4_r2 = ?13,
-            ch4_measurement_r2 = ?14,
-            ch4_slope = ?15,
-            co2_flux = ?16,
-            co2_r2 = ?17,
-            co2_measurement_r2 = ?18,
-            co2_slope = ?19,
-            h2o_flux = ?20,
-            h2o_r2 = ?21,
-            h2o_measurement_r2 = ?22,
-            h2o_slope = ?23,
-            n2o_flux = ?24,
-            n2o_r2 = ?25,
-            n2o_measurement_r2 = ?26,
-            n2o_slope = ?27,
-            chamber_volume = ?28
-         WHERE instrument_serial = ?29 AND start_time = ?30",
-        params![
-            cycle.instrument_model.to_string(),
-            cycle.chamber_id,
-            close_offset,
-            open_offset,
-            end_offset,
-            lag_s,
-            cycle.air_pressure,
-            cycle.air_temperature,
-            error_code,
-            cycle.is_valid,
-            main_gas_r2,
-            ch4_flux,
-            ch4_r2,
-            ch4_measurement_r2,
-            ch4_slope,
-            co2_flux,
-            co2_r2,
-            co2_measurement_r2,
-            co2_slope,
-            h2o_flux,
-            h2o_r2,
-            h2o_measurement_r2,
-            h2o_slope,
-            n2o_flux,
-            n2o_r2,
-            n2o_measurement_r2,
-            n2o_slope,
-            chamber_volume,
-            cycle.instrument_serial,
-            start_timestamp,
-        ],
-    )?;
-
-    Ok(())
-}
 pub fn insert_fluxes_ignore_duplicates(
     conn: &mut Connection,
     cycles: &[Cycle],
@@ -1114,19 +958,7 @@ pub fn insert_fluxes_ignore_duplicates(
     let tx = conn.transaction()?; // Start transaction for bulk insertion
 
     {
-        let mut insert_stmt = tx.prepare(
-            "INSERT OR IGNORE INTO fluxes (
-            instrument_model, instrument_serial, chamber_id, main_gas, start_time,
-            close_offset, open_offset, end_offset, lag_s, air_pressure, air_temperature,
-            error_code, is_valid, main_gas_r2, ch4_flux, ch4_r2, ch4_measurement_r2, ch4_slope,
-            ch4_calc_range_start, ch4_calc_range_end, co2_flux, co2_r2, co2_measurement_r2, co2_slope,
-            co2_calc_range_start, co2_calc_range_end, h2o_flux, h2o_r2, h2o_measurement_r2, h2o_slope,
-            h2o_calc_range_start, h2o_calc_range_end, n2o_flux, n2o_r2, n2o_measurement_r2, n2o_slope,
-            n2o_calc_range_start, n2o_calc_range_end, project_id, manual_adjusted, manual_valid, chamber_volume
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                  ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
-                  ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)",
-        )?;
+        let mut insert_stmt = tx.prepare(&make_insert_or_ignore_fluxes())?;
         for cycle in cycles {
             execute_insert(&mut insert_stmt, cycle, &project)?;
             inserted += 1;
@@ -1143,28 +975,10 @@ pub fn update_fluxes(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tx = conn.transaction()?; // Start transaction for consistency
     {
-        let mut update_stmt = tx.prepare(
-            "UPDATE fluxes SET
-            instrument_model = ?1, chamber_id = ?2, main_gas = ?3, close_offset = ?4,
-            open_offset = ?5, end_offset = ?6, lag_s = ?7, air_pressure = ?8,
-            air_temperature = ?9, error_code = ?10, is_valid = ?11, main_gas_r2 = ?12,
-            ch4_flux = ?13, ch4_r2 = ?14, ch4_measurement_r2 = ?15, ch4_slope = ?16,
-            ch4_calc_range_start = ?17, ch4_calc_range_end = ?18, co2_flux = ?19,
-            co2_r2 = ?20, co2_measurement_r2 = ?21, co2_slope = ?22, co2_calc_range_start = ?23,
-            co2_calc_range_end = ?24, h2o_flux = ?25, h2o_r2 = ?26, h2o_measurement_r2 = ?27,
-            h2o_slope = ?28, h2o_calc_range_start = ?29, h2o_calc_range_end = ?30, n2o_flux = ?31,
-            n2o_r2 = ?32, n2o_measurement_r2 = ?33, n2o_slope = ?34, n2o_calc_range_start = ?35,
-            n2o_calc_range_end = ?36, project_id = ?37, manual_adjusted = ?38, manual_valid = ?39, chamber_volume = ?40
-         WHERE instrument_serial = ?41 AND start_time = ?42",
-        )?;
+        let mut update_stmt = tx.prepare(&make_update_fluxes())?;
 
         for cycle in cycles {
-            match execute_update(&mut update_stmt, cycle, &project)
-            // execute_update(
-            //     &mut conn,
-            //     &[self.cycles[*self.index].clone()],
-            //     self.selected_project.as_ref().unwrap().clone(),
-             {
+            match execute_update(&mut update_stmt, cycle, &project) {
                 Ok(_) => println!("Fluxes updated successfully!"),
                 Err(e) => eprintln!("Error inserting fluxes: {}", e),
             }
@@ -1175,17 +989,19 @@ pub fn update_fluxes(
 }
 fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
     stmt.execute(params![
+        cycle.start_time.timestamp(),
+        cycle.chamber_id,
         cycle.instrument_model.to_string(),
         cycle.instrument_serial,
-        cycle.chamber_id,
         cycle.main_gas.column_name(),
-        cycle.start_time.timestamp(),
+        project,
         cycle.close_offset,
         cycle.open_offset,
         cycle.end_offset,
         cycle.lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
+        cycle.chamber_volume,
         cycle.error_code.0,
         cycle.is_valid,
         cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
@@ -1213,25 +1029,25 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
-        project,
         cycle.manual_adjusted,
         cycle.manual_valid,
-        cycle.chamber_volume,
     ])?;
     Ok(())
 }
 fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
-    println!("{}", cycle.lag_s);
     stmt.execute(params![
+        cycle.start_time.timestamp(),
         cycle.instrument_model.to_string(),
-        cycle.chamber_id,
+        cycle.instrument_serial,
         cycle.main_gas.column_name(),
+        project,
         cycle.close_offset,
         cycle.open_offset,
         cycle.end_offset,
         cycle.lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
+        cycle.chamber_volume,
         cycle.error_code.0,
         cycle.is_valid,
         cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
@@ -1259,50 +1075,12 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
-        project,
         cycle.manual_adjusted,
         cycle.manual_valid,
-        cycle.chamber_volume,
-        cycle.instrument_serial,
-        cycle.start_time.timestamp(),
     ])?;
     Ok(())
 }
-/// Loads cycles from the fluxes table. The SELECT order must match the INSERT order:
-/// 0: instrument_model
-/// 1: instrument_serial
-/// 2: chamber_id
-/// 3: main_gas (stored as a string)
-/// 4: start_time (Unix timestamp)
-/// 5: close_offset
-/// 6: open_offset
-/// 7: end_offset
-/// 8: lag_s (stored as integer)
-/// 9: air_pressure
-/// 10: air_temperature
-/// 11: error_code (u16)
-/// 12: is_valid (bool)
-/// 13: main_gas_r2
-/// 14: ch4_flux
-/// 15: ch4_r
-/// 16: ch4_slope
-/// 17: ch4_calc_range_start
-/// 18: ch4_calc_range_end
-/// 19: co2_flux
-/// 20: co2_r
-/// 21: co2_slope
-/// 22: co2_calc_range_start
-/// 23: co2_calc_range_end
-/// 24: h2o_flux
-/// 25: h2o_r
-/// 26: h2o_slope
-/// 27: h2o_calc_range_start
-/// 28: h2o_calc_range_end
-/// 29: n2o_flux
-/// 30: n2o_r
-/// 31: n2o_slope
-/// 32: n2o_calc_range_start
-/// 33: n2o_calc_range_end
+
 pub fn load_fluxes(
     conn: &mut Connection,
     start: DateTime<Utc>,
@@ -1311,66 +1089,17 @@ pub fn load_fluxes(
     instrument_serial: String,
     only_flux_keys: Option<&HashSet<(String, i64)>>, // <-- optional filter
 ) -> Result<Vec<Cycle>> {
-    let ch4_col = 14;
-    let co2_col = 20;
-    let h2o_col = 26;
-    let n2o_col = 32;
-    let mut stmt = conn.prepare(
-        "SELECT instrument_model,
-                instrument_serial,
-                start_time,
-                chamber_id,
-                main_gas,
-                close_offset,
-                open_offset,
-                end_offset,
-                lag_s,
-                air_pressure,
-                air_temperature,
-                error_code,
-                is_valid,
-                main_gas_r2,
-                ch4_flux,
-                ch4_r2,
-                ch4_measurement_r2,
-                ch4_slope,
-                ch4_calc_range_start,
-                ch4_calc_range_end,
-                co2_flux,
-                co2_r2,
-                co2_measurement_r2,
-                co2_slope,
-                co2_calc_range_start,
-                co2_calc_range_end,
-                h2o_flux,
-                h2o_r2,
-                h2o_measurement_r2,
-                h2o_slope,
-                h2o_calc_range_start,
-                h2o_calc_range_end,
-                n2o_flux,
-                n2o_r2,
-                n2o_measurement_r2,
-                n2o_slope,
-                n2o_calc_range_start,
-                n2o_calc_range_end,
-                manual_adjusted,
-                project_id,
-                manual_valid,
-                chamber_volume
-         FROM fluxes WHERE start_time BETWEEN ?1 AND ?2 and project_id = ?3
-         ORDER BY start_time",
-    )?;
+    let mut stmt = conn.prepare(&make_select_fluxes())?;
     let gas_data = query_gas(conn, start, end, project.clone(), instrument_serial)?;
 
     let s = start.timestamp();
     let e = end.timestamp();
     let cycle_iter = stmt.query_map(params![s, e, project.clone()], |row| {
         // Basic fields
-        let instrument_model: String = row.get(0)?;
-        let instrument_serial: String = row.get(1)?;
-        let start_timestamp: i64 = row.get(2)?;
-        let chamber_id: String = row.get(3)?;
+        let instrument_model: String = row.get(fluxes_col::INSTRUMENT_MODEL)?;
+        let instrument_serial: String = row.get(fluxes_col::INSTRUMENT_SERIAL)?;
+        let start_timestamp: i64 = row.get(fluxes_col::START_TIME)?;
+        let chamber_id: String = row.get(fluxes_col::CHAMBER_ID)?;
         let flux_key = (chamber_id.clone(), start_timestamp);
 
         if let Some(filter_set) = only_flux_keys {
@@ -1383,27 +1112,27 @@ pub fn load_fluxes(
         let gastypes: Vec<GasType> =
             gases.iter().filter_map(|name| GasType::from_str(name)).collect();
 
-        let main_gas_str: String = row.get(4)?;
+        let main_gas_str: String = row.get(fluxes_col::MAIN_GAS)?;
         let main_gas = GasType::from_str(&main_gas_str).unwrap_or(GasType::CH4);
 
         let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
 
         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
 
-        let close_offset: i64 = row.get(5)?;
-        let open_offset: i64 = row.get(6)?;
-        let end_offset: i64 = row.get(7)?;
-        let lag_s: i64 = row.get(8)?;
-        let lag_s = lag_s as f64; // convert back to f64
+        let close_offset: i64 = row.get(fluxes_col::CLOSE_OFFSET)?;
+        let open_offset: i64 = row.get(fluxes_col::OPEN_OFFSET)?;
+        let end_offset: i64 = row.get(fluxes_col::END_OFFSET)?;
+        // needs to be on two rows
+        let lag_s = row.get::<_, i64>(fluxes_col::LAG_S)? as f64;
 
-        let air_pressure: f64 = row.get(9)?;
-        let air_temperature: f64 = row.get(10)?;
+        let air_pressure: f64 = row.get(fluxes_col::AIR_PRESSURE)?;
+        let air_temperature: f64 = row.get(fluxes_col::AIR_TEMPERATURE)?;
 
-        let error_code_u16: u16 = row.get(11)?;
+        let error_code_u16: u16 = row.get(fluxes_col::ERROR_CODE)?;
         let error_code = ErrorMask::from_u16(error_code_u16);
 
-        let is_valid: bool = row.get(12)?;
-        let main_gas_r2: f64 = row.get(13)?;
+        let is_valid: bool = row.get(fluxes_col::IS_VALID)?;
+        // let main_gas_r2: f64 = row.get(fluxes_col::MAIN_GAS_R2)?;
 
         // Compute derived times from start_time and offsets.
         let close_time = start_time + TimeDelta::seconds(close_offset);
@@ -1411,16 +1140,16 @@ pub fn load_fluxes(
         let end_time = start_time + TimeDelta::seconds(end_offset);
 
         let gas_columns = vec![
-            (GasType::CH4, ch4_col),
-            (GasType::CO2, co2_col),
-            (GasType::H2O, h2o_col),
-            (GasType::N2O, n2o_col),
+            (GasType::CH4, fluxes_col::CH4_FLUX),
+            (GasType::CO2, fluxes_col::CO2_FLUX),
+            (GasType::H2O, fluxes_col::H2O_FLUX),
+            (GasType::N2O, fluxes_col::N2O_FLUX),
         ];
 
-        let manual_adjusted = row.get(38)?;
-        let project_name = row.get(39)?;
-        let manual_valid: bool = row.get(40)?;
-        let chamber_volume: f64 = row.get(41)?;
+        let manual_adjusted = row.get(fluxes_col::MANUAL_ADJUSTED)?;
+        let project_name = row.get(fluxes_col::PROJECT_ID)?;
+        let manual_valid: bool = row.get(fluxes_col::MANUAL_VALID)?;
+        let chamber_volume: f64 = row.get(fluxes_col::CHAMBER_VOLUME)?;
         let mut override_valid = None;
         if manual_valid {
             override_valid = Some(is_valid);
@@ -1437,7 +1166,7 @@ pub fn load_fluxes(
         let mut calc_gas_v = HashMap::new();
         let mut calc_dt_v = HashMap::new();
         let mut measurement_dt_v = Vec::new();
-        let mut measurement_diag_v = Vec::new();
+        let measurement_diag_v = Vec::new();
         let mut measurement_gas_v = HashMap::new();
         let measurement_range_start = close_time + TimeDelta::seconds(lag_s as i64);
         let measurement_range_end = open_time + TimeDelta::seconds(lag_s as i64);
@@ -1486,20 +1215,6 @@ pub fn load_fluxes(
                         measurement_range_start.timestamp() as f64,
                         measurement_range_end.timestamp() as f64,
                     );
-                    // let timestamps: Vec<f64> =
-                    //     meas_dt.iter().map(|x| x.timestamp() as f64).collect();
-                    // measurement_r2.insert(
-                    //     gas,
-                    //     stats::pearson_correlation(&timestamps[..], &meas_vals).unwrap_or(0.0),
-                    // );
-                    // measurement_r2.insert(
-                    //     &gas,
-                    //     stats::pearson_correlation(
-                    //         &meas_dt.iter().map(|x| x.timestamp() as f64).collect(),
-                    //         &meas_vals,
-                    //     )
-                    //     .unwrap_or(0.0),
-                    // );
                     if gas == main_gas {
                         // For the main gas, assign the filtered datetime vector.
                         measurement_dt_v = meas_dt;
@@ -1589,10 +1304,6 @@ pub fn load_fluxes(
         }))
     })?;
 
-    // let cycles: Vec<Cycle> = cycle_iter.filter_map(|res| res.ok().flatten()).collect();
-    // let cycles: Result<Vec<Cycle>> = cycle_iter.collect();
-    // let cycles: Vec<Cycle> =
-    //     cycle_iter.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
     let cycles: Vec<Cycle> =
         cycle_iter.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
     if cycles.is_empty() {

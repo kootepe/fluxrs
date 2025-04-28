@@ -1,0 +1,2 @@
+pub const ERROR_INT: i64 = -9999;
+pub const ERROR_FLOAT: f64 = -9999.;

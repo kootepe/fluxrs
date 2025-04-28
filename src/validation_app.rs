@@ -4,6 +4,7 @@ use crate::app_plotting::{
 use crate::csv_parse;
 use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
 use crate::errorcode::ErrorCode;
+use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::gasdata::{insert_measurements, GasData};
 use crate::index::Index;
 use crate::instruments::InstrumentType;
@@ -20,15 +21,17 @@ use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetI
 use egui_file::FileDialog;
 use egui_plot::{PlotPoints, PlotUi, Polygon};
 
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use csv::Writer;
+use rusqlite::{types::ValueRef, Connection, Result, Row};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::error::Error;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use rusqlite::{types::ValueRef, Connection, Result, Row};
 
 pub enum DataType {
     Gas,
@@ -44,6 +47,7 @@ pub enum Panel {
     FileInit,
     ProjectInit,
     DataTable,
+    DownloadData,
     Empty,
 }
 
@@ -85,6 +89,7 @@ impl MainApp {
                     "Select and initiate project",
                 );
                 ui.selectable_value(&mut self.current_panel, Panel::DataTable, "View data in db");
+                ui.selectable_value(&mut self.current_panel, Panel::DownloadData, "Download data");
             });
         });
         ui.separator();
@@ -107,6 +112,9 @@ impl MainApp {
             },
             Panel::DataTable => {
                 self.table_panel.table_ui(ui, ctx);
+            },
+            Panel::DownloadData => {
+                self.validation_panel.dl_ui(ui, ctx);
             },
             Panel::ProjectInit => {
                 self.validation_panel.proj_ui(ui);
@@ -942,9 +950,15 @@ impl ValidationApp {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-        let mut picker_start = self.start_date.date_naive();
-        let mut picker_end = self.end_date.date_naive();
-        ui.horizontal(|ui| {
+
+        if self.init_in_progress || !self.init_enabled {
+            ui.add(egui::Spinner::new());
+            ui.label("Loading data...");
+            // return; // optionally stop drawing the rest of the UI while loading
+        } else {
+            let mut picker_start = self.start_date.date_naive();
+            let mut picker_end = self.end_date.date_naive();
+            ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
@@ -1113,16 +1127,16 @@ impl ValidationApp {
                             return; // Exit early if connection fails
                         },
                     };
-                    let project = self.project_name.clone();
+                    let project = self.selected_project.as_ref().unwrap().clone();
                     match (load_fluxes(
                         &mut conn,
                         self.start_date,
                         self.end_date,
-                        self.selected_project.as_ref().unwrap().clone(),
+                        project.clone(),
                         self.instrument_serial.clone(),
                         None,
                         ),
-                        query_volume(&mut conn, self.start_date, self.end_date, self.project_name.clone())) {
+                        query_volume(&conn, self.start_date, self.end_date, self.project_name.clone())) {
                         (Ok(mut cycles), Ok(volumes)) => {
                             println!("volumes: {}", volumes.datetime.len());
                             self.runtime.spawn_blocking(move || {
@@ -1148,7 +1162,7 @@ impl ValidationApp {
                 }
             });
         });
-
+        }
         self.log_display(ui);
     }
     pub fn file_ui(&mut self, ui: &mut Ui, ctx: &Context) {
@@ -1520,6 +1534,87 @@ impl ValidationApp {
             }
         }
     }
+
+    pub fn dl_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+        ui.heading("Data downloader");
+        if self.selected_project.is_none() {
+            ui.label("Add or select a project in the Initiate project tab.");
+            return;
+        }
+        if ui.button("Download all calculated fluxes for current project.").clicked() {
+            match export_sqlite_to_csv(
+                "fluxrs.db",
+                "fluxrs.csv",
+                self.selected_project.clone().unwrap(),
+            ) {
+                Ok(_) => println!("Succesfully downloaded csv."),
+                Err(e) => println!("Failed to download csv. Error: {}", e),
+            }
+        }
+    }
+    pub fn _dl_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+        // WIP dl_ui function
+        ui.heading("Data downloader");
+        if self.selected_project.is_none() {
+            ui.label("Add or select a project in the Initiate project tab.");
+            return;
+        }
+        if ui.button("Download all calculated fluxes for current project.").clicked() {
+            match export_sqlite_to_csv(
+                "fluxrs.db",
+                "fluxrs.csv",
+                self.selected_project.clone().unwrap(),
+            ) {
+                Ok(_) => println!("Succesfully downloaded csv."),
+                Err(e) => println!("Failed to download csv. Error: {}", e),
+            }
+        }
+        let mut checked = false;
+        ui.horizontal(|ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    for gas in self.instrument.available_gases() {
+                        ui.checkbox(&mut checked, gas.flux_col());
+                    }
+                });
+            });
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    for gas in self.instrument.available_gases() {
+                        ui.checkbox(&mut checked, gas.r2_col());
+                    }
+                });
+            });
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    for gas in self.instrument.available_gases() {
+                        ui.checkbox(&mut checked, gas.measurement_r2_col());
+                    }
+                });
+            });
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    for gas in self.instrument.available_gases() {
+                        ui.checkbox(&mut checked, gas.calc_range_start_col());
+                    }
+                });
+            });
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    for gas in self.instrument.available_gases() {
+                        ui.checkbox(&mut checked, gas.calc_range_end_col());
+                    }
+                });
+            });
+        });
+        ui.group(|ui| {
+            ui.vertical(|ui| {
+                for col in OTHER_COLS {
+                    ui.checkbox(&mut checked, *col);
+                }
+            });
+        });
+    }
 }
 
 #[derive(Default, PartialEq)]
@@ -1646,20 +1741,20 @@ pub struct TableApp {
 }
 
 impl TableApp {
-    pub fn new(db_path: &str) -> Self {
-        let conn = Connection::open(db_path).expect("Failed to open database");
-        // let table_names = Self::fetch_table_names(&conn).unwrap_or_default();
-        let table_names = Vec::new();
-        let current_page = 0;
-
-        Self {
-            table_names,
-            current_page,
-            selected_table: None,
-            column_names: Vec::new(),
-            data: Vec::new(),
-        }
-    }
+    // pub fn new(db_path: &str) -> Self {
+    //     let conn = Connection::open(db_path).expect("Failed to open database");
+    //     // let table_names = Self::fetch_table_names(&conn).unwrap_or_default();
+    //     let table_names = Vec::new();
+    //     let current_page = 0;
+    //
+    //     Self {
+    //         table_names,
+    //         current_page,
+    //         selected_table: None,
+    //         column_names: Vec::new(),
+    //         data: Vec::new(),
+    //     }
+    // }
 
     fn fetch_table_names(&mut self, conn: &Connection) {
         let mut stmt = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
@@ -1810,6 +1905,7 @@ async fn run_processing(
     project: String,
     conn: Arc<Mutex<rusqlite::Connection>>,
 ) {
+    println!("Running cycle processing threads.");
     if times.start_time.is_empty() || gas_data.is_empty() {
         println!("Empty data — skipping");
         return;
@@ -1843,6 +1939,7 @@ async fn run_processing(
             }
         }
 
+        println!("Running cycle processing.");
         let task = tokio::task::spawn_blocking(move || {
             process_cycles(
                 &filtered_times,
@@ -1903,4 +2000,51 @@ fn filter_time_data_by_dates(times: &TimeData, dates: &HashSet<String>) -> TimeD
         end_offset: indices.iter().map(|&i| times.end_offset[i]).collect(),
         project: indices.iter().map(|&i| times.project[i].clone()).collect(),
     }
+}
+// struct CsvDownload {
+//
+// }
+
+pub fn export_sqlite_to_csv(
+    db_path: &str,
+    csv_path: &str,
+    project: String,
+) -> Result<(), Box<dyn Error>> {
+    let conn = Connection::open(db_path)?;
+
+    let query = make_select_all_fluxes();
+    let mut stmt = conn.prepare(&query)?;
+    // borrow checker lol..
+    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let column_count = column_names.len();
+
+    let rows = stmt.query_map([&project], move |row| {
+        let mut values = Vec::with_capacity(column_count);
+        for i in 0..column_count {
+            let val = match row.get_ref(i)? {
+                ValueRef::Null => "".to_string(),
+                ValueRef::Integer(i) => i.to_string(),
+                ValueRef::Real(f) => f.to_string(),
+                ValueRef::Text(t) => String::from_utf8_lossy(t).to_string(),
+                ValueRef::Blob(_) => "[BLOB]".to_string(), // or base64 if needed
+            };
+            values.push(val);
+        }
+        Ok(values)
+    })?;
+
+    let file = File::create(Path::new(csv_path))?;
+    let mut wtr = Writer::from_writer(file);
+
+    // Write header
+    wtr.write_record(&column_names)?;
+
+    // Write rows
+    for row in rows {
+        let record = row?;
+        wtr.write_record(&record)?;
+    }
+
+    wtr.flush()?;
+    Ok(())
 }

@@ -1,49 +1,13 @@
+use crate::fluxes_schema::create_flux_table;
 use rusqlite::{Connection, Result};
 
 const DB_VERSION: i32 = 1;
 
-pub fn init_cycle_db(conn: &Connection) {
-    match conn.execute(
-        "CREATE TABLE IF NOT EXISTS cycles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            chamber_id TEXT NOT NULL,
-            start_time integer NOT NULL,
-            close_offset integer NOT NULL,
-            open_offset integer NOT NULL,
-            end_offset integer NOT NULL,
-            project_id TEXT NOT NULL
-        )",
-        [],
-    ) {
-        Ok(_) => println!("Cycle table initialized successfully."),
-        Err(e) => eprintln!("Error initializing cycle table: {}", e),
-    }
-}
-pub fn init_measurement_db(conn: &Connection) {
-    match conn.execute(
-        "CREATE TABLE IF NOT EXISTS measurements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            instrument_model TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
-            datetime integer NOT NULL,
-            ch4 float,
-            co2 float,
-            h2o float,
-            n2o float,
-            diag integer
-        )",
-        [],
-    ) {
-        Ok(_) => println!("Measurement table initialized successfully."),
-        Err(e) => eprintln!("Error initializing measurement table: {}", e),
-    }
-}
-
 pub fn migrate_db() -> Result<i32> {
     let conn = Connection::open("fluxrs.db")?;
+    // user_version is 0 by default
     let current_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
     let mut migrated = 0;
-    println!("Current db version: {current_version}");
 
     if current_version < 1 {
         println!("Applying migration 1: Setting PRAGMA to 1");
@@ -118,62 +82,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         )",
         [],
     )?;
-    conn.execute(
-        // id INTEGER PRIMARY KEY AUTOINCREMENT,
-        "CREATE TABLE IF NOT EXISTS fluxes (
-            instrument_model TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
-            chamber_id TEXT NOT NULL,
-            project_id TEXT NOT NULL,
-            manual_adjusted BOOL NOT NULL,
-            manual_valid bool NOT NULL,
-
-            start_time INTEGER NOT NULL,
-            close_offset INTEGER NOT NULL,
-            open_offset INTEGER NOT NULL,
-            end_offset INTEGER NOT NULL,
-            lag_s INTEGER NOT NULL,
-
-            air_pressure FLOAT,
-            air_temperature FLOAT,
-            chamber_volume FLOAT,
-
-            error_code INTEGER,
-            is_valid BOOL,
-            main_gas TEXT NOT NULL,
-            main_gas_r2 FLOAT,
-
-            ch4_flux FLOAT,
-            ch4_r2 FLOAT,
-            ch4_measurement_r2 FLOAT,
-            ch4_slope FLOAT,
-            ch4_calc_range_start FLOAT,
-            ch4_calc_range_end FLOAT,
-
-            co2_flux FLOAT,
-            co2_r2 FLOAT,
-            co2_measurement_r2 FLOAT,
-            co2_slope FLOAT,
-            co2_calc_range_start FLOAT,
-            co2_calc_range_end FLOAT,
-
-            h2o_flux FLOAT,
-            h2o_r2 FLOAT,
-            h2o_measurement_r2 FLOAT,
-            h2o_slope FLOAT,
-            h2o_calc_range_start FLOAT,
-            h2o_calc_range_end FLOAT,
-
-            n2o_flux FLOAT,
-            n2o_r2 FLOAT,
-            n2o_measurement_r2 FLOAT,
-            n2o_slope FLOAT,
-            n2o_calc_range_start FLOAT,
-            n2o_calc_range_end FLOAT,
-            PRIMARY KEY (instrument_serial, start_time, project_id)
-        )",
-        [],
-    )?;
+    conn.execute(&create_flux_table(), [])?;
 
     Ok(())
 }

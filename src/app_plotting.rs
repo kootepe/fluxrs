@@ -1062,11 +1062,6 @@ pub fn init_flux_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                // let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                //     .map(|dt| {
-                //         DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
-                //     })
-                //     .unwrap_or_else(|| format!("{:.1}", value.x));
                 let datetime = NaiveDateTime::UNIX_EPOCH
                     .checked_add_signed(Duration::seconds(timestamp))
                     .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())

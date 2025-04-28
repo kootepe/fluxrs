@@ -97,6 +97,7 @@ pub fn query_volume(
     end: DateTime<Utc>,
     project: String,
 ) -> Result<VolumeData> {
+    println!("Querying volume data");
     // let mut data = HashMap::new();
 
     let mut stmt = conn.prepare(

@@ -69,8 +69,6 @@ pub fn query_cycles(
     project: String,
 ) -> Result<TimeData> {
     println!("Querying cycles");
-    println!("{}", start);
-    println!("{}", end);
     let mut stmt = conn.prepare(
         "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, project_id
          FROM cycles
