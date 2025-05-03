@@ -1920,9 +1920,6 @@ fn filter_time_data_by_dates(times: &TimeData, dates: &HashSet<String>) -> TimeD
         project: indices.iter().map(|&i| times.project[i].clone()).collect(),
     }
 }
-// struct CsvDownload {
-//
-// }
 
 pub fn export_sqlite_to_csv(
     db_path: &str,
@@ -1933,35 +1930,45 @@ pub fn export_sqlite_to_csv(
 
     let query = make_select_all_fluxes();
     let mut stmt = conn.prepare(&query)?;
-    // borrow checker lol..
     let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     let column_count = column_names.len();
 
-    let rows = stmt.query_map([&project], move |row| {
-        let mut values = Vec::with_capacity(column_count);
-        for i in 0..column_count {
-            let val = match row.get_ref(i)? {
-                ValueRef::Null => "".to_string(),
-                ValueRef::Integer(i) => i.to_string(),
-                ValueRef::Real(f) => f.to_string(),
-                ValueRef::Text(t) => String::from_utf8_lossy(t).to_string(),
-                ValueRef::Blob(_) => "[BLOB]".to_string(), // or base64 if needed
-            };
-            values.push(val);
+    let rows = stmt.query_map([&project], {
+        let column_names = column_names.clone();
+        move |row| {
+            let mut values = Vec::with_capacity(column_count);
+            for i in 0..column_count {
+                let col_name = &column_names[i];
+                let val = match row.get_ref(i)? {
+                    ValueRef::Null => "".to_string(),
+                    ValueRef::Integer(ts) => {
+                        if col_name == "start_time" {
+                            if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
+                                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                            } else {
+                                ts.to_string()
+                            }
+                        } else {
+                            ts.to_string()
+                        }
+                    },
+                    ValueRef::Real(f) => f.to_string(),
+                    ValueRef::Text(t) => String::from_utf8_lossy(t).to_string(),
+                    ValueRef::Blob(_) => "[BLOB]".to_string(),
+                };
+                values.push(val);
+            }
+            Ok(values)
         }
-        Ok(values)
     })?;
 
     let file = File::create(Path::new(csv_path))?;
     let mut wtr = Writer::from_writer(file);
 
-    // Write header
     wtr.write_record(&column_names)?;
 
-    // Write rows
     for row in rows {
-        let record = row?;
-        wtr.write_record(&record)?;
+        wtr.write_record(&row?)?;
     }
 
     wtr.flush()?;

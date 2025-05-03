@@ -1,7 +1,7 @@
 use crate::Cycle;
 
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 #[derive(Default, Clone, Debug)]
 pub struct Index(Cell<usize>);
