@@ -27,4 +27,7 @@ impl eframe::App for MyApp {
             self.main_app.ui(ui, ctx);
         });
     }
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.main_app.validation_panel.commit_all_dirty_cycles(); // <-- do cleanup here
+    }
 }

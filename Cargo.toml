@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+rayon = "1.10.0"
 egui_file = "0.22"
 egui_extras = { version = "*", features = ["datepicker"] }
 rusqlite = { version = "0.33.0", features = ["bundled"] }

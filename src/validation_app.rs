@@ -1,12 +1,13 @@
 use crate::app_plotting::{
     init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
+use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::csv_parse;
 use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
+use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::gasdata::{insert_measurements, GasData};
-use crate::index::Index;
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
@@ -19,7 +20,7 @@ use crate::{insert_cycles, process_cycles};
 
 use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetInfo, WidgetType};
 use egui_file::FileDialog;
-use egui_plot::{PlotPoints, PlotUi, Polygon};
+use egui_plot::{LineStyle, PlotPoints, PlotUi, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use csv::Writer;
@@ -59,7 +60,7 @@ impl Default for Panel {
 #[derive(Default)]
 pub struct MainApp {
     current_panel: Panel,
-    validation_panel: ValidationApp,
+    pub validation_panel: ValidationApp,
     table_panel: TableApp,
     empty_panel: EmptyPanel,
 }
@@ -139,7 +140,7 @@ pub struct ValidationApp {
     pub enabled_calc_rs: HashSet<GasType>, // Stores which r values are enabled for plotting
     pub enabled_measurement_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub cycles: Vec<Cycle>,
-    pub gases: Vec<GasType>,
+    pub cycle_nav: CycleNavigator,
     pub lag_plot_w: f32,
     pub lag_plot_h: f32,
     pub gas_plot_w: f32,
@@ -150,30 +151,15 @@ pub struct ValidationApp {
     pub measurement_r_plot_h: f32,
     pub calc_r_plot_w: f32,
     pub calc_r_plot_h: f32,
-    pub lag_idx: f64, // Add a vecxy tor of values to your struct
-    pub close_idx: f64,
-    pub open_offset: f64,
-    pub close_offset: f64,
-    pub open_idx: f64,
-    pub start_time_idx: f64,
-    pub end_time_idx: f64,
-    pub calc_range_start: HashMap<GasType, f64>,
-    pub calc_range_end: HashMap<GasType, f64>,
-    pub calc_r2: HashMap<GasType, f64>,
-    pub measurement_r2: HashMap<GasType, f64>,
-    pub flux: HashMap<GasType, f64>,
-    pub measurement_max_y: HashMap<GasType, f64>,
-    pub measurement_min_y: HashMap<GasType, f64>,
+    pub dirty_cycles: HashSet<usize>,
     pub zoom_to_measurement: bool,
     pub drag_panel_width: f64,
     pub min_calc_area_range: f64,
-    pub index: Index,
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
     pub visible_traces: HashMap<String, bool>,
     pub all_traces: HashSet<String>,
-    pub visible_cycles: Vec<usize>,
     pub start_date: DateTime<Utc>,
     pub end_date: DateTime<Utc>,
     pub opened_files: Option<Vec<PathBuf>>,
@@ -197,6 +183,7 @@ impl Default for ValidationApp {
         let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
         Self {
             runtime: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
+            dirty_cycles: HashSet::new(),
             task_done_sender,
             task_done_receiver,
             init_enabled: true,
@@ -208,7 +195,7 @@ impl Default for ValidationApp {
             enabled_measurement_rs: HashSet::new(),
             enabled_calc_rs: HashSet::new(),
             cycles: Vec::new(),
-            gases: Vec::new(),
+            cycle_nav: CycleNavigator::new(),
             lag_plot_w: 600.,
             lag_plot_h: 350.,
             gas_plot_w: 600.,
@@ -219,30 +206,14 @@ impl Default for ValidationApp {
             calc_r_plot_h: 350.,
             measurement_r_plot_w: 600.,
             measurement_r_plot_h: 350.,
-            lag_idx: 0.0,
-            close_idx: 0.0,
-            open_offset: 0.0,
-            close_offset: 0.0,
-            open_idx: 0.0,
-            start_time_idx: 0.0,
-            end_time_idx: 0.0,
-            calc_range_start: HashMap::new(),
-            calc_range_end: HashMap::new(),
-            calc_r2: HashMap::new(),
-            measurement_r2: HashMap::new(),
-            flux: HashMap::new(),
-            measurement_max_y: HashMap::new(),
-            measurement_min_y: HashMap::new(),
             zoom_to_measurement: false,
             drag_panel_width: 40.0, // Default width for UI panel
-            min_calc_area_range: 180.0,
-            index: Index::default(), // Assuming Index implements Default
+            min_calc_area_range: MIN_CALC_AREA_RANGE,
             selected_point: None,
             dragged_point: None,
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            visible_cycles: Vec::new(),
             end_date: NaiveDate::from_ymd_opt(2024, 9, 25)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
@@ -279,7 +250,7 @@ impl ValidationApp {
             ui.label("No cycles with data loaded, use Initiate measurements tab to initiate data.");
             return;
         }
-        let main_gas = self.cycles[*self.index].main_gas;
+
         egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
             self.render_legend(ui, &self.chamber_colors.clone());
         });
@@ -330,157 +301,172 @@ impl ValidationApp {
                 });
             });
         });
+
         egui::Window::new("Select displayed plots").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("main gas plots");
-                        for &gas in &self.cycles[*self.index].gases {
-                            let mut is_enabled = self.is_gas_enabled(&gas);
-                            ui.checkbox(&mut is_enabled, format!("{:?}", gas));
+            if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+                let gases = cycle.gases.clone(); // Clone gases early!
 
-                            // update the enabled_gases set when the checkbox is toggled
-                            if is_enabled {
-                                self.enabled_gases.insert(gas);
-                            } else {
-                                self.enabled_gases.remove(&gas);
+                let mut main_gases: Vec<(GasType, bool)> =
+                    gases.iter().map(|gas| (*gas, self.is_gas_enabled(gas))).collect();
+
+                let mut flux_gases: Vec<(GasType, bool)> =
+                    gases.iter().map(|gas| (*gas, self.is_flux_enabled(gas))).collect();
+
+                let mut calc_r_gases: Vec<(GasType, bool)> =
+                    gases.iter().map(|gas| (*gas, self.is_calc_r_enabled(gas))).collect();
+
+                let mut measurement_r_gases: Vec<(GasType, bool)> =
+                    gases.iter().map(|gas| (*gas, self.is_measurement_r_enabled(gas))).collect();
+
+                ui.horizontal(|ui| {
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label("main gas plots");
+                            for (gas, mut is_enabled) in &mut main_gases {
+                                if ui.checkbox(&mut is_enabled, format!("{:?}", gas)).changed() {
+                                    if is_enabled {
+                                        self.enabled_gases.insert(*gas);
+                                    } else {
+                                        self.enabled_gases.remove(gas);
+                                    }
+                                }
                             }
-                        }
+                        });
+                    });
+
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label("Flux plots");
+                            for (gas, mut is_enabled) in &mut flux_gases {
+                                if ui.checkbox(&mut is_enabled, format!("{:?}", gas)).changed() {
+                                    if is_enabled {
+                                        self.enabled_fluxes.insert(*gas);
+                                    } else {
+                                        self.enabled_fluxes.remove(gas);
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label("Calc r plots");
+                            for (gas, mut is_enabled) in &mut calc_r_gases {
+                                if ui.checkbox(&mut is_enabled, format!("{:?}", gas)).changed() {
+                                    if is_enabled {
+                                        self.enabled_calc_rs.insert(*gas);
+                                    } else {
+                                        self.enabled_calc_rs.remove(gas);
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.label("Measurement r plots");
+                            for (gas, mut is_enabled) in &mut measurement_r_gases {
+                                if ui.checkbox(&mut is_enabled, format!("{:?}", gas)).changed() {
+                                    if is_enabled {
+                                        self.enabled_measurement_rs.insert(*gas);
+                                    } else {
+                                        self.enabled_measurement_rs.remove(gas);
+                                    }
+                                }
+                            }
+                        });
                     });
                 });
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("Flux plots");
-                        for &gas in &self.cycles[*self.index].gases {
-                            let mut is_enabled = self.is_flux_enabled(&gas);
-                            ui.checkbox(&mut is_enabled, format!("{:?}", gas));
-
-                            // Update the enabled_gases set when the checkbox is toggled
-                            if is_enabled {
-                                self.enabled_fluxes.insert(gas);
-                            } else {
-                                self.enabled_fluxes.remove(&gas);
-                            }
-                        }
-                    });
-                });
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("Calc r plots");
-                        for &gas in &self.cycles[*self.index].gases {
-                            let mut is_enabled = self.is_measurement_r_enabled(&gas);
-                            ui.checkbox(&mut is_enabled, format!("{:?}", gas));
-
-                            // Update the enabled_gases set when the checkbox is toggled
-                            if is_enabled {
-                                self.enabled_measurement_rs.insert(gas);
-                            } else {
-                                self.enabled_measurement_rs.remove(&gas);
-                            }
-                        }
-                    });
-                });
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("Measurement r plots");
-                        for &gas in &self.cycles[*self.index].gases {
-                            let mut is_enabled = self.is_calc_r_enabled(&gas);
-                            ui.checkbox(&mut is_enabled, format!("{:?}", gas));
-
-                            // Update the enabled_gases set when the checkbox is toggled
-                            if is_enabled {
-                                self.enabled_calc_rs.insert(gas);
-                            } else {
-                                self.enabled_calc_rs.remove(&gas);
-                            }
-                        }
-                    });
-                });
-            });
+            } else {
+                ui.label("No current cycle available to select gases from.");
+            }
         });
-
         egui::Window::new("Current Cycle details").show(ctx, |ui| {
-            // let errors = ErrorCode::from_mask(self.cycles[*self.index].error_code.0);
-            let errors = ErrorCode::from_mask(self.cycles[*self.index].error_code.0);
-            let error_messages: Vec<String> =
-                errors.iter().map(|error| error.to_string()).collect();
-            // for error in errors {
-            //     println!("{}", error);
-            // }
-            let current_pts = format!(
-                "Showing: {}/{} cycles in current range.",
-                self.visible_cycles.len(),
-                self.cycles.len(),
-            );
-            let datetime = format!("datetime: {}", self.cycles[*self.index].start_time);
-            let model = format!("model: {}", self.cycles[*self.index].instrument_model);
-            let serial = format!("serial: {}", self.cycles[*self.index].instrument_serial);
-            let ch_id = format!("Chamber: {}", self.cycles[*self.index].chamber_id.clone());
-            let valid_txt = format!("Is valid: {}", self.cycles[*self.index].is_valid);
-            let vld = format!("manual valid: {:?}", self.cycles[*self.index].manual_valid);
-            let over = format!("override: {:?}", self.cycles[*self.index].override_valid);
-            let error = format!("override: {:?}", self.cycles[*self.index].error_code.0);
-            ui.label(model);
-            ui.label(serial);
-            ui.label(datetime);
-            ui.label(current_pts);
-            ui.label(ch_id);
-            ui.label(valid_txt);
-            ui.label(vld);
-            ui.label(over);
-            ui.label(error);
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    for gas in &self.enabled_gases {
-                        // let r_val = match self.cycles[*self.index].calc_r.get(gas) {
-                        let r_val = match self.cycles[*self.index].calc_r2.get(gas) {
-                            Some(r) => format!("calc_r2 {} : {:.6}", gas, r),
-                            None => "Calc r: N/A".to_string(), // Handle missing data
-                        };
-                        ui.label(r_val);
-                    }
+            if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+                let errors = ErrorCode::from_mask(cycle.error_code.0);
+                let error_messages: Vec<String> =
+                    errors.iter().map(|error| error.to_string()).collect();
+
+                let current_pts = format!(
+                    "Showing: {}/{} cycles in current range.",
+                    self.cycle_nav.visible_count(),
+                    self.cycles.len(),
+                );
+                let datetime = format!("datetime: {}", cycle.start_time);
+                let model = format!("model: {}", cycle.instrument_model);
+                let serial = format!("serial: {}", cycle.instrument_serial);
+                let cur_idx = format!("current index: {}", self.cycle_nav.current_index().unwrap());
+                let ch_id = format!("Chamber: {}", cycle.chamber_id);
+                let valid_txt = format!("Is valid: {}", cycle.is_valid);
+                let vld = format!("manual valid: {:?}", cycle.manual_valid);
+                let over = format!("override: {:?}", cycle.override_valid);
+                let error = format!("error_code: {:?}", cycle.error_code.0);
+
+                ui.label(model);
+                ui.label(serial);
+                ui.label(cur_idx);
+                ui.label(datetime);
+                ui.label(current_pts);
+                ui.label(ch_id);
+                ui.label(valid_txt);
+                ui.label(vld);
+                ui.label(over);
+                ui.label(error);
+
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        for gas in &self.enabled_gases {
+                            let r_val = match cycle.calc_r2.get(gas) {
+                                Some(r) => format!("calc_r2 {}: {:.6}", gas, r),
+                                None => "Calc r2: N/A".to_string(),
+                            };
+                            ui.label(r_val);
+                        }
+                    });
+
+                    ui.vertical(|ui| {
+                        for gas in &self.enabled_gases {
+                            let flux = match cycle.flux.get(gas) {
+                                Some(r) => format!("flux {}: {:.6}", gas, r),
+                                None => "Flux: N/A".to_string(),
+                            };
+                            ui.label(flux);
+                        }
+                    });
                 });
 
-                // NOTE: BAD CLONE
-                ui.vertical(|ui| {
-                    for gas in &self.enabled_gases {
-                        // let flux = match self.cycles[*self.index].flux.get(gas) {
-                        let flux = match self.cycles[*self.index].flux.get(gas) {
-                            Some(r) => format!("flux {} : {:.6}", gas, r),
-                            None => "Flux: N/A".to_string(), // Handle missing data
-                        };
-                        ui.label(flux);
-                    }
-                });
-            });
-            let measurement_r2 = match self.cycles[*self.index].measurement_r2.get(&main_gas) {
-                Some(r) => format!("measurement r2: {:.6}", r),
-                None => "Measurement r: N/A".to_string(), // Handle missing data
-            };
-            // );
-            ui.label(measurement_r2);
-            ui.label(error_messages.join("\n"));
-            // let flux = format!("flux: {:.6}", self.cycles[*self.index].flux);
+                let Some(main_gas) = self.main_gas else {
+                    eprintln!("No main gas selected!");
+                    return;
+                };
 
-            // egui::SidePanel::left("my_left_panel").show(ctx, |ui| {});
+                let measurement_r2 = match cycle.measurement_r2.get(&main_gas) {
+                    Some(r) => format!("measurement r2: {:.6}", r),
+                    None => "Measurement r2: N/A".to_string(),
+                };
 
-            ui.style_mut().text_styles.insert(
-                egui::TextStyle::Button,
-                egui::FontId::new(14.0, eframe::epaint::FontFamily::Proportional),
-            );
+                ui.label(measurement_r2);
+
+                if !error_messages.is_empty() {
+                    ui.label(error_messages.join("\n"));
+                }
+
+                ui.style_mut().text_styles.insert(
+                    egui::TextStyle::Button,
+                    egui::FontId::new(14.0, eframe::epaint::FontFamily::Proportional),
+                );
+            } else {
+                ui.label("No cycle selected.");
+            }
         });
-
-        // let gas_plot = self.create_gas_plot();
-        // let lag_plot = self.create_lag_plot();
 
         let mut prev_clicked = false;
         let mut next_clicked = false;
         let mut highest_r = false;
         let mut reset_cycle = false;
         let mut toggle_valid = false;
-        // let mut show_invalids_clicked = false;
-        // let mut show_valids_clicked = false;
-        // let mut zoom_clicked = false;
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
@@ -531,45 +517,53 @@ impl ValidationApp {
                 }
 
                 if let egui::Event::Key { key: Key::S, pressed, .. } = event {
-                    if *pressed && *self.index > 0 {
-                        let (before, after) = self.cycles.split_at_mut(*self.index);
-                        let current_cycle = &mut after[0]; // The cycle at *self.index (mutable)
+                    if *pressed {
+                        if let Some(current_visible_idx) = self.cycle_nav.current_index() {
+                            if current_visible_idx > 0 {
+                                // First copy chamber_id (clone!) to a new local String
+                                let chamber_id =
+                                    self.cycles[current_visible_idx].chamber_id.clone();
 
-                        // Loop backwards through `before` to find a matching chamber_id
-                        if let Some(previous_cycle) = before
-                            .iter()
-                            .rev()
-                            .find(|cycle| cycle.chamber_id == current_cycle.chamber_id)
-                        {
-                            // If found, copy `lag_s`
-                            current_cycle.lag_s = previous_cycle.lag_s;
-                            let target = current_cycle.start_time
-                                + chrono::TimeDelta::seconds(current_cycle.open_offset)
-                                + chrono::TimeDelta::seconds(current_cycle.lag_s as i64);
-                            current_cycle.get_peak_near_timestamp(main_gas, target.timestamp());
-                            self.update_current_cycle();
-                            self.update_plots();
+                                // Now safe to mutate!
+                                let (before, after) = self.cycles.split_at_mut(current_visible_idx);
+                                let current_cycle = &mut after[0];
+
+                                if let Some(previous_cycle) =
+                                    before.iter().rev().find(|cycle| cycle.chamber_id == chamber_id)
+                                {
+                                    current_cycle.set_lag(previous_cycle.lag_s);
+
+                                    let target = current_cycle.start_time
+                                        + chrono::TimeDelta::seconds(current_cycle.open_offset)
+                                        + chrono::TimeDelta::seconds(current_cycle.lag_s as i64);
+
+                                    let Some(main_gas) = self.main_gas else {
+                                        eprintln!("No main gas selected!");
+                                        return;
+                                    };
+
+                                    current_cycle
+                                        .get_peak_near_timestamp(main_gas, target.timestamp());
+
+                                    self.mark_dirty();
+                                    self.update_plots();
+                                }
+                            }
                         }
                     }
                 }
+
                 if let egui::Event::Key { key: Key::ArrowDown, pressed, .. } = event {
                     if *pressed {
-                        self.cycles[*self.index].lag_s -= 1.;
-                        // self.cycles[*self.index].update_cycle();
-                        self.update_current_cycle();
+                        self.mark_dirty();
+                        self.increment_lag(-1.0);
                         self.update_plots();
                     }
                 }
                 if let egui::Event::Key { key: Key::ArrowUp, pressed, .. } = event {
                     if *pressed {
-                        self.cycles[*self.index].lag_s += 1.;
-                        // self.cycles[*self.index].update_cycle();
-                        self.update_current_cycle();
-                        // let mut conn = Connection::open("fluxrs.db").unwrap();
-                        // let proj = self.project_name.unwrap().clone();
-
-                        // let proj = self.selected_project.as_ref().unwrap().clone();
-                        // insert_fluxes(&mut conn, &[self.cycles[*self.index].clone()], proj);
+                        self.mark_dirty();
+                        self.increment_lag(1.0);
                         self.update_plots();
                     }
                 }
@@ -583,62 +577,65 @@ impl ValidationApp {
         if show_valids_clicked {
             self.update_plots();
         }
+
         if toggle_valid {
-            self.cycles[*self.index].toggle_manual_valid();
-            self.update_current_cycle();
-            self.update_plots();
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.toggle_manual_valid();
+                self.update_plots();
+            }
         }
 
         if reset_cycle {
-            self.cycles[*self.index].reset();
-            self.update_current_cycle();
-            self.update_plots();
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.reset();
+                self.update_plots();
+            }
         }
 
         if highest_r {
-            self.cycles[*self.index].recalc_r();
-            self.update_current_cycle();
-            self.update_plots();
-        }
-        // jump to the nearest point if current point is not visible
-        if !self.visible_cycles.contains(&self.index.count) {
-            if let Some(nearest) = self.find_nearest_visible_cycle() {
-                self.index.set(nearest);
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.recalc_r();
                 self.update_plots();
-            } else {
-                return; // No visible cycles, do nothing
             }
         }
         if prev_clicked {
-            if let Some(current_pos) = self.visible_cycles.iter().position(|&i| i == *self.index) {
-                // Find the previous index cyclically
-                let new_index_pos = if current_pos == 0 {
-                    self.visible_cycles.len() - 1 // Wrap to last visible index
-                } else {
-                    current_pos - 1
-                };
-
-                let new_index = self.visible_cycles[new_index_pos]; // Get the valid index
-
-                self.index.set(new_index);
+            self.commit_current_cycle();
+            self.cycle_nav.step_back(); // Step to previous visible cycle
+            if let Some(_index) = self.cycle_nav.current_index() {
                 self.update_plots();
             }
         }
 
         if next_clicked {
-            // insert_cycle(conn, self.cycles[*self.index]);
-
-            if let Some(current_pos) = self.visible_cycles.iter().position(|&i| i == *self.index) {
-                // Find the next index cyclically
-                let new_index_pos = (current_pos + 1) % self.visible_cycles.len();
-                let new_index = self.visible_cycles[new_index_pos]; // Get the valid index
-
-                self.index.set(new_index);
+            self.commit_current_cycle();
+            self.cycle_nav.step_forward(); // Step to next visible cycle
+            if let Some(_index) = self.cycle_nav.current_index() {
                 self.update_plots();
             }
         }
+        let main_gas = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.main_gas
+        } else {
+            if self.cycles.is_empty() {
+                ui.label("No cycles loaded");
+            }
+            if self.cycle_nav.visible_count() == 0 {
+                ui.label("All cycles hidden.");
+            }
+            return;
+        };
+        if self.enabled_gases.is_empty() {
+            self.enabled_gases.insert(main_gas);
+        }
 
-        let lag_s = self.cycles[*self.index].lag_s;
+        let lag_s = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.lag_s
+        } else {
+            return;
+        };
 
         let drag_panel_width = 40.;
         let mut calc_area_color = Color32::BLACK;
@@ -666,8 +663,8 @@ impl ValidationApp {
                         if self.is_gas_enabled(&gas_type) {
                             let gas_plot = init_gas_plot(
                                 &gas_type,
-                                self.start_time_idx,
-                                self.end_time_idx,
+                                self.get_start(),
+                                self.get_end(),
                                 self.gas_plot_w,
                                 self.gas_plot_h,
                             );
@@ -775,45 +772,6 @@ impl ValidationApp {
         });
     }
 
-    // fn parse_dates(&mut self) -> Result<(DateTime<Utc>, DateTime<Utc>), String> {
-    //     let naive_start = match NaiveDateTime::parse_from_str(&self.start_date, "%Y-%m-%dT%H:%M:%S")
-    //     {
-    //         Ok(dt) => dt,
-    //         Err(e) => {
-    //             return Err(format!(
-    //                 "Failed to parse start date: {}, {}\nUse format YYYY-MM-DDTHH:MM:SS",
-    //                 self.start_date, e
-    //             ));
-    //         }
-    //     };
-    //
-    //     let naive_end = match NaiveDateTime::parse_from_str(&self.end_date, "%Y-%m-%dT%H:%M:%S") {
-    //         Ok(dt) => dt,
-    //         Err(e) => {
-    //             return Err(format!(
-    //                 "Failed to parse end date: {}, {}\nUse format YYYY-MM-DDTHH:MM:SS",
-    //                 self.end_date, e
-    //             ));
-    //         }
-    //     };
-    //
-    //     let start = DateTime::<Utc>::from_utc(naive_start, Utc);
-    //     let end = DateTime::<Utc>::from_utc(naive_end, Utc);
-    //
-    //     Ok((start, end))
-    // }
-    fn find_nearest_visible_cycle(&self) -> Option<usize> {
-        // If no visible cycles exist, return None
-        if self.visible_cycles.is_empty() {
-            return None;
-        }
-
-        // Try to find the closest visible cycle
-        self.visible_cycles
-            .iter()
-            .min_by_key(|&&i| (i as isize - *self.index as isize).abs()) // Find the closest visible cycle
-            .copied()
-    }
     fn log_display(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         if ui.button("Clear Log").clicked() {
@@ -907,6 +865,7 @@ impl ValidationApp {
         if self.start_date > self.end_date {
             self.log_messages.push("End date can't be before start date.".to_owned());
         }
+
         if ui.button("Init from db").clicked() {
             let mut conn = match Connection::open("fluxrs.db") {
                 Ok(conn) => conn,
@@ -915,6 +874,7 @@ impl ValidationApp {
                     return; // Exit early if connection fails
                 },
             };
+
             match load_fluxes(
                 &mut conn,
                 self.start_date,
@@ -924,11 +884,11 @@ impl ValidationApp {
                 None,
             ) {
                 Ok(cycles) => {
-                    self.index.set(0);
+                    // self.index.set(0);
                     self.cycles = cycles;
+
                     self.update_plots();
                 },
-                // invalidquery returned if cycles is empty
                 Err(rusqlite::Error::InvalidQuery) => {
                     self.log_messages
                         .push("No cycles found in db, have you initiated the data?".to_owned());
@@ -1142,7 +1102,7 @@ impl ValidationApp {
                             self.runtime.spawn_blocking(move || {
                                 for c in &mut cycles {
                                     c.chamber_volume = volumes.get_nearest_previous_volume(c.start_time.timestamp(),&c.chamber_id).unwrap_or(1.0);
-                                    c.calculate_fluxes();
+                                    c.compute_all_fluxes();
                             }
                                 let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
                                 if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
@@ -1615,6 +1575,16 @@ impl ValidationApp {
             });
         });
     }
+    /// Find the most recent previous cycle with matching chamber_id
+    fn _find_previous_cycle(&self, chamber_id: &str) -> Option<&Cycle> {
+        if let Some(current_visible_idx) = self.cycle_nav.current_index() {
+            if current_visible_idx > 0 {
+                let (before, _) = self.cycles.split_at(current_visible_idx);
+                return before.iter().rev().find(|cycle| cycle.chamber_id == chamber_id);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Default, PartialEq)]
@@ -1633,76 +1603,37 @@ pub fn is_inside_polygon(
 ) -> bool {
     point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
 }
-pub fn limit_to_bounds(plot_ui: &mut PlotUi, app: &mut ValidationApp, gas_type: &GasType) {
-    // app.min_calc_area_range = 240.;
-    let calc_area_range = app.get_calc_end(*gas_type) - app.get_calc_start(*gas_type);
-    let drag_delta = plot_ui.pointer_coordinate_drag_delta();
-    let at_min_area = calc_area_range as i64 == app.min_calc_area_range as i64;
-    // let after_close = app.cycles[app.index].calc_range_start.get(&gas_type).unwrap() >= app.close_idx;
-    // let before_open = app.cycles[app.index].calc_range_end.get(&gas_type).unwrap() <= app.open_idx;
-    // let in_bounds = after_close && before_open;
-    // let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-    let at_start = app.get_calc_start(*gas_type) <= app.close_idx;
-    let at_end = app.get_calc_end(*gas_type) >= app.open_idx;
-    let positive_drag = drag_delta.x > 0.;
-    let negative_drag = drag_delta.x < 0.;
 
-    let range_len = app.get_calc_end(*gas_type) - app.get_calc_start(*gas_type);
-    if at_start && positive_drag && !at_min_area {
-        app.increment_calc_start(*gas_type, drag_delta.x as f64);
-        return;
-    }
-
-    if at_end && negative_drag && !at_min_area {
-        app.increment_calc_end(*gas_type, drag_delta.x as f64);
-        return;
-    }
-
-    if app.get_calc_start(*gas_type) < app.close_idx {
-        let diff = (app.get_calc_start(*gas_type) - app.close_idx).abs();
-        app.set_calc_start(*gas_type, app.close_idx);
-        if app.get_calc_end(*gas_type) < app.open_idx {
-            app.increment_calc_end(*gas_type, diff);
-        }
-        return;
-    }
-    if app.get_calc_end(*gas_type) > app.open_idx {
-        let diff = (app.cycles[*app.index].calc_range_end.get(gas_type).unwrap_or(&0.0)
-            - app.open_idx)
-            .abs();
-
-        app.set_calc_end(*gas_type, app.open_idx);
-        if app.get_calc_start(*gas_type) > app.close_idx {
-            app.decrement_calc_start(*gas_type, diff);
-        }
-    }
-}
 pub fn handle_drag_polygon(
     plot_ui: &mut PlotUi,
     app: &mut ValidationApp,
     is_left: bool,
     gas_type: &GasType,
 ) {
-    let delta = plot_ui.pointer_coordinate_drag_delta();
-    let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-    let calc_area_range = app.get_calc_end(*gas_type) - app.get_calc_start(*gas_type);
+    let dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
 
-    if is_left && app.get_calc_start(*gas_type) > app.close_idx && dragged {
-        // do nothing if at min length and trying to make it smaller
-        if calc_area_range <= app.min_calc_area_range && delta.x > 0. {
-            let diff = app.min_calc_area_range - calc_area_range;
-            app.decrement_calc_start(*gas_type, diff);
-            return;
+    let calc_start = app.get_calc_start(*gas_type);
+    let calc_end = app.get_calc_end(*gas_type);
+    let calc_range = calc_end - calc_start;
+
+    let close_time = app.get_measurement_start();
+    let open_time = app.get_measurement_end();
+    let at_min_range = calc_range <= app.min_calc_area_range;
+
+    if is_left {
+        let can_move_left = calc_start >= close_time;
+        let not_shrinking = !at_min_range || dx < 0.0;
+
+        if can_move_left && not_shrinking {
+            app.increment_calc_start(*gas_type, dx);
         }
-        app.increment_calc_start(*gas_type, delta.x as f64);
-    } else if !is_left && app.get_calc_end(*gas_type) < app.open_idx && dragged {
-        // do nothing if at min length and trying to make it smaller
-        if calc_area_range < app.min_calc_area_range && delta.x < 0. {
-            let diff = app.min_calc_area_range - calc_area_range;
-            app.increment_calc_end(*gas_type, diff);
-            return;
+    } else {
+        let can_move_right = calc_end <= open_time;
+        let not_shrinking = !at_min_range || dx > 0.0;
+
+        if can_move_right && not_shrinking {
+            app.increment_calc_end(*gas_type, dx);
         }
-        app.increment_calc_end(*gas_type, delta.x as f64);
     }
 }
 
@@ -1730,6 +1661,9 @@ pub fn create_polygon(
     .allow_hover(true)
 }
 
+pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine {
+    VLine::new(x).name(id).allow_hover(true).style(style).stroke(Stroke::new(2.0, color))
+}
 // TableApp struct
 #[derive(Default)]
 pub struct TableApp {
@@ -1741,21 +1675,6 @@ pub struct TableApp {
 }
 
 impl TableApp {
-    // pub fn new(db_path: &str) -> Self {
-    //     let conn = Connection::open(db_path).expect("Failed to open database");
-    //     // let table_names = Self::fetch_table_names(&conn).unwrap_or_default();
-    //     let table_names = Vec::new();
-    //     let current_page = 0;
-    //
-    //     Self {
-    //         table_names,
-    //         current_page,
-    //         selected_table: None,
-    //         column_names: Vec::new(),
-    //         data: Vec::new(),
-    //     }
-    // }
-
     fn fetch_table_names(&mut self, conn: &Connection) {
         let mut stmt = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
             Ok(stmt) => stmt,

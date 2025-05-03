@@ -125,7 +125,7 @@ pub fn make_select_all_fluxes() -> String {
 
 pub fn make_select_fluxes() -> String {
     format!(
-        "SELECT {} FROM fluxes WHERE start_time BETWEEN ?1 AND ?2 AND project_id = ?3",
+        "SELECT {} FROM fluxes WHERE start_time BETWEEN ?1 AND ?2 AND project_id = ?3 ORDER BY start_time",
         FLUXES_COLUMNS.join(", ")
     )
 }

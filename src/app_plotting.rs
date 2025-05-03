@@ -2,9 +2,7 @@ use crate::cycle::{update_fluxes, Cycle};
 use crate::errorcode::ErrorCode;
 pub use crate::instruments::GasType;
 use crate::validation_app::ValidationApp;
-use crate::validation_app::{
-    create_polygon, handle_drag_polygon, is_inside_polygon, limit_to_bounds,
-};
+use crate::validation_app::{create_polygon, create_vline, handle_drag_polygon, is_inside_polygon};
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use ecolor::Hsva;
 use egui::{Align2, Rgba};
@@ -14,8 +12,8 @@ use std::ops::RangeInclusive;
 
 use eframe::egui::{Color32, Id, Layout, PointerButton, Pos2, RichText, Stroke, Ui, Vec2};
 use egui_plot::{
-    CoordinatesFormatter, Corner, GridInput, GridMark, MarkerShape, Plot, PlotBounds, PlotPoint,
-    PlotPoints, PlotTransform, Points, Text, VLine,
+    CoordinatesFormatter, Corner, GridInput, GridMark, LineStyle, MarkerShape, Plot, PlotBounds,
+    PlotPoint, PlotPoints, PlotTransform, Points, Text,
 };
 
 type DataTrace = (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>);
@@ -24,21 +22,50 @@ impl ValidationApp {
     pub fn is_gas_enabled(&self, gas_type: &GasType) -> bool {
         self.enabled_gases.contains(gas_type)
     }
+
     pub fn is_flux_enabled(&self, gas_type: &GasType) -> bool {
         self.enabled_fluxes.contains(gas_type)
     }
+
     pub fn is_calc_r_enabled(&self, gas_type: &GasType) -> bool {
         self.enabled_calc_rs.contains(gas_type)
     }
+
     pub fn is_measurement_r_enabled(&self, gas_type: &GasType) -> bool {
         self.enabled_measurement_rs.contains(gas_type)
+    }
+
+    pub fn mark_dirty(&mut self) {
+        if let Some(i) = self.cycle_nav.current_index() {
+            self.dirty_cycles.insert(i);
+        }
+    }
+
+    pub fn commit_all_dirty_cycles(&mut self) {
+        let Some(project) = self.selected_project.clone() else { return };
+
+        let dirty: Vec<_> =
+            self.dirty_cycles.drain().filter_map(|i| self.cycles.get(i).cloned()).collect();
+
+        if dirty.is_empty() {
+            return;
+        }
+
+        self.runtime.spawn_blocking(move || {
+            if let Ok(mut conn) = rusqlite::Connection::open("fluxrs.db") {
+                if let Err(e) = update_fluxes(&mut conn, &dirty, project) {
+                    eprintln!("Failed to commit dirty cycles: {e}");
+                } else {
+                    println!("Committed {} dirty cycles", dirty.len());
+                }
+            }
+        });
     }
     #[allow(clippy::too_many_arguments)]
     pub fn render_gas_plot(
         &self,
         plot_ui: &mut egui_plot::PlotUi,
         gas_type: GasType,
-        lag_s: f64,
         calc_area_color: Color32,
         calc_area_stroke_color: Color32,
         calc_area_adjust_color: Color32,
@@ -46,334 +73,410 @@ impl ValidationApp {
         left_id: Id,
         right_id: Id,
     ) {
-        let left_polygon = create_polygon(
-            self.get_calc_start(gas_type),
-            self.get_calc_start(gas_type) + self.drag_panel_width,
-            self.get_min_y(&gas_type),
-            self.get_max_y(&gas_type),
-            calc_area_adjust_color,
-            calc_area_stroke_color,
-            "Extend left",
-            left_id,
-        );
-
-        let right_polygon = create_polygon(
-            self.get_calc_end(gas_type) - self.drag_panel_width,
-            self.get_calc_end(gas_type),
-            self.get_min_y(&gas_type),
-            self.get_max_y(&gas_type),
-            calc_area_adjust_color,
-            calc_area_stroke_color,
-            "Extend right",
-            right_id,
-        );
-        let main_polygon = create_polygon(
-            self.get_calc_start(gas_type) + self.drag_panel_width,
-            self.get_calc_end(gas_type) - self.drag_panel_width,
-            self.get_min_y(&gas_type),
-            self.get_max_y(&gas_type),
-            calc_area_color,
-            calc_area_stroke_color,
-            "Move",
-            main_id,
-        );
-
-        let adj_x_open: f64 = self.start_time_idx + self.open_offset + lag_s;
-        let adj_x_close = self.start_time_idx + self.close_offset + lag_s;
-        let adj_open_line = VLine::new(adj_x_open)
-            .name("Lagtime")
-            .allow_hover(true)
-            .stroke(Stroke::new(2.0, Color32::DARK_GREEN));
-
-        let adj_close_line = VLine::new(adj_x_close)
-            .name("Close time")
-            .allow_hover(true)
-            .stroke(Stroke::new(2.0, Color32::RED));
-
-        let x_open: f64 = self.start_time_idx + self.open_offset;
-        let x_close = self.start_time_idx + self.close_offset;
-        let open_line = VLine::new(x_open)
-            .name("Unadjusted open")
-            .width(2.0)
-            .allow_hover(true)
-            .style(egui_plot::LineStyle::Dashed { length: (10.) })
-            .stroke(Stroke::new(2.0, Color32::DARK_GREEN));
-        let close_line = VLine::new(x_close)
-            .name("Unadjusted close")
-            .width(2.0)
-            .allow_hover(true)
-            .style(egui_plot::LineStyle::Dashed { length: (10.) })
-            .stroke(Stroke::new(2.0, Color32::RED));
-
-        // plot_ui.polygon(main_polygon);
-        // plot_ui.polygon(left_polygon);
-        // plot_ui.polygon(right_polygon);
-        if self.cycles[*self.index].is_valid {
-            plot_ui.polygon(main_polygon);
-            plot_ui.polygon(left_polygon);
-            plot_ui.polygon(right_polygon);
-        } else {
-            let errors = ErrorCode::from_mask(self.cycles[*self.index].error_code.0);
-            let error_messages: Vec<String> =
-                errors.iter().map(|error| error.to_string()).collect();
-
-            let msg = error_messages.join("\n");
-            let has_errors = Id::new(format!("haserrors{}", gas_type));
-
-            plot_ui.text(
-                Text::new(
-                    PlotPoint::new(self.start_time_idx, self.get_max_y(&gas_type)),
-                    RichText::new(msg).size(20.),
-                )
-                .highlight(true)
-                .anchor(Align2::LEFT_TOP)
-                .color(Color32::from_rgba_unmultiplied(250, 128, 128, 255))
-                .id(has_errors),
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            let calc_start = self.get_calc_start(gas_type);
+            let calc_end = self.get_calc_end(gas_type);
+            let min_y = self.get_min_y(&gas_type);
+            let max_y = self.get_max_y(&gas_type);
+            let left_polygon = create_polygon(
+                calc_start,
+                calc_start + self.drag_panel_width,
+                min_y,
+                max_y,
+                calc_area_adjust_color,
+                calc_area_stroke_color,
+                "Extend left",
+                left_id,
             );
-        }
-        if let Some(data) = self.cycles[self.index.count].gas_v.get(&gas_type) {
-            let dt_v = self.cycles[self.index.count].dt_v_as_float();
-            let diag_values = &self.cycles[self.index.count].diag_v; // Assuming `diag` is a Vec<f64>
 
-            let mut normal_points = Vec::new();
-            let mut highlighted_points = Vec::new();
+            let right_polygon = create_polygon(
+                calc_end - self.drag_panel_width,
+                calc_end,
+                min_y,
+                max_y,
+                calc_area_adjust_color,
+                calc_area_stroke_color,
+                "Extend right",
+                right_id,
+            );
 
-            for ((x, y), &diag) in
-                dt_v.iter().copied().zip(data.iter().copied()).zip(diag_values.iter())
-            {
-                if diag != 0 {
-                    highlighted_points.push([x, y]); // Store points with diag != 0 separately
-                } else {
-                    normal_points.push([x, y]); // Store normal points
+            let main_polygon = create_polygon(
+                calc_start + self.drag_panel_width,
+                calc_end - self.drag_panel_width,
+                min_y,
+                max_y,
+                calc_area_color,
+                calc_area_stroke_color,
+                "Move",
+                main_id,
+            );
+
+            let dashed = LineStyle::Dashed { length: 10.0 };
+            let solid = LineStyle::Solid;
+            let adj_x_open = cycle.get_adjusted_open();
+            let adj_x_close = cycle.get_adjusted_close();
+            let x_open = cycle.get_open();
+            let x_close = cycle.get_close();
+
+            let adj_open_line = create_vline(adj_x_open, Color32::DARK_GREEN, solid, "Lagtime");
+            let adj_close_line = create_vline(adj_x_close, Color32::RED, solid, "Close time");
+            let open_line = create_vline(x_open, Color32::DARK_GREEN, dashed, "Unadjusted open");
+            let close_line = create_vline(x_close, Color32::RED, dashed, "Unadjusted close");
+
+            if cycle.is_valid {
+                plot_ui.polygon(main_polygon);
+                plot_ui.polygon(left_polygon);
+                plot_ui.polygon(right_polygon);
+            } else {
+                let error_color = Color32::from_rgba_unmultiplied(255, 50, 50, 55);
+                let error_polygon = create_polygon(
+                    self.get_start(),
+                    self.get_end(),
+                    min_y,
+                    max_y,
+                    error_color,
+                    error_color,
+                    "error_area",
+                    main_id,
+                );
+                plot_ui.polygon(error_polygon);
+                let errors = ErrorCode::from_mask(cycle.error_code.0);
+                let error_messages: Vec<String> =
+                    errors.iter().map(|error| error.to_string()).collect();
+
+                let msg = error_messages.join("\n");
+                let has_errors = Id::new(format!("haserrors{}", gas_type));
+                plot_ui.text(
+                    Text::new(
+                        PlotPoint::new(self.get_start(), max_y),
+                        RichText::new(msg).size(20.0),
+                    )
+                    .highlight(true)
+                    .anchor(Align2::LEFT_TOP)
+                    .color(Color32::from_rgba_unmultiplied(250, 128, 128, 255))
+                    .id(has_errors),
+                );
+            }
+
+            if let Some(data) = cycle.gas_v.get(&gas_type) {
+                let dt_v = cycle.dt_v_as_float();
+                let diag_values = &cycle.diag_v;
+
+                let mut normal_points = Vec::new();
+                let mut highlighted_points = Vec::new();
+
+                for ((x, y), &diag) in
+                    dt_v.iter().copied().zip(data.iter().copied()).zip(diag_values.iter())
+                {
+                    if diag != 0 {
+                        highlighted_points.push([x, y]);
+                    } else {
+                        normal_points.push([x, y]);
+                    }
                 }
-            }
 
-            // Plot normal points
-            if !normal_points.is_empty() {
-                plot_ui.points(
-                    Points::new(PlotPoints::from(normal_points))
-                        .name(format!("{}", gas_type))
-                        .shape(MarkerShape::Circle)
-                        .color(gas_type.color()) // Default color
-                        .radius(2.),
-                );
-            }
+                if !normal_points.is_empty() {
+                    plot_ui.points(
+                        Points::new(PlotPoints::from(normal_points))
+                            .name(format!("{}", gas_type))
+                            .shape(MarkerShape::Circle)
+                            .color(gas_type.color())
+                            .radius(2.0),
+                    );
+                }
 
-            // Plot highlighted points (different color)
-            if !highlighted_points.is_empty() {
-                plot_ui.points(
-                    Points::new(PlotPoints::from(highlighted_points))
-                        .name(format!("{} (Error)", gas_type))
-                        .shape(MarkerShape::Circle)
-                        .color(egui::Color32::RED) // Use red for errors
-                        .radius(3.), // Slightly bigger for visibility
-                );
-            }
+                if !highlighted_points.is_empty() {
+                    plot_ui.points(
+                        Points::new(PlotPoints::from(highlighted_points))
+                            .name(format!("{} (Error)", gas_type))
+                            .shape(MarkerShape::Circle)
+                            .color(egui::Color32::RED)
+                            .radius(3.0),
+                    );
+                }
 
-            plot_ui.vline(adj_open_line);
-            plot_ui.vline(adj_close_line);
-            plot_ui.vline(open_line);
-            plot_ui.vline(close_line);
-        } else {
-            let half_way_x = self.start_time_idx + ((self.end_time_idx - self.start_time_idx) / 2.);
-            let bad_plot = Id::new(format!("bad_plot {}", gas_type));
-            plot_ui.text(
-                Text::new(PlotPoint::new(half_way_x, 0), RichText::new("No data points").size(20.))
+                plot_ui.vline(adj_open_line);
+                plot_ui.vline(adj_close_line);
+                plot_ui.vline(open_line);
+                plot_ui.vline(close_line);
+            } else {
+                let half_way_x = self.get_start() + ((self.get_end() - self.get_start()) / 2.0);
+                let bad_plot = Id::new(format!("bad_plot {}", gas_type));
+                plot_ui.text(
+                    Text::new(
+                        PlotPoint::new(half_way_x, 0.0),
+                        RichText::new("No data points").size(20.0),
+                    )
                     .id(bad_plot),
-            );
+                );
+            }
+        } else {
+            // No visible cycle selected
+            plot_ui.text(Text::new(
+                PlotPoint::new(0.0, 0.0),
+                RichText::new("No cycle selected").size(20.0),
+            ));
         }
     }
 
     pub fn get_min_y(&self, gas_type: &GasType) -> f64 {
-        *self.cycles[*self.index].min_y.get(gas_type).unwrap_or(&0.0)
+        self.cycle_nav
+            .current_cycle(&self.cycles)
+            .and_then(|cycle| cycle.min_y.get(gas_type))
+            .copied()
+            .unwrap_or(0.0)
     }
+
     pub fn get_max_y(&self, gas_type: &GasType) -> f64 {
-        *self.cycles[*self.index].max_y.get(gas_type).unwrap_or(&0.0)
+        self.cycle_nav
+            .current_cycle(&self.cycles)
+            .and_then(|cycle| cycle.max_y.get(gas_type))
+            .copied()
+            .unwrap_or(0.0)
     }
 
-    pub fn _get_measurement_min_y(&self, gas_type: &GasType) -> f64 {
-        *self.measurement_min_y.get(gas_type).unwrap_or(&0.0)
-    }
-    pub fn _get_measurement_max_y(&self, gas_type: &GasType) -> f64 {
-        *self.measurement_max_y.get(gas_type).unwrap_or(&0.0)
-    }
+    /// Commits the current cycle to the DB if a project is selected
+    pub fn commit_current_cycle(&mut self) {
+        let Some(project) = self.selected_project.clone() else {
+            eprintln!("[warn] No project selected, skipping commit.");
+            return;
+        };
 
-    pub fn update_current_cycle(&mut self) {
-        let cycle = self.cycles[*self.index].clone();
-        let project = self.selected_project.as_ref().unwrap().clone();
+        let Some(current_index) = self.cycle_nav.current_index() else {
+            eprintln!("[warn] No current cycle selected.");
+            return;
+        };
 
-        self.cycles[*self.index].update_cycle(project.clone());
-        self.cycles[*self.index].manual_adjusted = true;
+        // Only commit if this cycle is dirty
+        if !self.dirty_cycles.contains(&current_index) {
+            return;
+        }
+        println!("Pushing current cycle.");
 
-        let cycles = vec![cycle];
+        let mut cycle = self.cycles[current_index].clone();
+        cycle.manual_adjusted = true;
 
-        self.runtime.spawn_blocking(move || {
-            let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
-            if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
-                eprintln!("Flux update error: {}", e);
-            }
+        self.dirty_cycles.remove(&current_index); // it's clean now
+
+        self.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
+            Ok(mut conn) => {
+                if let Err(e) = update_fluxes(&mut conn, &[cycle], project) {
+                    eprintln!("[error] Failed to update cycle: {e}");
+                }
+            },
+            Err(e) => {
+                eprintln!("[error] Failed to open DB: {e}");
+            },
         });
     }
+    pub fn update_current_cycle(&mut self) {
+        let Some(project) = self.selected_project.clone() else {
+            eprintln!("No project selected!");
+            return;
+        };
 
-    pub fn calculate_measurement_max_y(&mut self) {
-        let cycle = &self.cycles[self.index.count];
-        self.measurement_max_y.clear(); // Clear previous data
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.manual_adjusted = true;
 
-        for (gas_type, gas_v) in &cycle.measurement_gas_v {
-            let min_value =
-                gas_v.iter().copied().filter(|v| !v.is_nan()).fold(f64::NEG_INFINITY, f64::max);
+            // Clone after updating (optional depending on what update_cycle does)
+            let cycle_clone = cycle.clone();
 
-            self.measurement_max_y.insert(*gas_type, min_value);
-        }
-    }
-    pub fn calculate_measurement_min_y(&mut self) {
-        let cycle = &self.cycles[self.index.count];
-        self.measurement_min_y.clear(); // Clear previous data
-
-        for (gas_type, gas_v) in &cycle.measurement_gas_v {
-            let min_value =
-                gas_v.iter().copied().filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min);
-
-            self.measurement_min_y.insert(*gas_type, min_value);
+            self.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
+                Ok(mut conn) => {
+                    if let Err(e) = update_fluxes(&mut conn, &[cycle_clone], project) {
+                        eprintln!("Flux update error: {}", e);
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to open database: {}", e);
+                },
+            });
         }
     }
 
     pub fn update_plots(&mut self) {
-        println!("Update cycle");
-        let index = self.index.count;
-        // let cycle = self.get_cycle();
-        // let cycle = &self.cycles[index];
-        self.calculate_measurement_min_y();
-        self.calculate_measurement_max_y();
         self.all_traces = self.cycles.iter().map(|cycle| cycle.chamber_id.clone()).collect();
+
         for chamber_id in &self.all_traces {
             self.chamber_colors
                 .entry(chamber_id.clone())
                 .or_insert_with(|| generate_color(chamber_id));
         }
-        self.get_visible_indexes();
 
-        self.lag_idx = self.cycles[index].open_time.timestamp() as f64 + self.cycles[index].lag_s;
-        self.close_idx =
-            self.cycles[index].close_time.timestamp() as f64 + self.cycles[index].lag_s;
-        self.open_idx = self.cycles[index].start_time.timestamp() as f64
-            + self.cycles[index].open_offset as f64
-            + self.cycles[index].lag_s;
-        self.open_offset = self.cycles[index].open_offset as f64;
-        self.close_offset = self.cycles[index].close_offset as f64;
-        self.start_time_idx = self.cycles[index].start_time.timestamp() as f64;
-        self.end_time_idx = self.cycles[index].end_time.timestamp() as f64;
-        self.calc_range_end = self.cycles[index].calc_range_end.clone();
-        self.calc_range_start = self.cycles[index].calc_range_start.clone();
-        self.calc_r2 = self.cycles[index].calc_r2.clone();
-        self.measurement_r2 = self.cycles[index].measurement_r2.clone();
-        self.flux = self.cycles[index].flux.clone();
-        self.gases = self.cycles[index].gases.clone();
-        self.cycles[index].check_errors();
-    }
+        let current_index = self.cycle_nav.current_index();
 
-    pub fn get_visible_indexes(&mut self) {
-        self.visible_cycles.clear(); // Reset previous indexes
+        // PREVIEW visible indexes before applying them
+        let new_visible_indexes = compute_visible_indexes(
+            &self.cycles,
+            &self.visible_traces,
+            self.show_valids,
+            self.show_invalids,
+        );
 
-        for (index, cycle) in self.cycles.iter().enumerate() {
-            let chamber_id = &cycle.chamber_id;
-
-            if !self.show_valids && cycle.is_valid {
-                continue;
+        // Only commit if current index is about to become invisible
+        if let Some(idx) = current_index {
+            if !new_visible_indexes.contains(&idx) && self.dirty_cycles.contains(&idx) {
+                self.commit_current_cycle();
             }
-            if !self.show_invalids && !cycle.is_valid {
-                continue;
-            }
-            // Check if chamber is visible
-            if self.visible_traces.get(chamber_id).copied().unwrap_or(true) {
-                self.visible_cycles.push(index); // Store index
-            }
+        }
+
+        // Now apply the new visible set
+        self.cycle_nav.recompute_visible_indexes(
+            &self.cycles,
+            &self.visible_traces,
+            self.show_valids,
+            self.show_invalids,
+        );
+
+        // Update the current cycle’s diagnostics
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.check_errors();
         }
     }
 
-    pub fn create_traces<F>(&mut self, gas_type: &GasType, selector: F) -> DataTrace
+    pub fn create_traces<F>(&self, gas_type: &GasType, selector: F) -> DataTrace
     where
         F: Fn(&Cycle, &GasType) -> f64, // Selector function with gas_type
     {
         let mut valid_traces: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
         let mut invalid_traces: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
 
-        for &index in &self.visible_cycles {
-            let cycle = &self.cycles[index]; // Get cycle by precomputed index
-            let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-            let value = selector(cycle, gas_type); // Extract value using the selector
-            let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
+        // Iterate through the visible cycles using their indexes
+        for &index in &self.cycle_nav.visible_cycles {
+            if let Some(cycle) = self.cycles.get(index) {
+                let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
+                let value = selector(cycle, gas_type); // Extract value using selector
+                let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
 
-            if cycle.is_valid {
-                // valid_traces.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);
-                valid_traces.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);
-            } else {
-                invalid_traces.entry(chamber_id).or_insert_with(Vec::new).push([start_time, value]);
+                // Sort into valid/invalid traces
+                if cycle.is_valid {
+                    valid_traces
+                        .entry(chamber_id)
+                        .or_insert_with(Vec::new)
+                        .push([start_time, value]);
+                } else {
+                    invalid_traces
+                        .entry(chamber_id)
+                        .or_insert_with(Vec::new)
+                        .push([start_time, value]);
+                }
             }
         }
 
         (valid_traces, invalid_traces)
     }
 
-    pub fn _create_lag_traces(&mut self) -> DataTrace {
-        let mut valid_traces: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-        let mut invalid_traces: HashMap<String, Vec<[f64; 2]>> = HashMap::new();
-
-        for &index in &self.visible_cycles {
-            let cycle = &self.cycles[index]; // Get cycle by precomputed index
-            let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
-            let is_valid = cycle.is_valid; // Validity per point
-            let lag_value = cycle.lag_s; // Get lag value
-            let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-
-            //   Store valid and invalid points separately
-            if is_valid {
-                valid_traces
-                    .entry(chamber_id.clone())
-                    .or_insert_with(Vec::new)
-                    .push([start_time, lag_value]);
-            } else {
-                invalid_traces
-                    .entry(chamber_id.clone())
-                    .or_insert_with(Vec::new)
-                    .push([start_time, lag_value]);
-            }
+    pub fn get_close_offset(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.close_offset as f64
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
         }
-
-        (valid_traces, invalid_traces)
+    }
+    pub fn get_open_offset(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.open_offset as f64
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
+    }
+    pub fn get_end_offset(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.end_offset as f64
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
+    }
+    pub fn get_start(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_start()
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
+    }
+    pub fn get_end(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_end()
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
+    }
+    pub fn get_measurement_end(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_adjusted_open()
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
     }
 
+    pub fn get_measurement_start(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_adjusted_close()
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
+    }
     pub fn get_calc_end(&self, gas_type: GasType) -> f64 {
-        *self.cycles[self.index.count].calc_range_end.get(&gas_type).unwrap_or(&0.0)
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_calc_end(gas_type)
+        } else {
+            0.0
+        }
     }
+
     pub fn get_calc_start(&self, gas_type: GasType) -> f64 {
-        *self.cycles[self.index.count].calc_range_start.get(&gas_type).unwrap_or(&0.0)
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_calc_start(gas_type)
+        } else {
+            0.0
+        }
     }
+
     pub fn set_calc_start(&mut self, gas_type: GasType, x: f64) {
-        self.cycles[self.index.count].calc_range_start.insert(gas_type, x);
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_calc_start(gas_type, x);
+        }
     }
+
     pub fn set_calc_end(&mut self, gas_type: GasType, x: f64) {
-        self.cycles[self.index.count].calc_range_end.insert(gas_type, x);
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_calc_end(gas_type, x);
+        }
     }
+
     pub fn decrement_calc_start(&mut self, gas_type: GasType, x: f64) {
-        let s = self.cycles[self.index.count].calc_range_start.get(&gas_type).unwrap_or(&0.0);
-        let x = s - x;
-        self.cycles[self.index.count].calc_range_start.insert(gas_type, x);
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            let s = cycle.calc_range_start.get(&gas_type).unwrap_or(&0.0);
+            let new_value = s - x;
+            cycle.calc_range_start.insert(gas_type, new_value);
+        }
     }
+
     pub fn increment_calc_start(&mut self, gas_type: GasType, x: f64) {
-        let s = self.cycles[self.index.count].calc_range_start.get(&gas_type).unwrap_or(&0.0);
-        let x = s + x;
-        self.cycles[self.index.count].calc_range_start.insert(gas_type, x);
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            let s = cycle.get_calc_start(gas_type);
+            let new_value = s + x;
+            cycle.set_calc_start(gas_type, new_value);
+        }
     }
+
     pub fn increment_calc_end(&mut self, gas_type: GasType, x: f64) {
-        let s = self.cycles[self.index.count].calc_range_end.get(&gas_type).unwrap_or(&0.0);
-        let x = s + x;
-        self.cycles[self.index.count].calc_range_end.insert(gas_type, x);
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            let s = cycle.get_calc_end(gas_type);
+            let new_value = s + x;
+            cycle.set_calc_end(gas_type, new_value);
+        }
     }
-    pub fn _decrement_calc_end(&mut self, gas_type: GasType, x: f64) {
-        let s = self.cycles[self.index.count].calc_range_end.get(&gas_type).unwrap_or(&0.0);
-        let x = s - x;
-        self.cycles[self.index.count].calc_range_end.insert(gas_type, x);
+    pub fn increment_lag(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_lag(cycle.lag_s + x);
+        }
     }
 
     pub fn render_attribute_plot<F>(
@@ -428,9 +531,6 @@ impl ValidationApp {
 
         // **Handle hovering logic (consider both valid & invalid traces)**
         let all_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
-        // let all_traces: HashMap<String, Vec<[f64; 2]>> =
-        // valid_traces.into_iter().chain(invalid_traces).collect();
-
         let transform = plot_ui.transform();
         if let Some(cursor_screen_pos) = plot_ui.ctx().pointer_latest_pos() {
             hovered_point = find_closest_point_screen_space(
@@ -452,18 +552,22 @@ impl ValidationApp {
                     self.selected_point = Some([x_coord, new_y]);
                 }
 
-                // **Update index when clicking on a new measurement**
-                for (i, c) in self.cycles.iter().enumerate() {
-                    if c.start_time.timestamp() as f64 == x_coord {
-                        self.index.set(i);
-                    }
+                // **Find the matching cycle index**
+                if let Some((cycle_idx, _)) = self
+                    .cycles
+                    .iter()
+                    .enumerate()
+                    .find(|(_, cycle)| cycle.start_time.timestamp() as f64 == x_coord)
+                {
+                    // Tell the navigator to jump!
+                    self.cycle_nav.jump_to_visible_index(cycle_idx);
+                    self.update_plots();
                 }
-                self.update_plots();
             }
         }
 
         // **Force `selected_point` to update whenever `index` changes**
-        if let Some(current_cycle) = self.cycles.get(self.index.count) {
+        if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let x_coord = current_cycle.start_time.timestamp() as f64;
 
             if let Some(new_y) =
@@ -520,206 +624,144 @@ impl ValidationApp {
     }
     pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi) {
         let main_gas = self.main_gas.unwrap();
-        let (valid_traces, invalid_traces) =
-            self.create_traces(&main_gas, |cycle, gas_type| cycle.lag_s);
-        let mut hovered_point: Option<[f64; 2]> = None;
+
+        let (valid_traces, invalid_traces) = self.create_traces(&main_gas, |cycle, _| cycle.lag_s);
         let lag_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
 
+        let mut hovered_point: Option<[f64; 2]> = None;
+
+        // === Draw points ===
         let mut chamber_ids: Vec<&String> = lag_traces.keys().collect();
         chamber_ids.sort();
-
         for chamber_id in chamber_ids {
-            // if let Some(lag_points) = lag_traces.clone().get_mut(chamber_id) {
-            let color = self
+            let color = *self
                 .chamber_colors
                 .entry(chamber_id.clone())
                 .or_insert_with(|| generate_color(chamber_id));
-            if let Some(valid_points) = valid_traces.get(chamber_id) {
+
+            if let Some(points) = valid_traces.get(chamber_id) {
                 plot_ui.points(
-                    Points::new(PlotPoints::from(valid_points.clone()))
-                        .name(format!("Flux Chamber {} (Valid)", chamber_id))
+                    Points::new(PlotPoints::from(points.clone()))
+                        .name(format!("{} (Valid)", chamber_id))
                         .shape(MarkerShape::Circle)
                         .radius(2.)
-                        .color(*color),
+                        .color(color),
                 );
             }
-            if let Some(invalid_points) = invalid_traces.get(chamber_id) {
+
+            if let Some(points) = invalid_traces.get(chamber_id) {
                 plot_ui.points(
-                    Points::new(PlotPoints::from(invalid_points.clone()))
-                        .name(format!("Flux Chamber {} (Invalid)", chamber_id))
-                        .shape(MarkerShape::Cross) // Different shape for invalid points
-                        .radius(3.) // Slightly larger to highlight
-                        .color(*color),
+                    Points::new(PlotPoints::from(points.clone()))
+                        .name(format!("{} (Invalid)", chamber_id))
+                        .shape(MarkerShape::Cross)
+                        .radius(3.)
+                        .color(color),
                 );
             }
         }
 
-        if let transform = plot_ui.transform() {
-            if let Some(cursor_screen_pos) = plot_ui.ctx().pointer_latest_pos() {
-                // Only find hovered point if not dragging
-                if self.dragged_point.is_none() {
-                    hovered_point = find_closest_point_screen_space(
-                        &transform,
-                        Some(cursor_screen_pos),
-                        &lag_traces,
-                        80.0,
-                    );
-                }
-            }
-        }
-
+        let transform = plot_ui.transform();
         let response = plot_ui.response();
 
-        // **Dragging Mechanism**
-        if response.drag_started_by(egui::PointerButton::Primary) {
-            // Lock onto the hovered point for dragging
-            if let Some(hovered) = hovered_point {
-                self.dragged_point = Some(hovered);
-                // self.selected_point = self.dragged_point;
-                self.update_plots();
+        // === Detect hovered point ===
+        if let Some(cursor_pos) = plot_ui.ctx().pointer_latest_pos() {
+            if self.dragged_point.is_none() {
+                hovered_point = find_closest_point_screen_space(
+                    &transform,
+                    Some(cursor_pos),
+                    &lag_traces,
+                    80.0,
+                );
             }
         }
 
+        // Begin dragging
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            if let Some(hovered) = hovered_point {
+                self.mark_dirty();
+                self.dragged_point = Some(hovered);
+            }
+        }
+
+        // Dragging in progress
         if let Some(dragged) = self.dragged_point {
             if response.dragged_by(egui::PointerButton::Primary) {
-                let delta = response.drag_delta(); // Mouse movement in screen space
+                let delta = response.drag_delta();
+                let dy = delta.y as f64 * transform.dvalue_dpos()[1];
+                let new_y = dragged[1] + dy;
 
-                if let transform = plot_ui.transform() {
-                    let scale_factors = transform.dvalue_dpos(); //   Get scale factor for UI → Plot conversion
+                self.dragged_point = Some([dragged[0], new_y]);
 
-                    let plot_dy = delta.y as f64 * scale_factors[1]; //   Correct scaling for Y-axis
-
-                    let new_y = dragged[1] + plot_dy; //   Apply correct scaled movement
-
-                    self.dragged_point = Some([dragged[0], new_y]);
-
-                    for cycle in &mut self.cycles {
-                        if cycle.start_time.timestamp() as f64 == dragged[0] {
-                            cycle.lag_s = new_y;
-                            self.close_idx = self.start_time_idx + self.close_offset + new_y;
-                            self.open_idx = self.start_time_idx + self.open_offset + new_y;
-                            // cycle.update_cycle();
-
-                            // cycle.recalc_r();
-                            // cycle.change_measurement_range();
-                        }
+                // Set lag on currently selected cycle
+                if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                    if cycle.start_time.timestamp() as f64 == dragged[0] {
+                        cycle.set_lag(new_y);
                     }
-                    self.update_plots();
-                    self.update_current_cycle();
                 }
             }
         }
+
+        // Drag stopped
         if response.drag_stopped() {
             self.dragged_point = None;
-            // self.cycles[*self.index].update_cycle();
-            self.update_current_cycle();
-            // self.update_cycle();
         }
 
+        // Clicked on point — select corresponding cycle
         if let Some(hovered) = hovered_point {
             if response.clicked() || response.dragged_by(egui::PointerButton::Primary) {
                 let x_coord = hovered[0];
+                self.selected_point = Some([
+                    x_coord,
+                    lag_traces
+                        .values()
+                        .flatten()
+                        .find(|p| p[0] == x_coord)
+                        .map(|p| p[1])
+                        .unwrap_or(0.0),
+                ]);
 
-                if let Some(new_y) =
-                    lag_traces.values().flatten().filter(|p| p[0] == x_coord).map(|p| p[1]).last()
+                // Use CycleNavigator to jump
+                if let Some(idx) =
+                    self.cycles.iter().position(|c| c.start_time.timestamp() as f64 == x_coord)
                 {
-                    self.selected_point = Some([x_coord, new_y]);
+                    self.cycle_nav.jump_to_visible_index(idx);
                 }
-
-                for (i, c) in self.cycles.iter().enumerate() {
-                    if c.start_time.timestamp() as f64 == x_coord {
-                        self.index.set(i);
-                    }
-                }
-                self.update_plots();
             }
         }
 
-        // Force selected_point to update whenever index changes**
-        if let Some(current_cycle) = self.cycles.get(self.index.count) {
-            let x_coord = current_cycle.start_time.timestamp() as f64;
-
-            if let Some(new_y) =
-                lag_traces.values().flatten().filter(|p| p[0] == x_coord).map(|p| p[1]).last()
-            {
-                self.selected_point = Some([x_coord, new_y]); // Keep x, update y
+        // Sync selected point with current cycle
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            let x = cycle.start_time.timestamp() as f64;
+            if let Some(y) = lag_traces.values().flatten().find(|p| p[0] == x).map(|p| p[1]) {
+                self.selected_point = Some([x, y]);
             }
         }
 
-        // Draw updated selected point
+        // Draw selected point
         if let Some(selected) = self.selected_point {
             plot_ui.points(
                 Points::new(PlotPoints::from(vec![selected]))
                     .name("Selected Point")
                     .shape(MarkerShape::Circle)
-                    .radius(5.0)
+                    .radius(5.)
                     .filled(false)
-                    .color(egui::Color32::RED),
+                    .color(Color32::RED),
             );
         }
 
-        // Draw hovered point
+        // Draw hovered point (if distinct)
         if let Some(hovered) = hovered_point {
             if Some(hovered) != self.selected_point {
                 plot_ui.points(
                     Points::new(PlotPoints::from(vec![hovered]))
                         .name("Hovered Point")
                         .shape(MarkerShape::Circle)
-                        .radius(5.0)
+                        .radius(5.)
                         .filled(false)
-                        .color(egui::Color32::GREEN),
+                        .color(Color32::GREEN),
                 );
             }
         }
-    }
-    pub fn _find_closest_point(
-        &self,
-        pointer: PlotPoint,
-        traces: &HashMap<String, Vec<[f64; 2]>>, // All chamber traces
-    ) -> Option<[f64; 2]> {
-        // Flatten all points from all traces into a single vector
-        let all_points: Vec<[f64; 2]> = traces.values().flatten().copied().collect();
-
-        // Early exit if no points exist
-        if all_points.is_empty() {
-            return None;
-        }
-
-        // Efficiently compute min/max values in a single pass
-        let (x_min, x_max, y_min, y_max) = all_points.iter().fold(
-            (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY),
-            |(x_min, x_max, y_min, y_max), p| {
-                (
-                    x_min.min(p[0]), // Track min X
-                    x_max.max(p[0]), // Track max X
-                    y_min.min(p[1]), // Track min Y
-                    y_max.max(p[1]), // Track max Y
-                )
-            },
-        );
-
-        // Avoid division by zero (fallback to direct distance if range is too small)
-        let x_range = (x_max - x_min).max(1e-10);
-        let y_range = (y_max - y_min).max(1e-10);
-
-        // Normalization functions
-        let norm_x = |x: f64| (x - x_min) / x_range;
-        let norm_y = |y: f64| (y - y_min) / y_range;
-
-        // Find the closest point across all traces
-        all_points
-            .iter()
-            .min_by(|a, b| {
-                let dist_a = ((norm_x(a[0]) - norm_x(pointer.x)).powi(2)
-                    + (norm_y(a[1]) - norm_y(pointer.y)).powi(2))
-                .sqrt();
-                let dist_b = ((norm_x(b[0]) - norm_x(pointer.x)).powi(2)
-                    + (norm_y(b[1]) - norm_y(pointer.y)).powi(2))
-                .sqrt();
-                dist_a.partial_cmp(&dist_b).unwrap_or(std::cmp::Ordering::Equal)
-                // Handle NaN case safely
-            })
-            .copied()
     }
 
     pub fn _create_lag_plot(&self) -> Plot {
@@ -735,17 +777,6 @@ impl ValidationApp {
         // .legend(Legend::default().show(false))
     }
 
-    pub fn _find_bad_measurement(&mut self, gas_type: GasType) {
-        let mut idx = self.index.count + 1;
-        while idx < self.cycles.len() - 1
-            && *self.cycles[idx].measurement_r2.get(&gas_type).unwrap_or(&0.0) > 0.995
-        {
-            idx += 1;
-        }
-        // self.index = idx.min(self.cycles.len() - 1);
-        self.index.set(idx.min(self.cycles.len() - 1));
-        self.update_plots();
-    }
     #[allow(clippy::too_many_arguments)]
     pub fn render_gas_plot_ui(
         &mut self,
@@ -761,10 +792,10 @@ impl ValidationApp {
         right_id: Id,
     ) {
         self.drag_panel_width = 40.;
+
         self.render_gas_plot(
             plot_ui,
             gas_type,
-            lag_s,
             calc_area_color,
             calc_area_stroke_color,
             calc_area_adjust_color,
@@ -776,29 +807,29 @@ impl ValidationApp {
         if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
             let drag_delta = plot_ui.pointer_coordinate_drag_delta();
 
+            let calc_start = self.get_calc_start(gas_type);
+            let calc_end = self.get_calc_end(gas_type);
+            let min_y = self.get_min_y(&gas_type);
+            let max_y = self.get_max_y(&gas_type);
+
             let inside_left = is_inside_polygon(
                 pointer_pos,
-                self.get_calc_start(gas_type),
-                self.get_calc_start(gas_type) + drag_panel_width,
-                self.get_min_y(&gas_type),
-                self.get_max_y(&gas_type),
+                calc_start,
+                calc_start + drag_panel_width,
+                min_y,
+                max_y,
             );
-            let inside_right = is_inside_polygon(
-                pointer_pos,
-                self.get_calc_end(gas_type) - drag_panel_width,
-                self.get_calc_end(gas_type),
-                self.get_min_y(&gas_type),
-                self.get_max_y(&gas_type),
-            );
+            let inside_right =
+                is_inside_polygon(pointer_pos, calc_end - drag_panel_width, calc_end, min_y, max_y);
             let inside_main = is_inside_polygon(
                 pointer_pos,
-                self.get_calc_start(gas_type) + drag_panel_width,
-                self.get_calc_end(gas_type) - drag_panel_width,
-                self.get_min_y(&gas_type),
-                self.get_max_y(&gas_type),
+                calc_start + drag_panel_width,
+                calc_end - drag_panel_width,
+                min_y,
+                max_y,
             );
-            let x_open: f64 = self.start_time_idx + self.open_offset + lag_s;
-            let x_close = self.start_time_idx + self.close_offset + lag_s;
+
+            let x_open = self.get_start() + self.get_open_offset() + lag_s;
             let inside_lag = is_inside_polygon(
                 pointer_pos,
                 x_open - 20.,
@@ -807,73 +838,90 @@ impl ValidationApp {
                 f64::INFINITY,
             );
 
-            let after_close = self.get_calc_start(gas_type) >= self.close_idx;
-            let before_open = self.get_calc_end(gas_type) <= self.open_idx;
-            let in_bounds = after_close && before_open;
             let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-            let at_start = self.get_calc_start(gas_type) == self.close_idx;
-            let at_end = self.get_calc_end(gas_type) == self.open_idx;
-            let range_len = self.get_calc_end(gas_type) - self.get_calc_start(gas_type);
-            let cycle_len = self.open_idx - self.close_idx;
+            let at_start = calc_start == self.get_measurement_start();
+            let at_end = calc_end == self.get_measurement_end();
+            let over_start = calc_start < self.get_measurement_start();
+            let over_end = calc_end > self.get_measurement_end();
+            let range_len = calc_end - calc_start;
+            let cycle_len = self.get_measurement_end() - self.get_measurement_start();
 
-            if range_len > cycle_len {
-                self.set_calc_start(gas_type, self.close_idx);
-                self.set_calc_end(gas_type, self.open_idx);
-            }
-            if inside_left {
+            // if range_len > cycle_len {
+            //     self.set_calc_start(gas_type, self.get_measurement_start());
+            //     self.set_calc_end(gas_type, self.get_measurement_end());
+            // }
+
+            // Decide what dragging action is happening
+            let dragging_left = inside_left && dragged;
+            let dragging_right = inside_right && dragged;
+            let dragging_main = inside_main && dragged;
+            let dragging_lag = inside_lag && dragged && !inside_right;
+            let dragging_polygon = dragging_left || dragging_right || dragging_main;
+            let mut dx = drag_delta.x as f64;
+            let moving_right = dx > 0.;
+            let moving_left = dx < 0.;
+
+            let calc_range = calc_end - calc_start;
+
+            // --- First: mutate `self` only ---
+            if dragging_left {
+                println!("Dragging left");
                 handle_drag_polygon(plot_ui, self, true, &gas_type);
-                self.cycles[self.index.count].get_calc_data(gas_type);
-                self.cycles[self.index.count].calculate_calc_r(gas_type);
-                self.cycles[self.index.count].calculate_flux(gas_type);
             }
-            if inside_right {
+            if dragging_right {
+                println!("Dragging right");
                 handle_drag_polygon(plot_ui, self, false, &gas_type);
-                self.cycles[self.index.count].get_calc_data(gas_type);
-                self.cycles[self.index.count].calculate_calc_r(gas_type);
-                self.cycles[self.index.count].calculate_flux(gas_type);
             }
-            if inside_main && in_bounds && dragged && !at_start && !at_end {
-                self.increment_calc_start(gas_type, drag_delta.x as f64);
-                self.increment_calc_end(gas_type, drag_delta.x as f64);
-                self.cycles[self.index.count].get_calc_data(gas_type);
-                self.cycles[self.index.count].calculate_calc_r(gas_type);
-                self.cycles[self.index.count].calculate_flux(gas_type);
-            }
-            if inside_lag && dragged && !inside_right {
-                self.lag_idx += drag_delta.x as f64;
-                let new_lag_s = self.lag_idx - (self.start_time_idx + self.open_offset);
-                self.lag_idx = new_lag_s.round();
-                self.close_idx = self.start_time_idx + self.close_offset + self.lag_idx;
-                self.open_idx = self.start_time_idx + self.open_offset + self.lag_idx;
-                self.cycles[self.index.count].lag_s = self.lag_idx;
 
-                // self.cycles[*self.index].update_cycle();
-                // self.cycles[self.index.count].get_calc_datas();
-                // self.cycles[self.index.count].get_measurement_datas();
-                // self.cycles[self.index.count].calculate_measurement_rs();
-                // self.cycles[self.index.count].find_highest_r_windows();
-                self.update_current_cycle();
-                self.update_plots();
-                // self.cycles[self.index.count].calculate_fluxes();
+            if dragging_main {
+                let calc_start = self.get_calc_start(gas_type);
+                let calc_end = self.get_calc_end(gas_type);
+                let measurement_start = self.get_measurement_start();
+                let measurement_end = self.get_measurement_end();
+
+                let mut clamped_dx = dx;
+
+                // Prevent dragging past left bound
+                if moving_left && calc_start + dx < measurement_start {
+                    clamped_dx = measurement_start - calc_start;
+                }
+
+                // Prevent dragging past right bound
+                if moving_right && calc_end + dx > measurement_end {
+                    clamped_dx = measurement_end - calc_end;
+                }
+
+                if clamped_dx.abs() > f64::EPSILON {
+                    self.increment_calc_start(gas_type, clamped_dx);
+                    self.increment_calc_end(gas_type, clamped_dx);
+                }
             }
-            limit_to_bounds(plot_ui, self, &gas_type);
-            // let x_range = (self.end_time_idx - self.start_time_idx) * 0.05;
+
+            if dragging_lag {
+                self.increment_lag(dx);
+            }
+
+            // --- Then: mutate the cycle safely ---
+            if dragging_polygon {
+                self.mark_dirty();
+                self.cycle_nav.update_current_cycle(&mut self.cycles, |cycle| {
+                    cycle.update_calc_attributes(gas_type);
+                })
+            };
+
+            // if dragging_polygon {
+            //     self.update_current_cycle();
+            // }
+            // --- Plot Bounds Adjustments ---
             let y_range = (self.get_max_y(&gas_type) - self.get_min_y(&gas_type)) * 0.05;
-            // let x_min = self.start_time_idx - x_range;
-            // let x_max = self.end_time_idx + x_range;
-            // let x_min = x_open - 90.;
-            // let x_max = x_open + 90.;
-            // let mut y_min = self.get_min_y(&gas_type) - 50.;
-            // let mut y_max = self.get_max_y(&gas_type) + 50.;
-            let y_min = self.get_min_y(&gas_type) - y_range;
-            let y_max = self.get_max_y(&gas_type) + y_range;
+            let y_min = min_y - y_range;
+            let y_max = max_y + y_range;
 
             if self.zoom_to_measurement {
                 let x_min = x_open - 60.;
                 let x_max = x_open + 60.;
                 plot_ui.set_plot_bounds(PlotBounds::from_min_max([x_min, y_min], [x_max, y_max]));
             } else {
-                // BUG: breaks gas plot zooming
                 plot_ui.set_auto_bounds(true);
             }
         }
@@ -1202,4 +1250,22 @@ fn _generate_color(seed: &str) -> Color32 {
 
     let hsva = Hsva::new(hue, saturation, value, alpha);
     Color32::from(Rgba::from(hsva))
+}
+fn compute_visible_indexes(
+    cycles: &[Cycle],
+    visible_traces: &HashMap<String, bool>,
+    show_valids: bool,
+    show_invalids: bool,
+) -> Vec<usize> {
+    cycles
+        .iter()
+        .enumerate()
+        .filter(|(_, cycle)| {
+            let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
+            let valid_ok = show_valids || !cycle.is_valid;
+            let invalid_ok = show_invalids || cycle.is_valid;
+            trace_visible && valid_ok && invalid_ok
+        })
+        .map(|(i, _)| i)
+        .collect()
 }

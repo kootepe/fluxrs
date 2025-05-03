@@ -35,6 +35,11 @@ impl EqualLen for TimeData {
         check
     }
 }
+impl Default for TimeData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl TimeData {
     pub fn new() -> TimeData {
