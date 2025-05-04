@@ -1,7 +1,7 @@
-use crate::fluxes_schema::create_flux_table;
+use crate::fluxes_schema::{create_flux_history_table, create_flux_table};
 use rusqlite::{Connection, Result};
 
-const DB_VERSION: i32 = 1;
+const DB_VERSION: i32 = 3;
 
 pub fn migrate_db() -> Result<i32> {
     let conn = Connection::open("fluxrs.db")?;
@@ -13,6 +13,19 @@ pub fn migrate_db() -> Result<i32> {
         println!("Applying migration 1: Setting PRAGMA to 1");
         conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
         migrated = 1;
+    }
+    if current_version < 2 {
+        println!("Applying migration 2: Adding flux_history table");
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+        conn.execute(&create_flux_history_table(), [])?;
+        migrated = 2;
+    }
+    if current_version < 3 {
+        println!("Applying migration 3: New lag variables");
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+        conn.execute("ALTER TABLE fluxes RENAME COLUMN lag_s TO open_lag_s;", [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN close_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
+        migrated = 3;
     }
 
     Ok(migrated)
@@ -83,14 +96,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
     conn.execute(&create_flux_table(), [])?;
+    conn.execute(&create_flux_history_table(), [])?;
 
     Ok(())
-}
-
-pub fn calculate_max_y_from_vec(values: &[f64]) -> f64 {
-    values.iter().copied().filter(|v| !v.is_nan()).fold(f64::NEG_INFINITY, f64::max)
-}
-
-pub fn calculate_min_y_from_vec(values: &[f64]) -> f64 {
-    values.iter().copied().filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min)
 }

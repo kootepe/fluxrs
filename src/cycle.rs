@@ -42,7 +42,8 @@ pub struct Cycle {
     pub close_offset: i64,
     pub open_offset: i64,
     pub end_offset: i64,
-    pub lag_s: f64,
+    pub open_lag_s: f64,
+    pub close_lag_s: f64,
     pub max_idx: f64,
     pub gases: Vec<GasType>,
     pub calc_range_start: HashMap<GasType, f64>,
@@ -106,10 +107,13 @@ impl Cycle {
     //     ))
     // }
     pub fn get_adjusted_close(&self) -> f64 {
-        (self.start_time.timestamp() + self.close_offset + self.lag_s as i64) as f64
+        (self.start_time.timestamp()
+            + self.close_offset
+            + self.open_lag_s as i64
+            + self.close_lag_s as i64) as f64
     }
     pub fn get_adjusted_open(&self) -> f64 {
-        (self.start_time.timestamp() + self.open_offset + self.lag_s as i64) as f64
+        (self.start_time.timestamp() + self.open_offset + self.open_lag_s as i64) as f64
     }
     pub fn get_start(&self) -> f64 {
         self.start_time.timestamp() as f64
@@ -149,7 +153,7 @@ impl Cycle {
     }
 
     pub fn _increment_lag(&mut self, value: f64) {
-        self.lag_s += value;
+        self.open_lag_s += value;
 
         let range_min = self.get_adjusted_close(); // new earliest bound
         let range_max = self.get_adjusted_open(); // new latest bound
@@ -195,8 +199,8 @@ impl Cycle {
             self.calc_range_end.insert(gas_type, end);
         }
     }
-    pub fn set_lag(&mut self, new_lag: f64) {
-        self.lag_s = new_lag;
+    pub fn set_close_lag(&mut self, new_lag: f64) {
+        self.close_lag_s = new_lag;
 
         let range_min = self.get_adjusted_close();
         let range_max = self.get_adjusted_open();
@@ -239,6 +243,58 @@ impl Cycle {
             self.calc_range_end.insert(gas_type, end);
         }
         self.get_measurement_datas();
+        self.check_errors();
+        self.find_highest_r_windows();
+        self.get_calc_datas();
+        self.calculate_calc_rs();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
+    pub fn set_open_lag(&mut self, new_lag: f64) {
+        self.open_lag_s = new_lag;
+
+        let range_min = self.get_adjusted_close();
+        let range_max = self.get_adjusted_open();
+        let min_range = self.min_calc_range;
+
+        for gas_type in self.gases.iter().copied() {
+            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
+            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
+
+            // Clamp to bounds
+            if start < range_min {
+                start = range_min;
+            }
+            if end > range_max {
+                end = range_max;
+            }
+
+            // Ensure min range
+            let current_range = end - start;
+            if current_range < min_range {
+                let needed = min_range - current_range;
+                let half = needed / 2.0;
+
+                let new_start = (start - half).max(range_min);
+                let new_end = (end + half).min(range_max);
+
+                if new_end - new_start >= min_range {
+                    start = new_start;
+                    end = new_end;
+                } else {
+                    end = start + min_range;
+                    if end > range_max {
+                        start = range_max - min_range;
+                        end = range_max;
+                    }
+                }
+            }
+
+            self.calc_range_start.insert(gas_type, start);
+            self.calc_range_end.insert(gas_type, end);
+        }
+        self.get_measurement_datas();
+        self.check_errors();
         self.find_highest_r_windows();
         self.get_calc_datas();
         self.calculate_calc_rs();
@@ -329,7 +385,7 @@ impl Cycle {
                     let lags = (peak_time
                         - (self.start_time + chrono::TimeDelta::seconds(self.open_offset)))
                     .num_seconds() as f64;
-                    self.set_lag(lags);
+                    self.set_open_lag(lags);
 
                     return Some(peak_time);
                 }
@@ -354,7 +410,7 @@ impl Cycle {
 
             if let Some(idx) = max_idx {
                 if let Some(peak_time) = self.dt_v.get(idx).cloned() {
-                    self.lag_s = (peak_time
+                    self.open_lag_s = (peak_time
                         - (self.start_time + chrono::TimeDelta::seconds(self.open_offset)))
                     .num_seconds() as f64;
 
@@ -393,7 +449,7 @@ impl Cycle {
     pub fn adjust_open_time(&mut self) {
         self.open_time = self.start_time
             + chrono::TimeDelta::seconds(self.open_offset)
-            + chrono::TimeDelta::seconds(self.lag_s as i64)
+            + chrono::TimeDelta::seconds(self.open_lag_s as i64)
     }
     pub fn calculate_max_y(&mut self) {
         for (gas_type, gas_v) in &self.gas_v {
@@ -550,9 +606,11 @@ impl Cycle {
             // self.get_measurement_data(gas_type);
             if let Some(gas_v) = self.gas_v.get(&gas_type) {
                 let close_time = self.start_time
-                    + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
+                    + chrono::TimeDelta::seconds(
+                        self.close_offset + self.open_lag_s as i64 + self.close_lag_s as i64,
+                    );
                 let open_time = self.start_time
-                    + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+                    + chrono::TimeDelta::seconds(self.open_offset + self.open_lag_s as i64);
                 let s = close_time.timestamp() as f64;
                 let e = open_time.timestamp() as f64;
 
@@ -749,8 +807,8 @@ impl Cycle {
         }
     }
     pub fn reset(&mut self) {
-        // self.check_errors();
         self.manual_adjusted = false;
+        self.close_lag_s = 0.;
         self.check_diag();
         self.check_missing();
 
@@ -807,10 +865,12 @@ impl Cycle {
     }
     pub fn get_measurement_data(&mut self, gas_type: GasType) {
         if let Some(gas_v) = self.gas_v.get(&gas_type) {
-            let close_time =
-                self.start_time + chrono::TimeDelta::seconds(self.close_offset + self.lag_s as i64);
-            let open_time =
-                self.start_time + chrono::TimeDelta::seconds(self.open_offset + self.lag_s as i64);
+            let close_time = self.start_time
+                + chrono::TimeDelta::seconds(
+                    self.close_offset + self.open_lag_s as i64 + self.close_lag_s as i64,
+                );
+            let open_time = self.start_time
+                + chrono::TimeDelta::seconds(self.open_offset + self.open_lag_s as i64);
             let s = close_time.timestamp() as f64;
             let e = open_time.timestamp() as f64;
 
@@ -978,7 +1038,8 @@ impl CycleBuilder {
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
-            lag_s: 0.,
+            open_lag_s: 0.,
+            close_lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
             slope: HashMap::new(),
@@ -1031,7 +1092,8 @@ impl CycleBuilder {
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
-            lag_s: 0.,
+            open_lag_s: 0.,
+            close_lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
             slope: HashMap::new(),
@@ -1089,7 +1151,7 @@ pub fn update_fluxes(
         for cycle in cycles {
             match execute_update(&mut update_stmt, cycle, &project) {
                 Ok(_) => println!("Fluxes updated successfully!"),
-                Err(e) => eprintln!("Error inserting fluxes: {}", e),
+                Err(e) => eprintln!("Error updating fluxes: {}", e),
             }
         }
     }
@@ -1181,7 +1243,8 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.close_offset,
         cycle.open_offset,
         cycle.end_offset,
-        cycle.lag_s as i64,
+        cycle.open_lag_s as i64,
+        cycle.close_lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
         cycle.chamber_volume,
@@ -1228,7 +1291,8 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.close_offset,
         cycle.open_offset,
         cycle.end_offset,
-        cycle.lag_s as i64,
+        cycle.open_lag_s as i64,
+        cycle.close_lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
         cycle.chamber_volume,
@@ -1307,7 +1371,8 @@ pub fn load_fluxes(
         let open_offset: i64 = row.get(fluxes_col::OPEN_OFFSET)?;
         let end_offset: i64 = row.get(fluxes_col::END_OFFSET)?;
         // needs to be on two rows
-        let lag_s = row.get::<_, i64>(fluxes_col::LAG_S)? as f64;
+        let lag_s = row.get::<_, i64>(fluxes_col::OPEN_LAG_S)? as f64;
+        let close_lag_s = row.get::<_, i64>(fluxes_col::CLOSE_LAG_S)? as f64;
 
         let air_pressure: f64 = row.get(fluxes_col::AIR_PRESSURE)?;
         let air_temperature: f64 = row.get(fluxes_col::AIR_TEMPERATURE)?;
@@ -1467,7 +1532,8 @@ pub fn load_fluxes(
             close_offset,
             open_offset,
             end_offset,
-            lag_s,
+            open_lag_s: lag_s,
+            close_lag_s,
             max_idx: 0.0, // Default value.
             gases: gastypes,
             calc_range_start: calc_range_start_map,
@@ -1575,4 +1641,12 @@ fn find_best_window_for_gas(
     } else {
         Some((best_range.0, best_range.1, best_r2, best_y))
     }
+}
+
+pub fn calculate_max_y_from_vec(values: &[f64]) -> f64 {
+    values.iter().copied().filter(|v| !v.is_nan()).fold(f64::NEG_INFINITY, f64::max)
+}
+
+pub fn calculate_min_y_from_vec(values: &[f64]) -> f64 {
+    values.iter().copied().filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min)
 }

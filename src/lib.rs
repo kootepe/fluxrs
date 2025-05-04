@@ -523,7 +523,7 @@ fn process_cycles(
             // cycle.project_name = cur_data.project_name.clone();
 
             let target = (cycle.start_time
-                + chrono::TimeDelta::seconds(cycle.close_offset + cycle.lag_s as i64))
+                + chrono::TimeDelta::seconds(cycle.close_offset + cycle.open_lag_s as i64))
             .timestamp();
             cycle.reset();
             let (temp, pressure) = match meteo_data.get_nearest(target) {

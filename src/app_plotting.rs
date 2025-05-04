@@ -61,6 +61,20 @@ impl ValidationApp {
             }
         });
     }
+
+    pub fn select_cycle_by_timestamp(&mut self, timestamp: f64) {
+        if let Some((idx, _)) = self
+            .cycles
+            .iter()
+            .enumerate()
+            .find(|(_, cycle)| cycle.start_time.timestamp() as f64 == timestamp)
+        {
+            if Some(idx) != self.cycle_nav.current_index() {
+                self.commit_current_cycle();
+                self.cycle_nav.jump_to_visible_index(idx);
+            }
+        }
+    }
     #[allow(clippy::too_many_arguments)]
     pub fn render_gas_plot(
         &self,
@@ -272,7 +286,7 @@ impl ValidationApp {
             },
         });
     }
-    pub fn update_current_cycle(&mut self) {
+    pub fn _update_current_cycle(&mut self) {
         let Some(project) = self.selected_project.clone() else {
             eprintln!("No project selected!");
             return;
@@ -475,10 +489,16 @@ impl ValidationApp {
             cycle.set_calc_end(gas_type, new_value);
         }
     }
-    pub fn increment_lag(&mut self, x: f64) {
+    pub fn increment_open_lag(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_lag(cycle.lag_s + x);
+            cycle.set_open_lag(cycle.open_lag_s + x);
+        }
+    }
+    pub fn increment_close_lag(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_close_lag(cycle.close_lag_s + x);
         }
     }
 
@@ -556,16 +576,7 @@ impl ValidationApp {
                 }
 
                 // **Find the matching cycle index**
-                if let Some((cycle_idx, _)) = self
-                    .cycles
-                    .iter()
-                    .enumerate()
-                    .find(|(_, cycle)| cycle.start_time.timestamp() as f64 == x_coord)
-                {
-                    // Tell the navigator to jump!
-                    self.cycle_nav.jump_to_visible_index(cycle_idx);
-                    self.update_plots();
-                }
+                self.select_cycle_by_timestamp(x_coord);
             }
         }
 
@@ -628,7 +639,8 @@ impl ValidationApp {
     pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi) {
         let main_gas = self.main_gas.unwrap();
 
-        let (valid_traces, invalid_traces) = self.create_traces(&main_gas, |cycle, _| cycle.lag_s);
+        let (valid_traces, invalid_traces) =
+            self.create_traces(&main_gas, |cycle, _| cycle.open_lag_s);
         let lag_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
 
         let mut hovered_point: Option<[f64; 2]> = None;
@@ -681,7 +693,6 @@ impl ValidationApp {
         // Begin dragging
         if response.drag_started_by(egui::PointerButton::Primary) {
             if let Some(hovered) = hovered_point {
-                self.mark_dirty();
                 self.dragged_point = Some(hovered);
             }
         }
@@ -698,7 +709,7 @@ impl ValidationApp {
                 // Set lag on currently selected cycle
                 if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                     if cycle.start_time.timestamp() as f64 == dragged[0] {
-                        cycle.set_lag(new_y);
+                        cycle.set_open_lag(new_y);
                     }
                 }
             }
@@ -706,6 +717,7 @@ impl ValidationApp {
 
         // Drag stopped
         if response.drag_stopped() {
+            self.mark_dirty();
             self.dragged_point = None;
         }
 
@@ -724,11 +736,7 @@ impl ValidationApp {
                 ]);
 
                 // Use CycleNavigator to jump
-                if let Some(idx) =
-                    self.cycles.iter().position(|c| c.start_time.timestamp() as f64 == x_coord)
-                {
-                    self.cycle_nav.jump_to_visible_index(idx);
-                }
+                self.select_cycle_by_timestamp(x_coord);
             }
         }
 
@@ -832,11 +840,20 @@ impl ValidationApp {
                 max_y,
             );
 
-            let x_open = self.get_start() + self.get_open_offset() + lag_s;
-            let inside_lag = is_inside_polygon(
+            // let x_open = self.get_start() + self.get_open_offset() + lag_s;
+            let x_open = self.get_measurement_end();
+            let x_close = self.get_measurement_start();
+            let inside_open_lag = is_inside_polygon(
                 pointer_pos,
                 x_open - 20.,
                 x_open + 20.,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+            );
+            let inside_close_lag = is_inside_polygon(
+                pointer_pos,
+                x_close - 20.,
+                x_close + 20.,
                 f64::NEG_INFINITY,
                 f64::INFINITY,
             );
@@ -858,7 +875,8 @@ impl ValidationApp {
             let dragging_left = inside_left && dragged;
             let dragging_right = inside_right && dragged;
             let dragging_main = inside_main && dragged;
-            let dragging_lag = inside_lag && dragged && !inside_right;
+            let dragging_open_lag = inside_open_lag && dragged && !inside_right;
+            let dragging_close_lag = inside_close_lag && dragged && !inside_left;
             let dragging_polygon = dragging_left || dragging_right || dragging_main;
             let mut dx = drag_delta.x as f64;
             let moving_right = dx > 0.;
@@ -900,8 +918,11 @@ impl ValidationApp {
                 }
             }
 
-            if dragging_lag {
-                self.increment_lag(dx);
+            if dragging_open_lag {
+                self.increment_open_lag(dx);
+            }
+            if dragging_close_lag {
+                self.increment_close_lag(dx);
             }
 
             // --- Then: mutate the cycle safely ---

@@ -1,3 +1,5 @@
+use chrono::Utc;
+
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
     pub const CHAMBER_ID: usize = 1;
@@ -9,46 +11,47 @@ pub mod fluxes_col {
     pub const CLOSE_OFFSET: usize = 6;
     pub const OPEN_OFFSET: usize = 7;
     pub const END_OFFSET: usize = 8;
-    pub const LAG_S: usize = 9;
+    pub const OPEN_LAG_S: usize = 9;
+    pub const CLOSE_LAG_S: usize = 10;
 
-    pub const AIR_PRESSURE: usize = 10;
-    pub const AIR_TEMPERATURE: usize = 11;
-    pub const CHAMBER_VOLUME: usize = 12;
+    pub const AIR_PRESSURE: usize = 11;
+    pub const AIR_TEMPERATURE: usize = 12;
+    pub const CHAMBER_VOLUME: usize = 13;
 
-    pub const ERROR_CODE: usize = 13;
-    pub const IS_VALID: usize = 14;
-    pub const MAIN_GAS_R2: usize = 15;
+    pub const ERROR_CODE: usize = 14;
+    pub const IS_VALID: usize = 15;
+    pub const MAIN_GAS_R2: usize = 16;
 
-    pub const CH4_FLUX: usize = 16;
-    pub const CH4_R2: usize = 17;
-    pub const CH4_MEASUREMENT_R2: usize = 18;
-    pub const CH4_SLOPE: usize = 19;
-    pub const CH4_CALC_START: usize = 20;
-    pub const CH4_CALC_END: usize = 21;
+    pub const CH4_FLUX: usize = 17;
+    pub const CH4_R2: usize = 18;
+    pub const CH4_MEASUREMENT_R2: usize = 19;
+    pub const CH4_SLOPE: usize = 20;
+    pub const CH4_CALC_START: usize = 21;
+    pub const CH4_CALC_END: usize = 22;
 
-    pub const CO2_FLUX: usize = 22;
-    pub const CO2_R2: usize = 23;
-    pub const CO2_MEASUREMENT_R2: usize = 24;
-    pub const CO2_SLOPE: usize = 25;
-    pub const CO2_CALC_START: usize = 26;
-    pub const CO2_CALC_END: usize = 27;
+    pub const CO2_FLUX: usize = 23;
+    pub const CO2_R2: usize = 24;
+    pub const CO2_MEASUREMENT_R2: usize = 25;
+    pub const CO2_SLOPE: usize = 26;
+    pub const CO2_CALC_START: usize = 27;
+    pub const CO2_CALC_END: usize = 28;
 
-    pub const H2O_FLUX: usize = 28;
-    pub const H2O_R2: usize = 29;
-    pub const H2O_MEASUREMENT_R2: usize = 30;
-    pub const H2O_SLOPE: usize = 31;
-    pub const H2O_CALC_START: usize = 32;
-    pub const H2O_CALC_END: usize = 33;
+    pub const H2O_FLUX: usize = 29;
+    pub const H2O_R2: usize = 30;
+    pub const H2O_MEASUREMENT_R2: usize = 31;
+    pub const H2O_SLOPE: usize = 32;
+    pub const H2O_CALC_START: usize = 33;
+    pub const H2O_CALC_END: usize = 34;
 
-    pub const N2O_FLUX: usize = 34;
-    pub const N2O_R2: usize = 35;
-    pub const N2O_MEASUREMENT_R2: usize = 36;
-    pub const N2O_SLOPE: usize = 37;
-    pub const N2O_CALC_START: usize = 38;
-    pub const N2O_CALC_END: usize = 39;
+    pub const N2O_FLUX: usize = 35;
+    pub const N2O_R2: usize = 36;
+    pub const N2O_MEASUREMENT_R2: usize = 37;
+    pub const N2O_SLOPE: usize = 38;
+    pub const N2O_CALC_START: usize = 39;
+    pub const N2O_CALC_END: usize = 40;
 
-    pub const MANUAL_ADJUSTED: usize = 40;
-    pub const MANUAL_VALID: usize = 41;
+    pub const MANUAL_ADJUSTED: usize = 41;
+    pub const MANUAL_VALID: usize = 42;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -61,7 +64,8 @@ pub const OTHER_COLS: &[&str] = &[
     "close_offset",
     "open_offset",
     "end_offset",
-    "lag_s",
+    "open_lag_s",
+    "close_lag_s",
     "air_pressure",
     "air_temperature",
     "chamber_volume",
@@ -82,7 +86,8 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "close_offset",
     "open_offset",
     "end_offset",
-    "lag_s",
+    "open_lag_s",
+    "close_lag_s",
     "air_pressure",
     "air_temperature",
     "chamber_volume",
@@ -185,7 +190,8 @@ pub fn create_flux_table() -> String {
             close_offset INTEGER NOT NULL,
             open_offset INTEGER NOT NULL,
             end_offset INTEGER NOT NULL,
-            lag_s INTEGER NOT NULL,
+            open_lag_s INTEGER NOT NULL,
+            close_lag_s INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
 

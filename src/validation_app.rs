@@ -534,11 +534,13 @@ impl ValidationApp {
                                 if let Some(previous_cycle) =
                                     before.iter().rev().find(|cycle| cycle.chamber_id == chamber_id)
                                 {
-                                    current_cycle.set_lag(previous_cycle.lag_s);
+                                    current_cycle.set_open_lag(previous_cycle.open_lag_s);
 
                                     let target = current_cycle.start_time
                                         + chrono::TimeDelta::seconds(current_cycle.open_offset)
-                                        + chrono::TimeDelta::seconds(current_cycle.lag_s as i64);
+                                        + chrono::TimeDelta::seconds(
+                                            current_cycle.open_lag_s as i64,
+                                        );
 
                                     let Some(main_gas) = self.main_gas else {
                                         eprintln!("No main gas selected!");
@@ -559,14 +561,14 @@ impl ValidationApp {
                 if let egui::Event::Key { key: Key::ArrowDown, pressed, .. } = event {
                     if *pressed {
                         self.mark_dirty();
-                        self.increment_lag(-1.0);
+                        self.increment_open_lag(-1.0);
                         self.update_plots();
                     }
                 }
                 if let egui::Event::Key { key: Key::ArrowUp, pressed, .. } = event {
                     if *pressed {
                         self.mark_dirty();
-                        self.increment_lag(1.0);
+                        self.increment_open_lag(1.0);
                         self.update_plots();
                     }
                 }
@@ -635,7 +637,7 @@ impl ValidationApp {
         }
 
         let lag_s = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.lag_s
+            cycle.open_lag_s
         } else {
             return;
         };
@@ -1714,7 +1716,33 @@ impl TableApp {
             .collect::<Result<Vec<String>, _>>()
             .unwrap_or_default();
 
-        let mut stmt = conn.prepare(&format!("SELECT * FROM {}", table_name)).unwrap();
+        let mut index = None;
+        if table_name == "project" {
+            index = None
+        }
+        if table_name == "fluxes" {
+            index = Some("start_time")
+        }
+        if table_name == "fluxes_history" {
+            index = Some("start_time")
+        }
+        if table_name == "cycles" {
+            index = Some("start_time")
+        }
+        if table_name == "measurements" {
+            index = Some("datetime")
+        }
+        if table_name == "meteo" {
+            index = Some("datetime")
+        }
+        if table_name == "volume" {
+            index = Some("datetime")
+        }
+        let query = match index {
+            None => &format!("SELECT * FROM {}", table_name),
+            Some(val) => &format!("SELECT * FROM {} ORDER BY {}", table_name, val),
+        };
+        let mut stmt = conn.prepare(query).unwrap();
         let column_count = stmt.column_count();
 
         let rows = stmt.query_map([], |row: &Row| {
@@ -1741,7 +1769,12 @@ impl TableApp {
             let conn = Connection::open("fluxrs.db").expect("Failed to open database");
             self.fetch_table_names(&conn);
         }
-
+        if self.selected_table == Some("measurements".to_owned()) {
+            ui.label("Viewing measurements is disabled for now, too much data.");
+            ui.label(
+                "Need to implement selecting a time range because of the massive amount of data.",
+            );
+        }
         if !self.table_names.is_empty() {
             egui::ComboBox::from_label("Select a table")
                 .selected_text(
@@ -1754,6 +1787,9 @@ impl TableApp {
                             .clicked()
                         {
                             self.selected_table = Some(table.clone());
+                            if table == "measurements" {
+                                return;
+                            }
                             self.fetch_table_data(table);
                         }
                     }
