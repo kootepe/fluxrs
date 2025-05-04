@@ -219,7 +219,83 @@ pub fn query_gas(
     }
     Ok(grouped_data)
 }
+pub fn query_gas_all(
+    conn: &Connection,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    project: String,
+    instrument_serial: String,
+) -> Result<GasData> {
+    // let mut data = HashMap::new();
+    println!("Querying gas data");
+    let mut grouped_data: HashMap<String, GasData> = HashMap::new();
 
+    let mut stmt = conn.prepare(
+        "SELECT datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model
+             FROM measurements
+             WHERE datetime BETWEEN ?1 AND ?2
+             and project_id = ?3 AND instrument_serial = ?4
+             ORDER BY datetime",
+    )?;
+
+    let rows = stmt.query_map(
+        params![start.timestamp(), end.timestamp(), project, instrument_serial],
+        |row| {
+            let datetime_unix: i64 = row.get(0)?;
+            let ch4: Option<f64> = row.get(1)?; // Handle NULL values
+            let co2: Option<f64> = row.get(2)?;
+            let h2o: Option<f64> = row.get(3)?;
+            let n2o: Option<f64> = row.get(4)?;
+            let diag: i64 = row.get(5)?;
+            let instrument_serial: Option<String> = row.get(6)?;
+            let instrument_model: Option<String> = row.get(7)?;
+
+            // Convert UNIX timestamp to DateTime<Utc>
+            let naive_datetime =
+                NaiveDateTime::from_timestamp_opt(datetime_unix, 0).expect("Invalid timestamp");
+            let datetime_utc = DateTime::<Utc>::from_utc(naive_datetime, Utc);
+
+            Ok((datetime_utc, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model))
+        },
+    )?;
+    let mut entry = GasData {
+        header: StringRecord::new(),
+        instrument_model: String::new(),
+        instrument_serial: String::new(),
+        datetime: Vec::new(),
+        gas: HashMap::new(),
+        diag: Vec::new(),
+    };
+    for row in rows {
+        let (datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model) = row?;
+
+        //   Extract YYYY-MM-DD for grouping
+        let date_key = datetime.format("%Y-%m-%d").to_string();
+
+        //   Get or create a new GasData entry
+
+        //   Append values
+        entry.datetime.push(datetime);
+        entry.diag.push(diag);
+        entry.instrument_model = instrument_model.unwrap();
+        entry.instrument_serial = instrument_serial.unwrap();
+
+        //   Store each gas type in the `HashMap`
+        if let Some(v) = ch4 {
+            entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(v);
+        }
+        if let Some(v) = co2 {
+            entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(v);
+        }
+        if let Some(v) = h2o {
+            entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(v);
+        }
+        if let Some(v) = n2o {
+            entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(v);
+        }
+    }
+    Ok(entry)
+}
 pub fn insert_measurements(
     conn: &mut Connection,
     all_gas: &GasData,
