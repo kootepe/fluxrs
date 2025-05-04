@@ -145,6 +145,19 @@ pub fn make_insert_fluxes() -> String {
         placeholders.join(", ")
     )
 }
+pub fn make_insert_flux_history() -> String {
+    // Total columns = archived_at + flux columns
+    let mut columns = vec!["archived_at"];
+    columns.extend(FLUXES_COLUMNS);
+
+    let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("?{}", i)).collect();
+
+    format!(
+        "INSERT INTO flux_history ({}) VALUES ({})",
+        columns.join(", "),
+        placeholders.join(", ")
+    )
+}
 
 pub fn make_update_fluxes() -> String {
     let set_clause: Vec<String> =
@@ -212,6 +225,65 @@ pub fn create_flux_table() -> String {
             manual_valid bool NOT NULL,
             chamber_volume FLOAT,
             PRIMARY KEY (instrument_serial, start_time, project_id)
+        )"
+    .to_owned()
+}
+
+pub fn create_flux_history_table() -> String {
+    "CREATE TABLE IF NOT EXISTS flux_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            archived_at TEXT NOT NULL,
+            instrument_model TEXT NOT NULL,
+            instrument_serial TEXT NOT NULL,
+            chamber_id TEXT NOT NULL,
+            main_gas TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            start_time INTEGER NOT NULL,
+
+            close_offset INTEGER NOT NULL,
+            open_offset INTEGER NOT NULL,
+            end_offset INTEGER NOT NULL,
+            open_lag_s INTEGER NOT NULL,
+            close_lag_s INTEGER NOT NULL,
+            air_pressure FLOAT,
+            air_temperature FLOAT,
+
+            error_code INTEGER,
+            is_valid BOOL,
+            main_gas_r2 FLOAT,
+
+            ch4_flux FLOAT,
+            ch4_r2 FLOAT,
+            ch4_measurement_r2 FLOAT,
+            ch4_slope FLOAT,
+            ch4_calc_range_start FLOAT,
+            ch4_calc_range_end FLOAT,
+
+            co2_flux FLOAT,
+            co2_r2 FLOAT,
+            co2_measurement_r2 FLOAT,
+            co2_slope FLOAT,
+            co2_calc_range_start FLOAT,
+            co2_calc_range_end FLOAT,
+
+            h2o_flux FLOAT,
+            h2o_r2 FLOAT,
+            h2o_measurement_r2 FLOAT,
+            h2o_slope FLOAT,
+            h2o_calc_range_start FLOAT,
+            h2o_calc_range_end FLOAT,
+
+            n2o_flux FLOAT,
+            n2o_r2 FLOAT,
+            n2o_measurement_r2 FLOAT,
+            n2o_slope FLOAT,
+            n2o_calc_range_start FLOAT,
+            n2o_calc_range_end FLOAT,
+
+            manual_adjusted BOOL NOT NULL,
+            manual_valid bool NOT NULL,
+            chamber_volume FLOAT
         )"
     .to_owned()
 }

@@ -1,4 +1,4 @@
-use crate::cycle::{update_fluxes, Cycle};
+use crate::cycle::{insert_flux_history, update_fluxes, Cycle};
 use crate::errorcode::ErrorCode;
 pub use crate::instruments::GasType;
 use crate::validation_app::ValidationApp;
@@ -260,8 +260,11 @@ impl ValidationApp {
 
         self.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
             Ok(mut conn) => {
-                if let Err(e) = update_fluxes(&mut conn, &[cycle], project) {
+                if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], project.clone()) {
                     eprintln!("[error] Failed to update cycle: {e}");
+                }
+                if let Err(e) = insert_flux_history(&mut conn, &[cycle], project) {
+                    eprintln!("[error] Failed to insert history cycle: {e}");
                 }
             },
             Err(e) => {

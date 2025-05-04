@@ -1,11 +1,11 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::errorcode::{ErrorCode, ErrorMask};
 use crate::fluxes_schema::{
-    fluxes_col, make_insert_or_ignore_fluxes, make_select_fluxes, make_update_fluxes,
+    fluxes_col, make_insert_flux_history, make_insert_or_ignore_fluxes, make_select_fluxes,
+    make_update_fluxes,
 };
 use crate::instruments::GasType;
 use crate::instruments::{get_instrument_by_model, InstrumentType};
-use crate::query::{calculate_max_y_from_vec, calculate_min_y_from_vec};
 use crate::query_gas;
 use crate::stats;
 use chrono::{DateTime, TimeDelta, Utc};
@@ -1094,6 +1094,80 @@ pub fn update_fluxes(
         }
     }
     tx.commit()?;
+    Ok(())
+}
+pub fn insert_flux_history(
+    conn: &mut Connection,
+    cycles: &[Cycle],
+    project: String,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let archived_at = Utc::now().to_rfc3339();
+    let tx = conn.transaction()?; // Start transaction for consistency
+    {
+        let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
+
+        for cycle in cycles {
+            match execute_history_insert(&mut insert_stmt, &archived_at, cycle, &project) {
+                Ok(_) => println!("Archived cycle successfully."),
+                Err(e) => eprintln!("Error archiving fluxes: {}", e),
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+fn execute_history_insert(
+    stmt: &mut rusqlite::Statement,
+    archived_at: &String,
+    cycle: &Cycle,
+    project: &String,
+) -> Result<()> {
+    stmt.execute(params![
+        archived_at,
+        cycle.start_time.timestamp(),
+        cycle.chamber_id,
+        cycle.instrument_model.to_string(),
+        cycle.instrument_serial,
+        cycle.main_gas.column_name(),
+        project,
+        cycle.close_offset,
+        cycle.open_offset,
+        cycle.end_offset,
+        cycle.open_lag_s as i64,
+        cycle.close_lag_s as i64,
+        cycle.air_pressure,
+        cycle.air_temperature,
+        cycle.chamber_volume,
+        cycle.error_code.0,
+        cycle.is_valid,
+        cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
+        cycle.flux.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.calc_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
+        cycle.measurement_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
+        cycle.slope.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
+        cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
+        cycle.slope.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
+        cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
+        cycle.slope.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
+        cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
+        cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.manual_adjusted,
+        cycle.manual_valid,
+    ])?;
     Ok(())
 }
 fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {

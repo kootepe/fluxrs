@@ -1,6 +1,7 @@
 use crate::app_plotting::{
     init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
+use crate::archiverecord::{self, ArchiveRecord};
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::csv_parse;
 use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
@@ -141,6 +142,7 @@ pub struct ValidationApp {
     pub enabled_measurement_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub cycles: Vec<Cycle>,
     pub cycle_nav: CycleNavigator,
+    archive_record: Option<(usize, ArchiveRecord)>,
     pub lag_plot_w: f32,
     pub lag_plot_h: f32,
     pub gas_plot_w: f32,
@@ -196,6 +198,7 @@ impl Default for ValidationApp {
             enabled_calc_rs: HashSet::new(),
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
+            archive_record: None,
             lag_plot_w: 600.,
             lag_plot_h: 350.,
             gas_plot_w: 600.,

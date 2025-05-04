@@ -11,6 +11,7 @@ use instruments::Li7810;
 use std::error::Error;
 
 pub mod app_plotting;
+pub mod archiverecord;
 mod config;
 pub mod constants;
 mod csv_parse;
