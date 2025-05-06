@@ -1,11 +1,23 @@
+#[derive(Clone, Copy)]
 pub struct LinReg {
-    pub _intercept: f64,
+    pub intercept: f64,
     pub slope: f64,
+}
+impl Default for LinReg {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LinReg {
-    pub fn _calculate(&self, x: f64) -> f64 {
-        self._intercept + self.slope * x
+    pub fn new() -> Self {
+        Self { intercept: 0., slope: 0. }
+    }
+    pub fn calculate(&self, x: f64) -> f64 {
+        self.intercept + self.slope * x
+    }
+    pub fn from_val(intercept: f64, slope: f64) -> Self {
+        Self { intercept, slope }
     }
 
     pub fn train(x: &[f64], y: &[f64]) -> Self {
@@ -28,7 +40,7 @@ impl LinReg {
         let slope = ss_xy / ss_xx;
         let intercept = avg_y - slope * avg_x;
 
-        Self { _intercept: intercept, slope }
+        Self { intercept, slope }
     }
 }
 

@@ -1,7 +1,7 @@
 use crate::fluxes_schema::{create_flux_history_table, create_flux_table};
 use rusqlite::{Connection, Result};
 
-const DB_VERSION: i32 = 3;
+const DB_VERSION: i32 = 5;
 
 pub fn migrate_db() -> Result<i32> {
     let conn = Connection::open("fluxrs.db")?;
@@ -26,6 +26,22 @@ pub fn migrate_db() -> Result<i32> {
         conn.execute("ALTER TABLE fluxes RENAME COLUMN lag_s TO open_lag_s;", [])?;
         conn.execute("ALTER TABLE fluxes ADD COLUMN close_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
         migrated = 3;
+    }
+    if current_version < 4 {
+        println!("Applying migration 4: More lag variables");
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN end_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN start_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
+        migrated = 4;
+    }
+    if current_version < 5 {
+        println!("Applying migration 5: Added linfit intercept");
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN ch4_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN co2_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN h2o_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
+        conn.execute("ALTER TABLE fluxes ADD COLUMN n2o_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
+        migrated = 5;
     }
 
     Ok(migrated)

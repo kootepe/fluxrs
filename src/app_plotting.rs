@@ -12,8 +12,8 @@ use std::ops::RangeInclusive;
 
 use eframe::egui::{Color32, Id, Layout, PointerButton, Pos2, RichText, Stroke, Ui, Vec2};
 use egui_plot::{
-    CoordinatesFormatter, Corner, GridInput, GridMark, LineStyle, MarkerShape, Plot, PlotBounds,
-    PlotPoint, PlotPoints, PlotTransform, Points, Text,
+    CoordinatesFormatter, Corner, GridInput, GridMark, Legend, Line, LineStyle, MarkerShape, Plot,
+    PlotBounds, PlotPoint, PlotPoints, PlotTransform, Points, Text,
 };
 
 type DataTrace = (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>);
@@ -40,6 +40,9 @@ impl ValidationApp {
             self.dirty_cycles.insert(i);
         }
     }
+    pub fn is_current_cycle_dirty(&self) -> bool {
+        self.cycle_nav.current_index().map(|i| self.dirty_cycles.contains(&i)).unwrap_or(false)
+    }
 
     pub fn commit_all_dirty_cycles(&mut self) {
         let Some(project) = self.selected_project.clone() else { return };
@@ -62,6 +65,27 @@ impl ValidationApp {
         });
     }
 
+    pub fn control_zoom(&mut self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType) {
+        let x_open = self.get_measurement_start();
+        let x_close = self.get_measurement_end();
+        let min_y = self.get_min_y(&gas_type);
+        let max_y = self.get_max_y(&gas_type);
+        let y_range = (self.get_max_y(&gas_type) - self.get_min_y(&gas_type)) * 0.05;
+        let y_min = min_y - y_range;
+        let y_max = max_y + y_range;
+        if self.zoom_to_measurement == 1 {
+            let x_min = x_close - 60.;
+            let x_max = x_close + 60.;
+            plot_ui.set_plot_bounds(PlotBounds::from_min_max([x_min, y_min], [x_max, y_max]));
+        } else if self.zoom_to_measurement == 2 {
+            let x_min = x_open - 60.;
+            let x_max = x_open + 60.;
+            plot_ui.set_plot_bounds(PlotBounds::from_min_max([x_min, y_min], [x_max, y_max]));
+            self.should_reset_bounds = true;
+        } else if self.should_reset_bounds {
+            plot_ui.set_auto_bounds(true);
+        }
+    }
     pub fn select_cycle_by_timestamp(&mut self, timestamp: f64) {
         if let Some((idx, _)) = self
             .cycles
@@ -75,18 +99,20 @@ impl ValidationApp {
             }
         }
     }
-    #[allow(clippy::too_many_arguments)]
     pub fn render_gas_plot(
         &self,
         plot_ui: &mut egui_plot::PlotUi,
         gas_type: GasType,
-        calc_area_color: Color32,
-        calc_area_stroke_color: Color32,
-        calc_area_adjust_color: Color32,
         main_id: Id,
         left_id: Id,
         right_id: Id,
     ) {
+        let dpw = self.drag_panel_width;
+
+        let dark_green = Color32::DARK_GREEN;
+        let red = Color32::RED;
+        let error_color = Color32::from_rgba_unmultiplied(255, 50, 50, 55);
+
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let calc_start = self.get_calc_start(gas_type);
             let calc_end = self.get_calc_end(gas_type);
@@ -94,33 +120,33 @@ impl ValidationApp {
             let max_y = self.get_max_y(&gas_type);
             let left_polygon = create_polygon(
                 calc_start,
-                calc_start + self.drag_panel_width,
+                calc_start + dpw,
                 min_y,
                 max_y,
-                calc_area_adjust_color,
-                calc_area_stroke_color,
+                self.calc_area_adjust_color,
+                self.calc_area_stroke_color,
                 "Extend left",
                 left_id,
             );
 
             let right_polygon = create_polygon(
-                calc_end - self.drag_panel_width,
+                calc_end - dpw,
                 calc_end,
                 min_y,
                 max_y,
-                calc_area_adjust_color,
-                calc_area_stroke_color,
+                self.calc_area_adjust_color,
+                self.calc_area_stroke_color,
                 "Extend right",
                 right_id,
             );
 
             let main_polygon = create_polygon(
-                calc_start + self.drag_panel_width,
-                calc_end - self.drag_panel_width,
+                calc_start + dpw,
+                calc_end - dpw,
                 min_y,
                 max_y,
-                calc_area_color,
-                calc_area_stroke_color,
+                self.calc_area_color,
+                self.calc_area_stroke_color,
                 "Move",
                 main_id,
             );
@@ -132,17 +158,16 @@ impl ValidationApp {
             let x_open = cycle.get_open();
             let x_close = cycle.get_close();
 
-            let adj_open_line = create_vline(adj_x_open, Color32::DARK_GREEN, solid, "Lagtime");
-            let adj_close_line = create_vline(adj_x_close, Color32::RED, solid, "Close time");
-            let open_line = create_vline(x_open, Color32::DARK_GREEN, dashed, "Unadjusted open");
-            let close_line = create_vline(x_close, Color32::RED, dashed, "Unadjusted close");
+            let adj_open_line = create_vline(adj_x_open, dark_green, solid, "Lagtime");
+            let adj_close_line = create_vline(adj_x_close, red, solid, "Close time");
+            let open_line = create_vline(x_open, dark_green, dashed, "Unadjusted open");
+            let close_line = create_vline(x_close, red, dashed, "Unadjusted close");
 
             if cycle.is_valid {
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
             } else {
-                let error_color = Color32::from_rgba_unmultiplied(255, 50, 50, 55);
                 let error_polygon = create_polygon(
                     self.get_start(),
                     self.get_end(),
@@ -171,7 +196,6 @@ impl ValidationApp {
                     .id(has_errors),
                 );
             }
-
             if let Some(data) = cycle.gas_v.get(&gas_type) {
                 let dt_v = cycle.dt_v_as_float();
                 let diag_values = &cycle.diag_v;
@@ -209,6 +233,26 @@ impl ValidationApp {
                     );
                 }
 
+                if self.show_linfit {
+                    let x_min = self.get_calc_start(gas_type);
+                    let x_max = self.get_calc_end(gas_type);
+                    let num_points = x_max - x_min;
+                    let line_points: PlotPoints = (0..=num_points as i64)
+                        .map(|i| {
+                            let x = x_min + (x_max - x_min) * i as f64 / num_points;
+                            let y = self.get_intercept(gas_type) + self.get_slope(gas_type) * x;
+                            [x, y]
+                        })
+                        .collect();
+
+                    plot_ui.line(
+                        Line::new(line_points)
+                            .name("Fitted Line")
+                            .color(egui::Color32::RED)
+                            .style(egui_plot::LineStyle::Solid)
+                            .stroke(Stroke::new(2.0, egui::Color32::RED)),
+                    );
+                }
                 plot_ui.vline(adj_open_line);
                 plot_ui.vline(adj_close_line);
                 plot_ui.vline(open_line);
@@ -312,6 +356,7 @@ impl ValidationApp {
     }
 
     pub fn update_plots(&mut self) {
+        println!("Update plots");
         self.all_traces = self.cycles.iter().map(|cycle| cycle.chamber_id.clone()).collect();
 
         for chamber_id in &self.all_traces {
@@ -328,6 +373,7 @@ impl ValidationApp {
             &self.visible_traces,
             self.show_valids,
             self.show_invalids,
+            self.show_bad,
         );
 
         // Only commit if current index is about to become invisible
@@ -343,6 +389,7 @@ impl ValidationApp {
             &self.visible_traces,
             self.show_valids,
             self.show_invalids,
+            self.show_bad,
         );
 
         // Update the current cycle’s diagnostics
@@ -425,6 +472,13 @@ impl ValidationApp {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
+    pub fn get_is_valid(&self) -> bool {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_is_valid()
+        } else {
+            false // Return 0.0 if no valid cycle is found
+        }
+    }
 
     pub fn get_measurement_start(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
@@ -440,7 +494,27 @@ impl ValidationApp {
             0.0
         }
     }
-
+    pub fn get_open_lag_s(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.open_lag_s
+        } else {
+            0.0
+        }
+    }
+    pub fn get_slope(&self, gas_type: GasType) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_slope(&gas_type)
+        } else {
+            0.0
+        }
+    }
+    pub fn get_intercept(&self, gas_type: GasType) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_intercept(&gas_type)
+        } else {
+            0.0
+        }
+    }
     pub fn get_calc_start(&self, gas_type: GasType) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             cycle.get_calc_start(gas_type)
@@ -788,32 +862,17 @@ impl ValidationApp {
         // .legend(Legend::default().show(false))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn render_gas_plot_ui(
         &mut self,
         plot_ui: &mut egui_plot::PlotUi,
         gas_type: GasType,
-        lag_s: f64,
-        drag_panel_width: f64,
-        calc_area_color: Color32,
-        calc_area_stroke_color: Color32,
-        calc_area_adjust_color: Color32,
         main_id: Id,
         left_id: Id,
         right_id: Id,
     ) {
-        self.drag_panel_width = 40.;
+        let dpw = self.drag_panel_width;
 
-        self.render_gas_plot(
-            plot_ui,
-            gas_type,
-            calc_area_color,
-            calc_area_stroke_color,
-            calc_area_adjust_color,
-            main_id,
-            left_id,
-            right_id,
-        );
+        self.render_gas_plot(plot_ui, gas_type, main_id, left_id, right_id);
 
         if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
             let drag_delta = plot_ui.pointer_coordinate_drag_delta();
@@ -823,24 +882,13 @@ impl ValidationApp {
             let min_y = self.get_min_y(&gas_type);
             let max_y = self.get_max_y(&gas_type);
 
-            let inside_left = is_inside_polygon(
-                pointer_pos,
-                calc_start,
-                calc_start + drag_panel_width,
-                min_y,
-                max_y,
-            );
+            let inside_left =
+                is_inside_polygon(pointer_pos, calc_start, calc_start + dpw, min_y, max_y);
             let inside_right =
-                is_inside_polygon(pointer_pos, calc_end - drag_panel_width, calc_end, min_y, max_y);
-            let inside_main = is_inside_polygon(
-                pointer_pos,
-                calc_start + drag_panel_width,
-                calc_end - drag_panel_width,
-                min_y,
-                max_y,
-            );
+                is_inside_polygon(pointer_pos, calc_end - dpw, calc_end, min_y, max_y);
+            let inside_main =
+                is_inside_polygon(pointer_pos, calc_start + dpw, calc_end - dpw, min_y, max_y);
 
-            // let x_open = self.get_start() + self.get_open_offset() + lag_s;
             let x_open = self.get_measurement_end();
             let x_close = self.get_measurement_start();
             let inside_open_lag = is_inside_polygon(
@@ -859,30 +907,18 @@ impl ValidationApp {
             );
 
             let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
-            let at_start = calc_start == self.get_measurement_start();
-            let at_end = calc_end == self.get_measurement_end();
-            let over_start = calc_start < self.get_measurement_start();
-            let over_end = calc_end > self.get_measurement_end();
-            let range_len = calc_end - calc_start;
-            let cycle_len = self.get_measurement_end() - self.get_measurement_start();
-
-            // if range_len > cycle_len {
-            //     self.set_calc_start(gas_type, self.get_measurement_start());
-            //     self.set_calc_end(gas_type, self.get_measurement_end());
-            // }
+            let is_valid = self.get_is_valid();
 
             // Decide what dragging action is happening
-            let dragging_left = inside_left && dragged;
-            let dragging_right = inside_right && dragged;
-            let dragging_main = inside_main && dragged;
+            let dragging_left = inside_left && dragged && is_valid;
+            let dragging_right = inside_right && dragged && is_valid;
+            let dragging_main = inside_main && dragged && is_valid;
             let dragging_open_lag = inside_open_lag && dragged && !inside_right;
             let dragging_close_lag = inside_close_lag && dragged && !inside_left;
             let dragging_polygon = dragging_left || dragging_right || dragging_main;
             let mut dx = drag_delta.x as f64;
             let moving_right = dx > 0.;
             let moving_left = dx < 0.;
-
-            let calc_range = calc_end - calc_start;
 
             // --- First: mutate `self` only ---
             if dragging_left {
@@ -918,10 +954,21 @@ impl ValidationApp {
                 }
             }
 
+            let predx = dx;
             if dragging_open_lag {
+                let transform = plot_ui.transform();
+                if self.zoom_to_measurement == 1 {
+                    println!("Transforming to zoom");
+                    dx = dx * transform.dpos_dvalue_x();
+                }
                 self.increment_open_lag(dx);
             }
             if dragging_close_lag {
+                let transform = plot_ui.transform();
+                if self.zoom_to_measurement == 2 {
+                    println!("Transforming to zoom");
+                    dx = dx * transform.dpos_dvalue_x();
+                }
                 self.increment_close_lag(dx);
             }
 
@@ -933,21 +980,7 @@ impl ValidationApp {
                 })
             };
 
-            // if dragging_polygon {
-            //     self.update_current_cycle();
-            // }
-            // --- Plot Bounds Adjustments ---
-            let y_range = (self.get_max_y(&gas_type) - self.get_min_y(&gas_type)) * 0.05;
-            let y_min = min_y - y_range;
-            let y_max = max_y + y_range;
-
-            if self.zoom_to_measurement {
-                let x_min = x_open - 60.;
-                let x_max = x_open + 60.;
-                plot_ui.set_plot_bounds(PlotBounds::from_min_max([x_min, y_min], [x_max, y_max]));
-            } else {
-                plot_ui.set_auto_bounds(true);
-            }
+            self.control_zoom(plot_ui, gas_type);
         }
     }
 
@@ -997,7 +1030,8 @@ impl ValidationApp {
                         // **Double Click: Enable Only This Trace, Disable Others**
                         if response.double_clicked() {
                             self.visible_traces.iter_mut().for_each(|(_, v)| *v = false); // Disable all
-                            self.visible_traces.insert(chamber_id.clone(), true); // Enable only this one
+                            self.visible_traces.insert(chamber_id.clone(), true);
+                            // Enable only this one
                             self.update_plots();
                         }
 
@@ -1183,7 +1217,6 @@ pub fn init_lag_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
         .height(h)
         .y_axis_label(format!("{} lag", gas_type))
         .x_axis_formatter(format_x_axis)
-    // .legend(Legend::default().position(Corner::LeftTop))
 }
 fn generate_grid_marks(range: GridInput) -> Vec<GridMark> {
     let (min, max) = range.bounds;
@@ -1280,6 +1313,7 @@ fn compute_visible_indexes(
     visible_traces: &HashMap<String, bool>,
     show_valids: bool,
     show_invalids: bool,
+    show_bad: bool,
 ) -> Vec<usize> {
     cycles
         .iter()
@@ -1288,7 +1322,8 @@ fn compute_visible_indexes(
             let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
             let valid_ok = show_valids || !cycle.is_valid;
             let invalid_ok = show_invalids || cycle.is_valid;
-            trace_visible && valid_ok && invalid_ok
+            let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
+            trace_visible && valid_ok && invalid_ok && bad_ok
         })
         .map(|(i, _)| i)
         .collect()

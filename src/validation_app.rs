@@ -3,20 +3,20 @@ use crate::app_plotting::{
 };
 use crate::archiverecord::{self, ArchiveRecord};
 use crate::constants::MIN_CALC_AREA_RANGE;
-use crate::csv_parse;
 use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
+use crate::gasdata::query_gas;
 use crate::gasdata::{insert_measurements, GasData};
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
-use crate::query_gas;
 use crate::timedata::{query_cycles, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
+use crate::{csv_parse, errorcode};
 use crate::{insert_cycles, process_cycles};
 
 use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetInfo, WidgetType};
@@ -30,6 +30,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
+use std::f64::consts::E;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
@@ -47,7 +48,7 @@ pub enum Panel {
     DataInit,
     DataLoad,
     FileInit,
-    ProjectInit,
+    ProjInit,
     DataTable,
     DownloadData,
     Empty,
@@ -60,7 +61,7 @@ impl Default for Panel {
 }
 #[derive(Default)]
 pub struct MainApp {
-    current_panel: Panel,
+    live_panel: Panel,
     pub validation_panel: ValidationApp,
     table_panel: TableApp,
     empty_panel: EmptyPanel,
@@ -72,26 +73,48 @@ impl MainApp {
             container_response
                 .widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel"));
 
+            let panel_switching_allowed = !self.validation_panel.init_in_progress;
             ui.ctx().clone().with_accessibility_parent(container_response.id, || {
-                ui.selectable_value(
-                    &mut self.current_panel,
-                    Panel::Validation,
-                    "Validate measurements",
-                );
-                ui.selectable_value(&mut self.current_panel, Panel::DataLoad, "Load measurements");
-                ui.selectable_value(
-                    &mut self.current_panel,
-                    Panel::DataInit,
-                    "Initiate measurements",
-                );
-                ui.selectable_value(&mut self.current_panel, Panel::FileInit, "Upload files to db");
-                ui.selectable_value(
-                    &mut self.current_panel,
-                    Panel::ProjectInit,
-                    "Select and initiate project",
-                );
-                ui.selectable_value(&mut self.current_panel, Panel::DataTable, "View data in db");
-                ui.selectable_value(&mut self.current_panel, Panel::DownloadData, "Download data");
+                ui.add_enabled(panel_switching_allowed, |ui: &mut egui::Ui| {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::Validation,
+                            "Validate measurements",
+                        );
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::DataLoad,
+                            "Load measurements",
+                        );
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::DataInit,
+                            "Initiate measurements",
+                        );
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::FileInit,
+                            "Upload files to db",
+                        );
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::ProjInit,
+                            "Initiate project",
+                        );
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::DataTable,
+                            "View data in db",
+                        );
+                        ui.selectable_value(
+                            &mut self.live_panel,
+                            Panel::DownloadData,
+                            "Download data",
+                        );
+                    })
+                    .response
+                });
             });
         });
         ui.separator();
@@ -99,7 +122,7 @@ impl MainApp {
             self.validation_panel.load_projects_from_db().unwrap();
         }
 
-        match self.current_panel {
+        match self.live_panel {
             Panel::Validation => {
                 self.validation_panel.ui(ui, ctx);
             },
@@ -118,7 +141,7 @@ impl MainApp {
             Panel::DownloadData => {
                 self.validation_panel.dl_ui(ui, ctx);
             },
-            Panel::ProjectInit => {
+            Panel::ProjInit => {
                 self.validation_panel.proj_ui(ui);
             },
             Panel::Empty => {
@@ -133,6 +156,7 @@ pub struct ValidationApp {
     pub runtime: tokio::runtime::Runtime,
     init_enabled: bool,
     init_in_progress: bool,
+    pub load_result: Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
     pub instrument_serial: String,
@@ -154,7 +178,8 @@ pub struct ValidationApp {
     pub calc_r_plot_w: f32,
     pub calc_r_plot_h: f32,
     pub dirty_cycles: HashSet<usize>,
-    pub zoom_to_measurement: bool,
+    pub zoom_to_measurement: u8,
+    pub should_reset_bounds: bool,
     pub drag_panel_width: f64,
     pub min_calc_area_range: f64,
     pub selected_point: Option<[f64; 2]>,
@@ -171,6 +196,7 @@ pub struct ValidationApp {
     pub log_messages: Vec<String>,
     pub show_valids: bool,
     pub show_invalids: bool,
+    pub show_bad: bool,
     pub project_name: String,
     pub main_gas: Option<GasType>,
     pub instrument: InstrumentType,
@@ -178,6 +204,10 @@ pub struct ValidationApp {
     pub initiated: bool,
     pub selected_project: Option<String>,
     pub proj_serial: String,
+    pub show_linfit: bool,
+    pub calc_area_color: Color32,
+    pub calc_area_adjust_color: Color32,
+    pub calc_area_stroke_color: Color32,
 }
 
 impl Default for ValidationApp {
@@ -190,6 +220,7 @@ impl Default for ValidationApp {
             task_done_receiver,
             init_enabled: true,
             init_in_progress: false,
+            load_result: Arc::new(Mutex::new(None)),
             instrument_serial: String::new(),
             proj_serial: String::new(),
             enabled_gases: HashSet::new(),
@@ -209,7 +240,8 @@ impl Default for ValidationApp {
             calc_r_plot_h: 350.,
             measurement_r_plot_w: 600.,
             measurement_r_plot_h: 350.,
-            zoom_to_measurement: false,
+            zoom_to_measurement: 0,
+            should_reset_bounds: false,
             drag_panel_width: 40.0, // Default width for UI panel
             min_calc_area_range: MIN_CALC_AREA_RANGE,
             selected_point: None,
@@ -234,12 +266,17 @@ impl Default for ValidationApp {
             log_messages: Vec::new(),
             show_invalids: true,
             show_valids: true,
+            show_bad: false,
             project_name: String::new(),
             main_gas: None,
             instrument: InstrumentType::Li7810,
             projects: Vec::new(),
             initiated: false,
             selected_project: None,
+            show_linfit: true,
+            calc_area_color: Color32::BLACK,
+            calc_area_adjust_color: Color32::BLACK,
+            calc_area_stroke_color: Color32::BLACK,
         }
     }
 }
@@ -249,6 +286,7 @@ impl ValidationApp {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
+
         if self.cycles.is_empty() {
             ui.label("No cycles with data loaded, use Initiate measurements tab to initiate data.");
             return;
@@ -470,19 +508,39 @@ impl ValidationApp {
         let mut highest_r = false;
         let mut reset_cycle = false;
         let mut toggle_valid = false;
+        let mut add_to_end = false;
+        let mut add_to_start = false;
+        let mut remove_from_end = false;
+        let mut remove_from_start = false;
+        let mut mark_bad = false;
+        let mut show_valids_clicked = false;
+        let mut show_invalids_clicked = false;
+        let mut show_bad = false;
+        let mut show_linear_model = true;
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
             next_clicked = ui.add(egui::Button::new("Next measurement")).clicked();
         });
 
-        let show_valids_clicked = ui.checkbox(&mut self.show_valids, "Show valids").clicked();
-        let mut show_invalids_clicked =
-            ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                show_valids_clicked = ui.checkbox(&mut self.show_valids, "Show valids").clicked();
+                show_invalids_clicked =
+                    ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
+                show_bad = ui.checkbox(&mut self.show_bad, "Show bad measurements").clicked();
+            });
+            show_linear_model = ui.checkbox(&mut self.show_linfit, "Show linear model").clicked();
+        });
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             highest_r = ui.add(egui::Button::new("Find highest r")).clicked();
             reset_cycle = ui.add(egui::Button::new("Reset cycle")).clicked();
+            mark_bad = ui.add(egui::Button::new("Mark as bad")).clicked();
             toggle_valid = ui.add(egui::Button::new("Toggle validity")).clicked();
+            add_to_end = ui.add(egui::Button::new("+2min to end")).clicked();
+            remove_from_end = ui.add(egui::Button::new("-2min to end")).clicked();
+            add_to_start = ui.add(egui::Button::new("+2min to start")).clicked();
+            remove_from_start = ui.add(egui::Button::new("-2min to start")).clicked();
         });
 
         ui.input(|i| {
@@ -510,7 +568,11 @@ impl ValidationApp {
                 }
                 if let egui::Event::Key { key: Key::Z, pressed, .. } = event {
                     if *pressed {
-                        self.zoom_to_measurement = !self.zoom_to_measurement;
+                        if self.zoom_to_measurement == 2 {
+                            self.zoom_to_measurement = 0
+                        } else {
+                            self.zoom_to_measurement += 1;
+                        }
                     }
                 }
                 if let egui::Event::Key { key: Key::R, pressed, .. } = event {
@@ -561,14 +623,24 @@ impl ValidationApp {
                 if let egui::Event::Key { key: Key::ArrowDown, pressed, .. } = event {
                     if *pressed {
                         self.mark_dirty();
-                        self.increment_open_lag(-1.0);
+                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
+                            self.increment_open_lag(-1.);
+                        }
+                        if self.zoom_to_measurement == 2 {
+                            self.increment_close_lag(-1.);
+                        }
                         self.update_plots();
                     }
                 }
                 if let egui::Event::Key { key: Key::ArrowUp, pressed, .. } = event {
                     if *pressed {
                         self.mark_dirty();
-                        self.increment_open_lag(1.0);
+                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
+                            self.increment_open_lag(1.);
+                        }
+                        if self.zoom_to_measurement == 2 {
+                            self.increment_close_lag(1.);
+                        }
                         self.update_plots();
                     }
                 }
@@ -582,6 +654,9 @@ impl ValidationApp {
         if show_valids_clicked {
             self.update_plots();
         }
+        if show_bad {
+            self.update_plots();
+        }
 
         if toggle_valid {
             self.mark_dirty();
@@ -591,8 +666,17 @@ impl ValidationApp {
             }
         }
 
+        if mark_bad {
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.error_code.toggle(ErrorCode::BadOpenClose);
+
+                self.update_plots();
+            }
+        }
         if reset_cycle {
             self.mark_dirty();
+            // NOTE: hitting reset on a cycle that has no changes, will cause it to be archived
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.reset();
                 self.update_plots();
@@ -606,6 +690,38 @@ impl ValidationApp {
                 self.update_plots();
             }
         }
+        if add_to_end {
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.set_end_lag_s(cycle.end_lag_s + 120.);
+                // cycle.reload_gas_data();
+                self.update_plots();
+            }
+        }
+        if remove_from_end {
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.set_end_lag_s(cycle.end_lag_s - 120.);
+                self.update_plots();
+            }
+        }
+        if add_to_start {
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.set_start_lag_s(cycle.start_lag_s - 120.);
+                // cycle.reload_gas_data();
+                self.update_plots();
+            }
+        }
+        if remove_from_start {
+            self.mark_dirty();
+            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.set_start_lag_s(cycle.start_lag_s + 120.);
+                // cycle.reload_gas_data();
+                self.update_plots();
+            }
+        }
+
         if prev_clicked {
             self.commit_current_cycle();
             self.cycle_nav.step_back(); // Step to previous visible cycle
@@ -643,17 +759,14 @@ impl ValidationApp {
         };
 
         let drag_panel_width = 40.;
-        let mut calc_area_color = Color32::BLACK;
-        let mut calc_area_adjust_color = Color32::BLACK;
-        let mut calc_area_stroke_color = Color32::BLACK;
         if ctx.style().visuals.dark_mode {
-            calc_area_color = Color32::from_rgba_unmultiplied(255, 255, 255, 1);
-            calc_area_adjust_color = Color32::from_rgba_unmultiplied(255, 255, 255, 20);
-            calc_area_stroke_color = Color32::from_rgba_unmultiplied(255, 255, 255, 60);
+            self.calc_area_color = Color32::from_rgba_unmultiplied(255, 255, 255, 1);
+            self.calc_area_adjust_color = Color32::from_rgba_unmultiplied(255, 255, 255, 20);
+            self.calc_area_stroke_color = Color32::from_rgba_unmultiplied(255, 255, 255, 60);
         } else {
-            calc_area_color = Color32::from_rgba_unmultiplied(0, 0, 0, 10);
-            calc_area_adjust_color = Color32::from_rgba_unmultiplied(0, 0, 20, 20);
-            calc_area_stroke_color = Color32::from_rgba_unmultiplied(0, 0, 0, 90);
+            self.calc_area_color = Color32::from_rgba_unmultiplied(0, 0, 0, 10);
+            self.calc_area_adjust_color = Color32::from_rgba_unmultiplied(0, 0, 20, 20);
+            self.calc_area_stroke_color = Color32::from_rgba_unmultiplied(0, 0, 0, 90);
         }
 
         // let close_line_color = Color32::from_rgba_unmultiplied(64, 242, 106, 1);
@@ -664,6 +777,9 @@ impl ValidationApp {
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
+                    if self.zoom_to_measurement == 2 {
+                        self.should_reset_bounds = true;
+                    }
                     for gas_type in self.enabled_gases.clone() {
                         if self.is_gas_enabled(&gas_type) {
                             let gas_plot = init_gas_plot(
@@ -675,16 +791,7 @@ impl ValidationApp {
                             );
                             let response = gas_plot.show(ui, |plot_ui| {
                                 self.render_gas_plot_ui(
-                                    plot_ui,
-                                    gas_type,
-                                    lag_s,
-                                    drag_panel_width,
-                                    calc_area_color,
-                                    calc_area_stroke_color,
-                                    calc_area_adjust_color,
-                                    main_id,
-                                    left_id,
-                                    right_id,
+                                    plot_ui, gas_type, main_id, left_id, right_id,
                                 )
                             });
                             if response.response.hovered() {
@@ -693,6 +800,9 @@ impl ValidationApp {
                                 // println!("Gas plot is hovered!");
                             }
                         }
+                    }
+                    if self.should_reset_bounds && self.zoom_to_measurement == 0 {
+                        self.should_reset_bounds = false;
                     }
                 });
             });
@@ -764,6 +874,7 @@ impl ValidationApp {
                 });
             });
         });
+        //
         ui.horizontal(|ui| {
             let lag_plot = init_lag_plot(&main_gas, self.lag_plot_w, self.lag_plot_h);
             let response = lag_plot.show(ui, |plot_ui| {
@@ -798,109 +909,167 @@ impl ValidationApp {
         ui.heading("Plot selection");
     }
     pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
+        if self.task_done_receiver.try_recv().is_ok() {
+            self.init_in_progress = false;
+            self.init_enabled = true;
+
+            if let Ok(mut result_lock) = self.load_result.lock() {
+                if let Some(result) = result_lock.take() {
+                    match result {
+                        Ok(cycles) => {
+                            self.cycles = cycles;
+                            self.log_messages.push("Successfully loaded cycles.".to_string());
+                        },
+                        Err(e) => {
+                            eprintln!("Failed to load cycles: {:?}", e);
+                            self.log_messages.push(format!("Error: {}", e));
+                        },
+                    }
+                }
+            }
+            self.update_plots();
+        }
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-        let mut picker_start = self.start_date.date_naive();
-        let mut picker_end = self.end_date.date_naive();
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.label("Pick start date:");
 
-                if ui
-                    .add(
-                        egui_extras::DatePickerButton::new(&mut picker_start)
-                            .highlight_weekends(false)
-                            .id_salt("start_date"),
-                    )
-                    .changed()
-                {
-                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                        NaiveDateTime::from(picker_start),
-                        Utc,
-                    );
-                    if pick > self.end_date {
-                        self.log_messages.push("Start date can't be after end date.".to_owned());
-                    } else {
-                        self.start_date = pick
+        if self.init_in_progress || !self.init_enabled {
+            ui.add(egui::Spinner::new());
+            ui.label("Loading data...");
+            // return; // optionally stop drawing the rest of the UI while loading
+        } else {
+            let mut picker_start = self.start_date.date_naive();
+            let mut picker_end = self.end_date.date_naive();
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label("Pick start date:");
+
+                    if ui
+                        .add(
+                            egui_extras::DatePickerButton::new(&mut picker_start)
+                                .highlight_weekends(false)
+                                .id_salt("start_date"),
+                        )
+                        .changed()
+                    {
+                        let pick = DateTime::<Utc>::from_naive_utc_and_offset(
+                            NaiveDateTime::from(picker_start),
+                            Utc,
+                        );
+                        if pick > self.end_date {
+                            self.log_messages
+                                .push("Start date can't be after end date.".to_owned());
+                        } else {
+                            self.start_date = pick
+                        }
+                    };
+                    let delta_days = self.end_date - self.start_date;
+                    if ui
+                        .button(format!(
+                            "Next {} days",
+                            delta_days.to_std().unwrap().as_secs() / 86400
+                        ))
+                        .clicked()
+                    {
+                        self.start_date += delta_days;
+                        self.end_date += delta_days;
                     }
-                };
-                let delta_days = self.end_date - self.start_date;
-                if ui
-                    .button(format!("Next {} days", delta_days.to_std().unwrap().as_secs() / 86400))
-                    .clicked()
-                {
-                    self.start_date += delta_days;
-                    self.end_date += delta_days;
-                }
-                if ui
-                    .button(format!(
-                        "Previous {:?} days",
-                        delta_days.to_std().unwrap().as_secs() / 86400
-                    ))
-                    .clicked()
-                {
-                    self.start_date -= delta_days;
-                    self.end_date -= delta_days;
-                }
-            });
-            ui.vertical(|ui| {
-                ui.label("Pick end date:");
-                if ui
-                    .add(
-                        egui_extras::DatePickerButton::new(&mut picker_end)
-                            .highlight_weekends(false)
-                            .id_salt("end_date"),
-                    )
-                    .changed()
-                {
-                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                        NaiveDateTime::from(picker_end),
-                        Utc,
-                    );
-                    if pick < self.start_date {
-                        self.log_messages.push("End date can't be before start date.".to_owned());
-                    } else {
-                        self.end_date = pick
+                    if ui
+                        .button(format!(
+                            "Previous {:?} days",
+                            delta_days.to_std().unwrap().as_secs() / 86400
+                        ))
+                        .clicked()
+                    {
+                        self.start_date -= delta_days;
+                        self.end_date -= delta_days;
                     }
-                };
+                });
+                ui.vertical(|ui| {
+                    ui.label("Pick end date:");
+                    if ui
+                        .add(
+                            egui_extras::DatePickerButton::new(&mut picker_end)
+                                .highlight_weekends(false)
+                                .id_salt("end_date"),
+                        )
+                        .changed()
+                    {
+                        let pick = DateTime::<Utc>::from_naive_utc_and_offset(
+                            NaiveDateTime::from(picker_end),
+                            Utc,
+                        );
+                        if pick < self.start_date {
+                            self.log_messages
+                                .push("End date can't be before start date.".to_owned());
+                        } else {
+                            self.end_date = pick
+                        }
+                    };
+                });
             });
-        });
-        if self.start_date > self.end_date {
-            self.log_messages.push("End date can't be before start date.".to_owned());
-        }
-
-        if ui.button("Init from db").clicked() {
-            let mut conn = match Connection::open("fluxrs.db") {
-                Ok(conn) => conn,
-                Err(e) => {
-                    eprintln!("Failed to open database: {}", e);
-                    return; // Exit early if connection fails
-                },
-            };
-
-            match load_fluxes(
-                &mut conn,
-                self.start_date,
-                self.end_date,
-                self.selected_project.as_ref().unwrap().clone(),
-                self.instrument_serial.clone(),
-                None,
-            ) {
-                Ok(cycles) => {
-                    // self.index.set(0);
-                    self.cycles = cycles;
-
-                    self.update_plots();
-                },
-                Err(rusqlite::Error::InvalidQuery) => {
-                    self.log_messages
-                        .push("No cycles found in db, have you initiated the data?".to_owned());
-                    eprintln!("No cycles found in db, have you initiated the data?")
-                },
-                Err(e) => eprintln!("Error processing cycles: {}", e),
+            if self.start_date > self.end_date {
+                self.log_messages.push("End date can't be before start date.".to_owned());
             }
+
+            if ui.button("Init from db").clicked() {
+                let sender = self.task_done_sender.clone();
+                let result_slot = self.load_result.clone();
+                let start_date = self.start_date;
+                let end_date = self.end_date;
+                let project = self.selected_project.as_ref().unwrap().clone();
+                let serial = self.instrument_serial.clone();
+
+                self.init_enabled = false;
+                self.init_in_progress = true;
+
+                self.runtime.spawn(async move {
+                    let result = match Connection::open("fluxrs.db") {
+                        Ok(mut conn) => {
+                            load_fluxes(&mut conn, start_date, end_date, project, serial, None)
+                        },
+                        Err(e) => Err(e),
+                    };
+
+                    if let Ok(mut slot) = result_slot.lock() {
+                        *slot = Some(result);
+                    }
+
+                    let _ = sender.send(()); // Notify UI
+                });
+            }
+            // if ui.button("Init from db").clicked() {
+            //     let mut conn = match Connection::open("fluxrs.db") {
+            //         Ok(conn) => conn,
+            //         Err(e) => {
+            //             eprintln!("Failed to open database: {}", e);
+            //             return; // Exit early if connection fails
+            //         },
+            //     };
+            //
+            //     match load_fluxes(
+            //         &mut conn,
+            //         self.start_date,
+            //         self.end_date,
+            //         self.selected_project.as_ref().unwrap().clone(),
+            //         self.instrument_serial.clone(),
+            //         None,
+            //     ) {
+            //         Ok(cycles) => {
+            //             // self.index.set(0);
+            //             self.cycles = cycles;
+            //
+            //             self.update_plots();
+            //         },
+            //         Err(rusqlite::Error::InvalidQuery) => {
+            //             self.log_messages
+            //                 .push("No cycles found in db, have you initiated the data?".to_owned());
+            //             eprintln!("No cycles found in db, have you initiated the data?")
+            //         },
+            //         Err(e) => eprintln!("Error processing cycles: {}", e),
+            //     }
+            // }
         }
         self.log_display(ui);
     }
@@ -1360,7 +1529,7 @@ impl ValidationApp {
             Ok((project_id, instrument_serial, main_gas)) => {
                 self.selected_project = Some(project_id);
                 self.instrument_serial = instrument_serial;
-                self.main_gas = GasType::from_str(&main_gas);
+                self.main_gas = main_gas.parse::<GasType>().ok();
             },
             Err(_) => {
                 self.selected_project = None;
@@ -1615,7 +1784,7 @@ pub fn handle_drag_polygon(
     is_left: bool,
     gas_type: &GasType,
 ) {
-    let dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
+    let mut dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
 
     let calc_start = app.get_calc_start(*gas_type);
     let calc_end = app.get_calc_end(*gas_type);

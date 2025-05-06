@@ -14,6 +14,7 @@ pub enum ErrorCode {
     FewUnique,
     ManualInvalid,
     TooManyDiagErrors,
+    BadOpenClose,
 }
 
 impl ErrorCode {
@@ -25,6 +26,7 @@ impl ErrorCode {
     pub const TOO_FEW_MEASUREMENTS: u16 = 1 << 4;
     pub const MANUAL_INVALID: u16 = 1 << 5;
     pub const MOSTLY_DIAG_ERRORS: u16 = 1 << 6;
+    pub const BAD_OPEN_CLOSE: u16 = 1 << 7;
 
     /// Convert an `ErrorCode` to its corresponding bitmask
     pub fn to_mask(&self) -> u16 {
@@ -36,6 +38,7 @@ impl ErrorCode {
             ErrorCode::TooFewMeasurements => Self::TOO_FEW_MEASUREMENTS,
             ErrorCode::ManualInvalid => Self::MANUAL_INVALID,
             ErrorCode::TooManyDiagErrors => Self::MOSTLY_DIAG_ERRORS,
+            ErrorCode::BadOpenClose => Self::BAD_OPEN_CLOSE,
         }
     }
 
@@ -50,6 +53,7 @@ impl ErrorCode {
             ErrorCode::TooFewMeasurements,
             ErrorCode::ManualInvalid,
             ErrorCode::TooManyDiagErrors,
+            ErrorCode::BadOpenClose,
         ] {
             if mask & error.to_mask() != 0 {
                 errors.push(error);
@@ -89,6 +93,17 @@ impl ErrorMask {
     pub fn from_u16(value: u16) -> Self {
         ErrorMask(value)
     }
+    pub fn contains(&self, code: ErrorCode) -> bool {
+        self.0 & code.to_mask() != 0
+    }
+    pub fn toggle(&mut self, code: ErrorCode) {
+        let mask = code.to_mask();
+        if self.contains(code) {
+            self.0 &= !mask; // Unset the bit
+        } else {
+            self.0 |= mask; // Set the bit
+        }
+    }
 }
 
 /// Implement `Display` for error messages
@@ -102,6 +117,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::TooFewMeasurements => "Too few values",
             ErrorCode::ManualInvalid => "Manual invalid",
             ErrorCode::TooManyDiagErrors => "Too many instrument diagnostic errors",
+            ErrorCode::BadOpenClose => "Bad opening and/or closing of chamber",
         };
         write!(f, "{}", message)
     }

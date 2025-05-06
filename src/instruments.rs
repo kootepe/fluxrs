@@ -9,6 +9,7 @@ use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GasType {
@@ -28,16 +29,24 @@ impl fmt::Display for GasType {
     }
 }
 
-impl GasType {
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for GasType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "CH4" => Some(GasType::CH4),
-            "CO2" => Some(GasType::CO2),
-            "H2O" => Some(GasType::H2O),
-            "N2O" => Some(GasType::N2O),
-            _ => None,
+            "CH4" => Ok(GasType::CH4),
+            "CO2" => Ok(GasType::CO2),
+            "H2O" => Ok(GasType::H2O),
+            "N2O" => Ok(GasType::N2O),
+            "ch4" => Ok(GasType::CH4),
+            "co2" => Ok(GasType::CO2),
+            "h2o" => Ok(GasType::H2O),
+            "n2o" => Ok(GasType::N2O),
+            _ => Err(()),
         }
     }
+}
+impl GasType {
     pub fn column_name(&self) -> &'static str {
         match self {
             GasType::CH4 => "CH4",
@@ -48,22 +57,25 @@ impl GasType {
     }
 
     pub fn flux_col(&self) -> String {
-        format!("{}_flux", self.column_name())
+        format!("{}_flux", self.column_name().to_lowercase())
     }
     pub fn r2_col(&self) -> String {
-        format!("{}_r2", self.column_name())
+        format!("{}_r2", self.column_name().to_lowercase())
     }
     pub fn measurement_r2_col(&self) -> String {
-        format!("{}_measurement_r2", self.column_name())
+        format!("{}_measurement_r2", self.column_name().to_lowercase())
+    }
+    pub fn intercept_col(&self) -> String {
+        format!("{}_intercept", self.column_name().to_lowercase())
     }
     pub fn slope_col(&self) -> String {
-        format!("{}_slope", self.column_name())
+        format!("{}_slope", self.column_name().to_lowercase())
     }
     pub fn calc_range_start_col(&self) -> String {
-        format!("{}_calc_range_start", self.column_name())
+        format!("{}_calc_range_start", self.column_name().to_lowercase())
     }
     pub fn calc_range_end_col(&self) -> String {
-        format!("{}_calc_range_end", self.column_name())
+        format!("{}_calc_range_end", self.column_name().to_lowercase())
     }
 
     pub fn color(&self) -> Color32 {
@@ -251,7 +263,7 @@ impl Li7810 {
 
         // Find column indices dynamically
         for (i, h) in header.iter().enumerate() {
-            if let Some(gas_type) = GasType::from_str(h) {
+            if let Ok(gas_type) = h.parse::<GasType>() {
                 gas_indices.insert(gas_type, i);
                 gas_data.insert(gas_type, Vec::new()); // Initialize gas vectors
             }

@@ -48,7 +48,7 @@ pub fn build_archive_record(cycle: &Cycle, project: &str) -> ArchiveRecord {
         params.push(Value::from(*cycle.flux.get(gas).unwrap_or(&0.0)));
         params.push(Value::from(*cycle.calc_r2.get(gas).unwrap_or(&0.0)));
         params.push(Value::from(*cycle.measurement_r2.get(gas).unwrap_or(&0.0)));
-        params.push(Value::from(*cycle.slope.get(gas).unwrap_or(&0.0)));
+        params.push(Value::from(cycle.linfit.get(gas).unwrap().slope));
         params.push(Value::from(*cycle.calc_range_start.get(gas).unwrap_or(&0.0)));
         params.push(Value::from(*cycle.calc_range_end.get(gas).unwrap_or(&0.0)));
     }

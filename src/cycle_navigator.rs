@@ -1,3 +1,4 @@
+use crate::errorcode::ErrorCode;
 use crate::Cycle;
 
 use std::cell::Cell;
@@ -51,6 +52,7 @@ impl CycleNavigator {
         visible_traces: &HashMap<String, bool>,
         show_valids: bool,
         show_invalids: bool,
+        show_bad: bool,
     ) {
         // Save previous selected start_time (if any)
         let previous_start_time = self
@@ -65,6 +67,9 @@ impl CycleNavigator {
                 continue;
             }
             if !show_invalids && !cycle.is_valid {
+                continue;
+            }
+            if !show_bad && cycle.error_code.contains(ErrorCode::BadOpenClose) {
                 continue;
             }
             if visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true) {

@@ -4,10 +4,10 @@ use crate::fluxes_schema::{
     fluxes_col, make_insert_flux_history, make_insert_or_ignore_fluxes, make_select_fluxes,
     make_update_fluxes,
 };
+use crate::gasdata::{query_gas, query_gas_all};
 use crate::instruments::GasType;
 use crate::instruments::{get_instrument_by_model, InstrumentType};
-use crate::query_gas;
-use crate::stats;
+use crate::stats::{self, LinReg};
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::prelude::*;
 use rusqlite::{params, Connection, Error, Result};
@@ -44,6 +44,8 @@ pub struct Cycle {
     pub end_offset: i64,
     pub open_lag_s: f64,
     pub close_lag_s: f64,
+    pub end_lag_s: f64,
+    pub start_lag_s: f64,
     pub max_idx: f64,
     pub gases: Vec<GasType>,
     pub calc_range_start: HashMap<GasType, f64>,
@@ -53,7 +55,7 @@ pub struct Cycle {
     pub max_y: HashMap<GasType, f64>,
     // pub gas_plot: HashMap<GasType, Vec<[f64; 2]>>,
     pub flux: HashMap<GasType, f64>,
-    pub slope: HashMap<GasType, f64>,
+    pub linfit: HashMap<GasType, LinReg>,
     pub measurement_range_start: f64,
     pub measurement_range_end: f64,
     pub measurement_r2: HashMap<GasType, f64>,
@@ -106,27 +108,44 @@ impl Cycle {
     //         self.flux
     //     ))
     // }
-    pub fn get_adjusted_close(&self) -> f64 {
-        (self.start_time.timestamp()
-            + self.close_offset
-            + self.open_lag_s as i64
-            + self.close_lag_s as i64) as f64
-    }
-    pub fn get_adjusted_open(&self) -> f64 {
-        (self.start_time.timestamp() + self.open_offset + self.open_lag_s as i64) as f64
+
+    pub fn get_is_valid(&self) -> bool {
+        self.is_valid
     }
     pub fn get_start(&self) -> f64 {
-        self.start_time.timestamp() as f64
+        self.start_time.timestamp() as f64 + self.start_lag_s
     }
     pub fn get_end(&self) -> f64 {
-        (self.start_time.timestamp() + self.end_offset) as f64
+        self.start_time.timestamp() as f64 + self.end_lag_s + self.end_offset as f64
     }
+
+    pub fn get_start_no_lag(&self) -> f64 {
+        self.start_time.timestamp() as f64
+    }
+    pub fn get_end_no_lag(&self) -> f64 {
+        self.start_time.timestamp() as f64 + self.end_offset as f64
+    }
+
     pub fn get_close(&self) -> f64 {
-        (self.start_time.timestamp() + self.close_offset) as f64
+        self.start_time.timestamp() as f64 + self.close_offset as f64
     }
     pub fn get_open(&self) -> f64 {
-        (self.start_time.timestamp() + self.open_offset) as f64
+        self.start_time.timestamp() as f64 + self.open_offset as f64
     }
+
+    pub fn get_adjusted_close(&self) -> f64 {
+        self.get_start() + self.close_offset as f64 + self.open_lag_s + self.close_lag_s
+    }
+    pub fn get_adjusted_open(&self) -> f64 {
+        self.get_start() + self.open_offset as f64 + self.open_lag_s
+    }
+    pub fn get_slope(&self, gas_type: &GasType) -> f64 {
+        self.linfit.get(gas_type).unwrap().slope
+    }
+    pub fn get_intercept(&self, gas_type: &GasType) -> f64 {
+        self.linfit.get(gas_type).unwrap().intercept
+    }
+
     pub fn toggle_valid(&mut self) {
         self.is_valid = !self.is_valid; // Toggle `is_valid`
     }
@@ -250,6 +269,29 @@ impl Cycle {
         self.calculate_measurement_rs();
         self.compute_all_fluxes();
     }
+
+    pub fn set_start_lag_s(&mut self, new_lag: f64) {
+        let old_lag = self.start_lag_s;
+        self.start_lag_s = new_lag;
+        if self.get_start() > self.get_adjusted_close() {
+            self.start_lag_s = old_lag;
+            println!("Can't remove data from measurement.");
+            return;
+        }
+        self.reload_gas_data();
+    }
+
+    pub fn set_end_lag_s(&mut self, new_lag: f64) {
+        let old_lag = self.end_lag_s;
+        self.end_lag_s = new_lag;
+        if self.get_adjusted_open() > self.get_end() {
+            self.end_lag_s = old_lag;
+            println!("Can't remove data from the measurement.");
+            return;
+        }
+        self.reload_gas_data();
+    }
+
     pub fn set_open_lag(&mut self, new_lag: f64) {
         self.open_lag_s = new_lag;
 
@@ -326,6 +368,10 @@ impl Cycle {
         }
     }
     pub fn toggle_manual_valid(&mut self) {
+        let before_valid = self.is_valid;
+        let before_override = self.override_valid;
+        let before_errors = self.error_code.0;
+
         if self.override_valid.is_some() {
             // if we hit override after already toggling it, it will reset to None
             self.override_valid = None;
@@ -349,6 +395,17 @@ impl Cycle {
         if self.manual_valid && self.override_valid == Some(true) {
             self.error_code = ErrorMask(0);
             // self.add_error(ErrorCode::ManualInvalid)
+        }
+
+        let after_valid = self.is_valid;
+        let after_override = self.override_valid;
+        let after_errors = self.error_code.0;
+
+        if before_valid != after_valid
+            || before_override != after_override
+            || before_errors != after_errors
+        {
+            self.manual_adjusted = true;
         }
     }
 
@@ -680,85 +737,7 @@ impl Cycle {
             self.calc_gas_v.insert(gas, best_y);
         }
     }
-    // pub fn find_highest_r_windows(&mut self) {
-    //     for &gas_type in &self.gases {
-    //         if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-    //             if self.measurement_dt_v.len() < MIN_WINDOW_SIZE || MIN_WINDOW_SIZE == 0 {
-    //                 println!("Short data for {:?}", gas_type);
-    //                 continue;
-    //             }
-    //
-    //             let max_window = gas_v.len();
-    //             let mut max_r = f64::MIN;
-    //             let mut start_idx = 0;
-    //             let mut end_idx = 0;
-    //             let dt_v: Vec<f64> =
-    //                 self.measurement_dt_v.iter().map(|dt| dt.timestamp() as f64).collect();
-    //             let mut best_window_y = Vec::new();
-    //
-    //             for win_size in (MIN_WINDOW_SIZE..=max_window).step_by(WINDOW_INCREMENT) {
-    //                 for start in (0..max_window).step_by(WINDOW_INCREMENT) {
-    //                     let end = (start + win_size).min(max_window); // Ensure `end` does not exceed `max_window`
-    //
-    //                     // Skip if window is too small after clamping
-    //                     if end - start < MIN_WINDOW_SIZE {
-    //                         continue;
-    //                     }
-    //
-    //                     // Extract the window
-    //                     let x_win = &dt_v[start..end];
-    //                     let y_win = &gas_v[start..end];
-    //
-    //                     // 🔹 Check for missing timestamps
-    //                     let has_missing_time = x_win
-    //                         .windows(2) // Pairwise check for consecutive elements
-    //                         .any(|pair| (pair[1] - pair[0]).abs() > 1.0); // Difference > 1 second means gap
-    //
-    //                     // 🔹 Skip calculation if there are missing timestamps
-    //                     if has_missing_time {
-    //                         continue;
-    //                     }
-    //
-    //                     // Compute Pearson correlation only for valid continuous data
-    //                     let r = stats::pearson_correlation(x_win, y_win).unwrap_or(0.0).powi(2);
-    //
-    //                     if r > max_r {
-    //                         max_r = r;
-    //                         start_idx = start;
-    //                         end_idx = end;
-    //                         best_window_y = y_win.to_vec();
-    //                     }
-    //                 }
-    //             }
-    //
-    //             // 🔹 Ensure `end_idx` is never `0` before using it
-    //             if end_idx == 0 {
-    //                 println!("No valid window found for {:?}", gas_type);
-    //                 continue; // Skip storing results if no valid window was found
-    //             }
-    //
-    //             // 🔹 Store results safely
-    //             self.calc_r2.insert(gas_type, max_r);
-    //             self.calc_range_start.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v.get(start_idx).map_or(0.0, |dt| dt.timestamp() as f64),
-    //             );
-    //             self.calc_range_end.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v
-    //                     .get(end_idx.saturating_sub(1))
-    //                     .map_or(0.0, |dt| dt.timestamp() as f64),
-    //             );
-    //             self.calc_dt_v.insert(
-    //                 gas_type,
-    //                 self.measurement_dt_v
-    //                     .get(start_idx..end_idx)
-    //                     .map_or_else(Vec::new, |v| v.to_vec()),
-    //             );
-    //             self.calc_gas_v.insert(gas_type, best_window_y);
-    //         }
-    //     }
-    // }
+
     pub fn has_error(&self, error: ErrorCode) -> bool {
         self.error_code.0 & error.to_mask() != 0
     }
@@ -809,6 +788,12 @@ impl Cycle {
     pub fn reset(&mut self) {
         self.manual_adjusted = false;
         self.close_lag_s = 0.;
+        self.open_lag_s = 0.;
+        if self.end_lag_s != 0. || self.start_lag_s != 0. {
+            self.end_lag_s = 0.;
+            self.start_lag_s = 0.;
+            self.reload_gas_data();
+        }
         self.check_diag();
         self.check_missing();
 
@@ -900,10 +885,10 @@ impl Cycle {
                 .iter()
                 .map(|dt| dt.timestamp() as f64)
                 .collect();
-            let slope = stats::LinReg::train(&num_ts, gas_v).slope;
-            self.slope.insert(gas_type, slope);
+            let linreg = stats::LinReg::train(&num_ts, gas_v);
+            self.linfit.insert(gas_type, linreg);
         } else {
-            self.slope.insert(gas_type, 0.0);
+            self.linfit.insert(gas_type, LinReg::default());
         }
     }
 
@@ -925,7 +910,7 @@ impl Cycle {
 
     pub fn calculate_flux(&mut self, gas_type: GasType) {
         let mol_mass = gas_type.mol_mass();
-        let slope_ppm = self.slope.get(&gas_type).unwrap() / gas_type.conv_factor();
+        let slope_ppm = self.linfit.get(&gas_type).unwrap().slope / gas_type.conv_factor();
         let slope_ppm_hour = slope_ppm * 60. * 60.;
         let p = self.air_pressure * 100.0;
         let t = self.air_temperature + 273.15;
@@ -945,6 +930,49 @@ impl Cycle {
         self.find_highest_r_windows();
         self.check_errors();
         self.compute_all_fluxes();
+    }
+    pub fn reload_gas_data(&mut self) {
+        let conn = match Connection::open("fluxrs.db") {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("Failed to open database: {}", e);
+                return;
+            },
+        };
+
+        let start = match DateTime::from_timestamp(self.get_start() as i64, 0) {
+            Some(dt) => dt,
+            None => {
+                eprintln!("Invalid start timestamp for cycle");
+                return;
+            },
+        };
+        let end = match DateTime::from_timestamp(self.get_end() as i64, 0) {
+            Some(dt) => dt,
+            None => {
+                eprintln!("Invalid end timestamp for cycle");
+                return;
+            },
+        };
+
+        match query_gas_all(
+            &conn,
+            start,
+            end,
+            self.project_name.clone(),
+            self.instrument_serial.clone(),
+        ) {
+            Ok(gasdata) => {
+                self.gas_v = gasdata.gas;
+                self.dt_v = gasdata.datetime;
+                self.diag_v = gasdata.diag;
+            },
+            Err(e) => {
+                eprintln!("Error while loading gas data: {}", e);
+            },
+        }
+        self.get_calc_datas();
+        self.get_measurement_datas();
     }
 }
 #[derive(Debug, Default, Clone)]
@@ -1040,9 +1068,11 @@ impl CycleBuilder {
             max_y: HashMap::new(),
             open_lag_s: 0.,
             close_lag_s: 0.,
+            end_lag_s: 0.,
+            start_lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
-            slope: HashMap::new(),
+            linfit: HashMap::new(),
             calc_r2: HashMap::new(),
             measurement_r2: HashMap::new(),
             measurement_range_start: 0.,
@@ -1094,9 +1124,11 @@ impl CycleBuilder {
             max_y: HashMap::new(),
             open_lag_s: 0.,
             close_lag_s: 0.,
+            end_lag_s: 0.,
+            start_lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
-            slope: HashMap::new(),
+            linfit: HashMap::new(),
             calc_r2: HashMap::new(),
             measurement_r2: HashMap::new(),
             measurement_range_start: 0.,
@@ -1197,6 +1229,8 @@ fn execute_history_insert(
         cycle.end_offset,
         cycle.open_lag_s as i64,
         cycle.close_lag_s as i64,
+        cycle.end_lag_s as i64,
+        cycle.start_lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
         cycle.chamber_volume,
@@ -1206,25 +1240,29 @@ fn execute_history_insert(
         cycle.flux.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.manual_adjusted,
@@ -1245,6 +1283,8 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.end_offset,
         cycle.open_lag_s as i64,
         cycle.close_lag_s as i64,
+        cycle.end_lag_s as i64,
+        cycle.start_lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
         cycle.chamber_volume,
@@ -1254,25 +1294,29 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.flux.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.manual_adjusted,
@@ -1293,6 +1337,8 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.end_offset,
         cycle.open_lag_s as i64,
         cycle.close_lag_s as i64,
+        cycle.end_lag_s as i64,
+        cycle.start_lag_s as i64,
         cycle.air_pressure,
         cycle.air_temperature,
         cycle.chamber_volume,
@@ -1302,25 +1348,29 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.flux.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CH4).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
-        cycle.slope.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).intercept,
+        cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.manual_adjusted,
@@ -1358,10 +1408,11 @@ pub fn load_fluxes(
 
         let gases = get_instrument_by_model(&instrument_model).unwrap().base.gas_cols;
         let gastypes: Vec<GasType> =
-            gases.iter().filter_map(|name| GasType::from_str(name)).collect();
+            gases.iter().filter_map(|name| name.parse::<GasType>().ok()).collect();
 
         let main_gas_str: String = row.get(fluxes_col::MAIN_GAS)?;
-        let main_gas = GasType::from_str(&main_gas_str).unwrap_or(GasType::CH4);
+        // let main_gas = GasType::from_str(&main_gas_str).unwrap_or(GasType::CH4);
+        let main_gas = main_gas_str.parse::<GasType>().ok().unwrap();
 
         let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
 
@@ -1371,8 +1422,10 @@ pub fn load_fluxes(
         let open_offset: i64 = row.get(fluxes_col::OPEN_OFFSET)?;
         let end_offset: i64 = row.get(fluxes_col::END_OFFSET)?;
         // needs to be on two rows
-        let lag_s = row.get::<_, i64>(fluxes_col::OPEN_LAG_S)? as f64;
+        let open_lag_s = row.get::<_, i64>(fluxes_col::OPEN_LAG_S)? as f64;
         let close_lag_s = row.get::<_, i64>(fluxes_col::CLOSE_LAG_S)? as f64;
+        let end_lag_s = row.get::<_, i64>(fluxes_col::END_LAG_S)? as f64;
+        let start_lag_s = row.get::<_, i64>(fluxes_col::START_LAG_S)? as f64;
 
         let air_pressure: f64 = row.get(fluxes_col::AIR_PRESSURE)?;
         let air_temperature: f64 = row.get(fluxes_col::AIR_TEMPERATURE)?;
@@ -1417,8 +1470,8 @@ pub fn load_fluxes(
         let mut measurement_dt_v = Vec::new();
         let measurement_diag_v = Vec::new();
         let mut measurement_gas_v = HashMap::new();
-        let measurement_range_start = close_time + TimeDelta::seconds(lag_s as i64);
-        let measurement_range_end = open_time + TimeDelta::seconds(lag_s as i64);
+        let measurement_range_start = close_time + TimeDelta::seconds(open_lag_s as i64);
+        let measurement_range_end = open_time + TimeDelta::seconds(open_lag_s as i64);
         let mut dt_v = Vec::new();
         let mut diag_v = Vec::new();
         let mut gas_v = HashMap::new();
@@ -1435,9 +1488,10 @@ pub fn load_fluxes(
                     let gas_flux: f64 = row.get(base_idx).unwrap_or(0.0);
                     let gas_r2: f64 = row.get(base_idx + 1)?;
                     let gas_measurement_r2: f64 = row.get(base_idx + 2)?;
-                    let gas_slope: f64 = row.get(base_idx + 3)?;
-                    let gas_calc_range_start: f64 = row.get(base_idx + 4)?;
-                    let gas_calc_range_end: f64 = row.get(base_idx + 5)?;
+                    let gas_slope =
+                        LinReg::from_val(row.get(base_idx + 3)?, row.get(base_idx + 4)?);
+                    let gas_calc_range_start: f64 = row.get(base_idx + 5)?;
+                    let gas_calc_range_end: f64 = row.get(base_idx + 6)?;
 
                     flux.insert(gas, gas_flux);
                     calc_r2.insert(gas, gas_r2);
@@ -1477,8 +1531,8 @@ pub fn load_fluxes(
             let (dt_v_full, diag_v_full) = filter_diag_data(
                 &gas_data_day.datetime,
                 &gas_data_day.diag,
-                start_time.timestamp() as f64,
-                end_time.timestamp() as f64,
+                start_time.timestamp() as f64 + start_lag_s,
+                end_time.timestamp() as f64 + end_lag_s,
             );
             dt_v = dt_v_full; // Assign overall datetime vector.
             diag_v = diag_v_full; // Assign overall diagnostic vector.
@@ -1490,8 +1544,8 @@ pub fn load_fluxes(
                     let (_full_dt, full_vals) = filter_data_in_range(
                         &gas_data_day.datetime,
                         g_values,
-                        start_time.timestamp() as f64,
-                        end_time.timestamp() as f64,
+                        start_time.timestamp() as f64 + start_lag_s,
+                        end_time.timestamp() as f64 + end_lag_s,
                     );
                     max_y.insert(gas, calculate_max_y_from_vec(&full_vals));
                     min_y.insert(gas, calculate_min_y_from_vec(&full_vals));
@@ -1532,22 +1586,26 @@ pub fn load_fluxes(
             close_offset,
             open_offset,
             end_offset,
-            open_lag_s: lag_s,
+            open_lag_s,
             close_lag_s,
+            end_lag_s,
+            start_lag_s,
             max_idx: 0.0, // Default value.
             gases: gastypes,
             calc_range_start: calc_range_start_map,
             calc_range_end: calc_range_end_map,
             // The following fields were not stored; use defaults.
             measurement_range_start: (start_time
+                + TimeDelta::seconds(start_lag_s as i64)
                 + TimeDelta::seconds(close_offset)
-                + TimeDelta::seconds(lag_s as i64))
+                + TimeDelta::seconds(open_lag_s as i64))
             .timestamp() as f64,
             measurement_range_end: (start_time
+                + TimeDelta::seconds(end_lag_s as i64)
                 + TimeDelta::seconds(close_offset)
-                + TimeDelta::seconds(lag_s as i64))
+                + TimeDelta::seconds(open_lag_s as i64))
             .timestamp() as f64,
-            slope: slope_map,
+            linfit: slope_map,
             flux,
             measurement_r2,
             calc_r2,
