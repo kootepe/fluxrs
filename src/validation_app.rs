@@ -1415,7 +1415,7 @@ impl ValidationApp {
 
                         // Merge gas values correctly
                         for (gas_type, values) in data.gas {
-                            all_gas.gas.entry(gas_type).or_insert_with(Vec::new).extend(values);
+                            all_gas.gas.entry(gas_type).or_default().extend(values);
                         }
                         self.log_messages.push_front(format!(
                             "Succesfully read file {:?} with {} rows.",
@@ -1457,7 +1457,7 @@ impl ValidationApp {
     }
 
     fn load_projects_from_db(&mut self) -> Result<()> {
-        let mut conn = Connection::open("fluxrs.db")?;
+        let conn = Connection::open("fluxrs.db")?;
 
         let mut stmt = conn.prepare("SELECT project_id FROM projects")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
