@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result};
+use std::sync::{Arc, Mutex};
+use tokio::task;
 
 #[derive(Debug, Default, Clone)]
 pub struct VolumeData {
@@ -127,4 +129,26 @@ pub fn query_volume(
         volumes.volume.push(volume);
     }
     Ok(volumes)
+}
+pub async fn query_volume_async(
+    conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    project: String,
+) -> Result<VolumeData> {
+    // let start_ts = start.timestamp();
+    // let end_ts = end.timestamp();
+
+    let result = task::spawn_blocking(move || {
+        let conn = conn.lock().unwrap();
+        query_volume(&conn, start, end, project)
+    })
+    .await;
+    match result {
+        Ok(inner) => inner,
+        Err(e) => {
+            // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
+            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
+        },
+    }
 }

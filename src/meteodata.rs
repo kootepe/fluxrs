@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
+use std::sync::{Arc, Mutex};
+use tokio::task;
 
 #[derive(Debug, Default, Clone)]
 pub struct MeteoData {
@@ -157,4 +159,26 @@ pub fn query_meteo(
         meteos.pressure.push(press);
     }
     Ok(meteos)
+}
+pub async fn query_meteo_async(
+    conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    project: String,
+) -> Result<MeteoData> {
+    // let start_ts = start.timestamp();
+    // let end_ts = end.timestamp();
+
+    let result = task::spawn_blocking(move || {
+        let conn = conn.lock().unwrap();
+        query_meteo(&conn, start, end, project)
+    })
+    .await;
+    match result {
+        Ok(inner) => inner,
+        Err(e) => {
+            // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
+            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
+        },
+    }
 }

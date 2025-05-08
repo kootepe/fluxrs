@@ -1,6 +1,8 @@
 use crate::EqualLen;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rusqlite::{params, Connection, Result};
+use std::sync::{Arc, Mutex};
+use tokio::task;
 
 #[derive(Debug)]
 pub struct TimeData {
@@ -51,6 +53,26 @@ impl TimeData {
             end_offset: Vec::new(),
             project: Vec::new(),
         }
+    }
+    pub fn chunk(&self) -> Vec<TimeData> {
+        let mut chunks = Vec::new();
+        let len = self.start_time.len();
+        let chunk_size = std::cmp::max(1, len / 100);
+
+        for i in (0..len).step_by(chunk_size) {
+            let end = (i + chunk_size).min(len);
+            let chunk = TimeData {
+                start_time: self.start_time[i..end].to_vec(),
+                close_offset: self.close_offset[i..end].to_vec(),
+                open_offset: self.open_offset[i..end].to_vec(),
+                end_offset: self.end_offset[i..end].to_vec(),
+                chamber_id: self.chamber_id[i..end].to_vec(),
+                project: self.project[i..end].to_vec(),
+            };
+            chunks.push(chunk);
+        }
+
+        chunks
     }
     pub fn iter(
         &self,
@@ -111,4 +133,27 @@ pub fn query_cycles(
         row?; // Ensure errors are propagated
     }
     Ok(times)
+}
+
+pub async fn query_cycles_async(
+    conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    project: String,
+) -> Result<TimeData> {
+    // let start_ts = start.timestamp();
+    // let end_ts = end.timestamp();
+
+    let result = task::spawn_blocking(move || {
+        let conn = conn.lock().unwrap();
+        query_cycles(&conn, start, end, project)
+    })
+    .await;
+    match result {
+        Ok(inner) => inner,
+        Err(e) => {
+            // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
+            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
+        },
+    }
 }

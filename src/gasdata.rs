@@ -5,6 +5,8 @@ use chrono::{NaiveDateTime, Utc};
 use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::{Arc, Mutex};
+use tokio::task;
 
 use csv::StringRecord;
 // use std::error::Error;
@@ -140,6 +142,29 @@ impl GasData {
     //     self.gas = indices.iter().map(|&i| self.gas[i]).collect();
     //     self.diag = indices.iter().map(|&i| self.diag[i]).collect();
     // }
+}
+pub async fn query_gas_async(
+    conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    project: String,
+    instrument_serial: String,
+) -> Result<HashMap<String, GasData>> {
+    // let start_ts = start.timestamp();
+    // let end_ts = end.timestamp();
+
+    let result = task::spawn_blocking(move || {
+        let conn = conn.lock().unwrap();
+        query_gas(&conn, start, end, project, instrument_serial)
+    })
+    .await;
+    match result {
+        Ok(inner) => inner,
+        Err(e) => {
+            // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
+            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
+        },
+    }
 }
 pub fn query_gas(
     conn: &Connection,
