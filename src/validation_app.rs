@@ -1103,7 +1103,6 @@ impl ValidationApp {
                     ProcessingMessage::NoGasData(date) => {
                         self.log_messages
                             .push_front(format!("No gas data found for cycle at {}", date));
-                        self.cycles_progress = 0;
                     },
                 }
             }

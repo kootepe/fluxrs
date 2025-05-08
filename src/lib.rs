@@ -285,10 +285,10 @@ fn _query_and_group_gas_data(
         // entry.instrument_serial.push(instrument_serial);
 
         //   Store each gas type in the `HashMap`
-        entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(ch4);
-        entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(co2);
-        entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(h2o);
-        entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(n2o);
+        entry.gas.entry(GasType::CH4).or_default().push(ch4);
+        entry.gas.entry(GasType::CO2).or_default().push(co2);
+        entry.gas.entry(GasType::H2O).or_default().push(h2o);
+        entry.gas.entry(GasType::N2O).or_default().push(n2o);
     }
 
     Ok(grouped_data)
@@ -296,7 +296,7 @@ fn _query_and_group_gas_data(
 
 pub fn initiate_db() -> Result<(), Box<dyn std::error::Error>> {
     println!("Initiating db.");
-    let mut conn = Connection::open("fluxrs.db")?;
+    let conn = Connection::open("fluxrs.db")?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cycles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
