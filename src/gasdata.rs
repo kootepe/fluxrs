@@ -25,7 +25,7 @@ pub struct GasData {
     pub instrument_serial: String,
     pub datetime: Vec<DateTime<Utc>>,
     // pub gas: HashMapnew(),
-    pub gas: HashMap<GasType, Vec<f64>>,
+    pub gas: HashMap<GasType, Vec<Option<f64>>>,
     pub diag: Vec<i64>,
 }
 impl fmt::Debug for GasData {
@@ -83,10 +83,19 @@ impl GasData {
     }
     pub fn any_col_invalid(&self) -> bool {
         // Check if all values in any vector are equal to the error value
-        let gas_invalid = self.gas.values().any(|v| v.iter().all(|&x| x == ERROR_FLOAT));
+        let gas_invalid = self.gas.values().any(|v| v.iter().all(|&x| x.is_none()));
         let diag_invalid = self.diag.iter().all(|&x| x == ERROR_INT);
 
         gas_invalid || diag_invalid
+    }
+
+    pub fn print_gasdata_lengths(&self) {
+        println!("datetime length: {}", self.datetime.len());
+        println!("diag length: {}", self.diag.len());
+
+        for (gas_type, values) in &self.gas {
+            println!("{:?} gas length: {}", gas_type, values.len());
+        }
     }
 
     // pub fn any_col_invalid(&self) -> bool {
@@ -120,28 +129,6 @@ impl GasData {
             }
         }
     }
-
-    // pub fn sort(&mut self) {
-    //     let mut indices: Vec<usize> = (0..self.datetime.len()).collect();
-    //     indices.sort_by(|&i, &j| self.datetime[i].cmp(&self.datetime[j]));
-    //
-    //     self.datetime = indices.iter().map(|&i| self.datetime[i]).collect();
-    //     self.diag = indices.iter().map(|&i| self.diag[i]).collect();
-    //
-    //     // Sort each gas type in the HashMap
-    //     for values in self.gas.values_mut() {
-    //         *values = indices.iter().map(|&i| values[i]).collect();
-    //     }
-    // }
-
-    // pub fn sort(&mut self) {
-    //     let mut indices: Vec<usize> = (0..self.datetime.len()).collect();
-    //     indices.sort_by(|&i, &j| self.datetime[i].cmp(&self.datetime[j]));
-    //
-    //     self.datetime = indices.iter().map(|&i| self.datetime[i]).collect();
-    //     self.gas = indices.iter().map(|&i| self.gas[i]).collect();
-    //     self.diag = indices.iter().map(|&i| self.diag[i]).collect();
-    // }
 }
 pub async fn query_gas_async(
     conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
@@ -198,11 +185,11 @@ pub fn query_gas(
             let instrument_model: Option<String> = row.get(7)?;
 
             // Convert UNIX timestamp to DateTime<Utc>
-            let naive_datetime =
-                NaiveDateTime::from_timestamp_opt(datetime_unix, 0).expect("Invalid timestamp");
-            let datetime_utc = DateTime::<Utc>::from_utc(naive_datetime, Utc);
 
-            Ok((datetime_utc, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model))
+            let utc_datetime: DateTime<Utc> =
+                chrono::DateTime::from_timestamp(datetime_unix, 0).unwrap();
+
+            Ok((utc_datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model))
         },
     )?;
 
@@ -222,6 +209,11 @@ pub fn query_gas(
             diag: Vec::new(),
         });
 
+        entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(ch4);
+        entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(co2);
+        entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(h2o);
+        entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(n2o);
+
         //   Append values
         entry.datetime.push(datetime);
         entry.diag.push(diag);
@@ -229,18 +221,6 @@ pub fn query_gas(
         entry.instrument_serial = instrument_serial.unwrap();
 
         //   Store each gas type in the `HashMap`
-        if let Some(v) = ch4 {
-            entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = co2 {
-            entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = h2o {
-            entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = n2o {
-            entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(v);
-        }
     }
     Ok(grouped_data)
 }
@@ -253,7 +233,6 @@ pub fn query_gas_all(
 ) -> Result<GasData> {
     // let mut data = HashMap::new();
     println!("Querying gas data");
-    let mut grouped_data: HashMap<String, GasData> = HashMap::new();
 
     let mut stmt = conn.prepare(
         "SELECT datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model
@@ -276,11 +255,8 @@ pub fn query_gas_all(
             let instrument_model: Option<String> = row.get(7)?;
 
             // Convert UNIX timestamp to DateTime<Utc>
-            let naive_datetime =
-                NaiveDateTime::from_timestamp_opt(datetime_unix, 0).expect("Invalid timestamp");
-            let datetime_utc = DateTime::<Utc>::from_utc(naive_datetime, Utc);
-
-            Ok((datetime_utc, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model))
+            let utc_datetime = chrono::DateTime::from_timestamp(datetime_unix, 0).unwrap().to_utc();
+            Ok((utc_datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model))
         },
     )?;
     let mut entry = GasData {
@@ -294,30 +270,16 @@ pub fn query_gas_all(
     for row in rows {
         let (datetime, ch4, co2, h2o, n2o, diag, instrument_serial, instrument_model) = row?;
 
-        //   Extract YYYY-MM-DD for grouping
-        let date_key = datetime.format("%Y-%m-%d").to_string();
-
-        //   Get or create a new GasData entry
-
         //   Append values
         entry.datetime.push(datetime);
         entry.diag.push(diag);
         entry.instrument_model = instrument_model.unwrap();
         entry.instrument_serial = instrument_serial.unwrap();
 
-        //   Store each gas type in the `HashMap`
-        if let Some(v) = ch4 {
-            entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = co2 {
-            entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = h2o {
-            entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = n2o {
-            entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(v);
-        }
+        entry.gas.entry(GasType::CH4).or_default().push(ch4);
+        entry.gas.entry(GasType::CO2).or_default().push(co2);
+        entry.gas.entry(GasType::H2O).or_default().push(h2o);
+        entry.gas.entry(GasType::N2O).or_default().push(n2o);
     }
     Ok(entry)
 }
@@ -359,7 +321,7 @@ pub fn insert_measurements(
         let mut rows =
             check_stmt.query(params![datetime_vec[i], all_gas.instrument_serial, project])?;
 
-        if let Some(_) = rows.next()? {
+        if rows.next()?.is_some() {
             // If a duplicate exists, log it
             duplicates += 1;
             println!(

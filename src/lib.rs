@@ -3,6 +3,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use csv::StringRecord;
 use csv::Writer;
 use rusqlite::{params, Connection, Result};
+use tokio::sync::mpsc;
 // use gas_plot::draw_gas_plot;
 use std::fs::File;
 use std::process;
@@ -284,18 +285,10 @@ fn _query_and_group_gas_data(
         // entry.instrument_serial.push(instrument_serial);
 
         //   Store each gas type in the `HashMap`
-        if let Some(v) = ch4 {
-            entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = co2 {
-            entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = h2o {
-            entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(v);
-        }
-        if let Some(v) = n2o {
-            entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(v);
-        }
+        entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(ch4);
+        entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(co2);
+        entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(h2o);
+        entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(n2o);
     }
 
     Ok(grouped_data)

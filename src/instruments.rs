@@ -309,10 +309,11 @@ impl Li7810 {
 
         let datetime: Vec<DateTime<Utc>> = indices.iter().map(|&i| datetime[i]).collect();
         let diag: Vec<i64> = indices.iter().map(|&i| diag[i]).collect();
-        let mut sorted_gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
+        let mut sorted_gas_data: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
 
         for (&gas_type, gas_values) in &gas_data {
-            sorted_gas_data.insert(gas_type, indices.iter().map(|&i| gas_values[i]).collect());
+            sorted_gas_data
+                .insert(gas_type, indices.iter().map(|&i| Some(gas_values[i])).collect());
         }
 
         let df = GasData {
