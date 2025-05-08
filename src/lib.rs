@@ -451,21 +451,21 @@ fn process_cycles(
     meteo_data: &MeteoData,
     volume_data: &VolumeData,
     project: String,
-) -> Result<Vec<Cycle>, Box<dyn Error + Send + Sync>> {
-    println!("Processing cycles");
+    progress_sender: mpsc::UnboundedSender<validation_app::ProcessingMessage>,
+) -> Result<Vec<Option<Cycle>>, Box<dyn Error + Send + Sync>> {
+    // println!("Processing cycles");
     let mut cycle_vec = Vec::new();
     let mut no_data_for_day = false;
     let mut last_date = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
-    let total_cycles = timev.start_time.len();
     let mut processed_cycles: u32 = 0;
-    for (chamber, start, close, open, end, project_id) in timev.iter() {
+    for (chamber, start, close, open, end, _) in timev.iter() {
         let mut cycle = CycleBuilder::new()
             .chamber_id(chamber.to_owned())
             .start_time(*start)
             .close_offset(*close)
             .open_offset(*open)
             .end_offset(*end)
-            .project_name(project_id.to_owned())
+            .project_name(project.to_owned())
             .build()?;
         let st = cycle.start_time;
         let day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
@@ -475,9 +475,9 @@ fn process_cycles(
             no_data_for_day = false;
         }
 
-        if day != last_date {
-            println!("Processed {}/{} cycles from {}", processed_cycles, total_cycles, day);
-        }
+        // if day != last_date {
+        //     println!("Processed {}/{} cycles from {}", processed_cycles, total_cycles, day);
+        // }
         last_date = day.clone();
 
         if let Some(cur_data) = sorted_data.get(&start.format("%Y-%m-%d").to_string()) {
@@ -492,7 +492,6 @@ fn process_cycles(
                 if t >= &cycle.start_time && t <= &cycle.end_time {
                     cycle.dt_v.push(*t);
                     for (gas_type, gas_values) in &cur_data.gas {
-                        // println!("{:?}", gas_values.len());
                         if let Some(value) = gas_values.get(i) {
                             cycle.gas_v.entry(*gas_type).or_insert_with(Vec::new).push(*value);
                         }
@@ -515,10 +514,8 @@ fn process_cycles(
             cycle.instrument_serial = cur_data.instrument_serial.clone();
             // cycle.project_name = cur_data.project_name.clone();
 
-            let target = (cycle.start_time
-                + chrono::TimeDelta::seconds(cycle.close_offset + cycle.open_lag_s as i64))
-            .timestamp();
-            cycle.reset();
+            let target =
+                (cycle.start_time + chrono::TimeDelta::seconds(cycle.close_offset)).timestamp();
             let (temp, pressure) = match meteo_data.get_nearest(target) {
                 Some((temp, pressure)) => (temp, pressure),
                 None => (10.0, 1000.0),
@@ -533,8 +530,15 @@ fn process_cycles(
             let volume =
                 volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
             cycle.chamber_volume = volume;
-
-            cycle_vec.push(cycle);
+            cycle.reset();
+            if cycle.dt_v.is_empty() {
+                let _ = progress_sender.send(validation_app::ProcessingMessage::NoGasData(
+                    format!("{}", cycle.start_time),
+                ));
+                cycle_vec.push(None);
+            } else {
+                cycle_vec.push(Some(cycle));
+            }
         } else {
             no_data_for_day = true;
             continue;

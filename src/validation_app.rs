@@ -7,17 +7,18 @@ use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
-use crate::gasdata::query_gas;
 use crate::gasdata::{insert_measurements, GasData};
+use crate::gasdata::{query_gas, query_gas_async};
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
-use crate::meteodata::{insert_meteo_data, query_meteo, MeteoData};
-use crate::timedata::{query_cycles, TimeData};
-use crate::volumedata::{insert_volume_data, query_volume, VolumeData};
+use crate::meteodata::{insert_meteo_data, query_meteo, query_meteo_async, MeteoData};
+use crate::timedata::{query_cycles, query_cycles_async, TimeData};
+use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
 use crate::{csv_parse, errorcode};
 use crate::{insert_cycles, process_cycles};
+use tokio::sync::mpsc;
 
 use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetInfo, WidgetType};
 use egui_file::FileDialog;
@@ -27,6 +28,7 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use csv::Writer;
 use rusqlite::{types::ValueRef, Connection, Result, Row};
 use std::borrow::Cow;
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
@@ -156,7 +158,11 @@ pub struct ValidationApp {
     pub runtime: tokio::runtime::Runtime,
     init_enabled: bool,
     init_in_progress: bool,
+    cycles_progress: usize,
+    cycles_state: Option<(usize, usize)>,
+    query_in_progress: bool,
     pub load_result: Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>,
+    progress_receiver: Option<tokio::sync::mpsc::UnboundedReceiver<ProcessingMessage>>,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
     pub instrument_serial: String,
@@ -193,7 +199,7 @@ pub struct ValidationApp {
     pub open_file_dialog: Option<FileDialog>,
     pub initial_path: Option<PathBuf>,
     pub selected_data_type: Option<DataType>,
-    pub log_messages: Vec<String>,
+    pub log_messages: VecDeque<String>,
     pub show_valids: bool,
     pub show_invalids: bool,
     pub show_bad: bool,
@@ -215,9 +221,13 @@ impl Default for ValidationApp {
         let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
         Self {
             runtime: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
+            progress_receiver: None,
             dirty_cycles: HashSet::new(),
             task_done_sender,
             task_done_receiver,
+            cycles_progress: 0,
+            cycles_state: None,
+            query_in_progress: false,
             init_enabled: true,
             init_in_progress: false,
             load_result: Arc::new(Mutex::new(None)),
@@ -249,12 +259,12 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            end_date: NaiveDate::from_ymd_opt(2024, 9, 25)
+            start_date: NaiveDate::from_ymd_opt(2024, 5, 15)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_utc(),
-            start_date: NaiveDate::from_ymd_opt(2024, 9, 23)
+            end_date: NaiveDate::from_ymd_opt(2024, 5, 25)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
@@ -263,7 +273,7 @@ impl Default for ValidationApp {
             open_file_dialog: None,
             initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             selected_data_type: None,
-            log_messages: Vec::new(),
+            log_messages: VecDeque::new(),
             show_invalids: true,
             show_valids: true,
             show_bad: false,
@@ -291,6 +301,7 @@ impl ValidationApp {
             ui.label("No cycles with data loaded, use Initiate measurements tab to initiate data.");
             return;
         }
+        // self.print_stats();
 
         egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
             self.render_legend(ui, &self.chamber_colors.clone());
@@ -436,6 +447,13 @@ impl ValidationApp {
                     self.cycles.len(),
                 );
                 let datetime = format!("datetime: {}", cycle.start_time);
+                let epoc = format!("epoch : {}", cycle.start_time.timestamp());
+                let epend = format!("epoch : {}", cycle.start_time.timestamp() + cycle.end_offset);
+                let first_ts = format!("epoch: {:?}", cycle.dt_v.first());
+                let last_ts = format!("epoch : {:?}", cycle.dt_v.last());
+                let close_off = format!("close_off : {}", cycle.close_offset);
+                let open_off = format!("open_off : {}", cycle.open_offset);
+                let end_off = format!("end_off : {}", cycle.end_offset);
                 let model = format!("model: {}", cycle.instrument_model);
                 let serial = format!("serial: {}", cycle.instrument_serial);
                 let cur_idx = format!("current index: {}", self.cycle_nav.current_index().unwrap());
@@ -449,6 +467,13 @@ impl ValidationApp {
                 ui.label(serial);
                 ui.label(cur_idx);
                 ui.label(datetime);
+                ui.label(epoc);
+                ui.label(epend);
+                ui.label(first_ts);
+                ui.label(last_ts);
+                ui.label(close_off);
+                ui.label(open_off);
+                ui.label(end_off);
                 ui.label(current_pts);
                 ui.label(ch_id);
                 ui.label(valid_txt);
@@ -517,6 +542,7 @@ impl ValidationApp {
         let mut show_invalids_clicked = false;
         let mut show_bad = false;
         let mut show_linear_model = true;
+        let mut reload_gas = false;
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
@@ -541,6 +567,7 @@ impl ValidationApp {
             remove_from_end = ui.add(egui::Button::new("-2min to end")).clicked();
             add_to_start = ui.add(egui::Button::new("+2min to start")).clicked();
             remove_from_start = ui.add(egui::Button::new("-2min to start")).clicked();
+            reload_gas = ui.add(egui::Button::new("Reload gas data")).clicked();
         });
 
         ui.input(|i| {
@@ -657,6 +684,9 @@ impl ValidationApp {
         if show_bad {
             self.update_plots();
         }
+        if reload_gas {
+            self.reload_gas();
+        }
 
         if toggle_valid {
             self.mark_dirty();
@@ -669,6 +699,7 @@ impl ValidationApp {
         if mark_bad {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                cycle.toggle_manual_valid();
                 cycle.error_code.toggle(ErrorCode::BadOpenClose);
 
                 self.update_plots();
@@ -888,6 +919,73 @@ impl ValidationApp {
         });
     }
 
+    fn date_picker(&mut self, ui: &mut egui::Ui) {
+        let mut picker_start = self.start_date.date_naive();
+        let mut picker_end = self.end_date.date_naive();
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                // Start Date Picker
+                ui.label("Pick start date:");
+                if ui
+                    .add(
+                        egui_extras::DatePickerButton::new(&mut picker_start)
+                            .highlight_weekends(false)
+                            .id_salt("start_date"),
+                    )
+                    .changed()
+                {
+                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
+                        NaiveDateTime::from(picker_start),
+                        Utc,
+                    );
+                    if pick > self.end_date {
+                        self.log_messages
+                            .push_front("Start date can't be after end date.".to_string());
+                    } else {
+                        self.start_date = pick;
+                    }
+                }
+            });
+            ui.vertical(|ui| {
+                ui.label("Pick end date:");
+                if ui
+                    .add(
+                        egui_extras::DatePickerButton::new(&mut picker_end)
+                            .highlight_weekends(false)
+                            .id_salt("end_date"),
+                    )
+                    .changed()
+                {
+                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
+                        NaiveDateTime::from(picker_end),
+                        Utc,
+                    );
+                    if pick < self.start_date {
+                        self.log_messages
+                            .push_front("End date can't be before start date.".to_string());
+                    } else {
+                        self.end_date = pick;
+                    }
+                }
+            });
+        });
+
+        if self.start_date > self.end_date {
+            self.log_messages.push_front("End date can't be before start date.".to_owned());
+        }
+
+        let delta_days = self.end_date - self.start_date;
+        let days = delta_days.to_std().unwrap().as_secs() / 86400;
+
+        if ui.button(format!("Next {} days", days)).clicked() {
+            self.start_date += delta_days;
+            self.end_date += delta_days;
+        }
+        if ui.button(format!("Previous {} days", days)).clicked() {
+            self.start_date -= delta_days;
+            self.end_date -= delta_days;
+        }
+    }
     fn log_display(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         if ui.button("Clear Log").clicked() {
@@ -918,11 +1016,11 @@ impl ValidationApp {
                     match result {
                         Ok(cycles) => {
                             self.cycles = cycles;
-                            self.log_messages.push("Successfully loaded cycles.".to_string());
+                            self.log_messages.push_front("Successfully loaded cycles.".to_string());
                         },
                         Err(e) => {
                             eprintln!("Failed to load cycles: {:?}", e);
-                            self.log_messages.push(format!("Error: {}", e));
+                            self.log_messages.push_front(format!("Error: {}", e));
                         },
                     }
                 }
@@ -936,84 +1034,13 @@ impl ValidationApp {
 
         if self.init_in_progress || !self.init_enabled {
             ui.add(egui::Spinner::new());
-            ui.label("Loading data...");
+            ui.label("Loading fluxes from db...");
             // return; // optionally stop drawing the rest of the UI while loading
         } else {
-            let mut picker_start = self.start_date.date_naive();
-            let mut picker_end = self.end_date.date_naive();
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label("Pick start date:");
-
-                    if ui
-                        .add(
-                            egui_extras::DatePickerButton::new(&mut picker_start)
-                                .highlight_weekends(false)
-                                .id_salt("start_date"),
-                        )
-                        .changed()
-                    {
-                        let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                            NaiveDateTime::from(picker_start),
-                            Utc,
-                        );
-                        if pick > self.end_date {
-                            self.log_messages
-                                .push("Start date can't be after end date.".to_owned());
-                        } else {
-                            self.start_date = pick
-                        }
-                    };
-                    let delta_days = self.end_date - self.start_date;
-                    if ui
-                        .button(format!(
-                            "Next {} days",
-                            delta_days.to_std().unwrap().as_secs() / 86400
-                        ))
-                        .clicked()
-                    {
-                        self.start_date += delta_days;
-                        self.end_date += delta_days;
-                    }
-                    if ui
-                        .button(format!(
-                            "Previous {:?} days",
-                            delta_days.to_std().unwrap().as_secs() / 86400
-                        ))
-                        .clicked()
-                    {
-                        self.start_date -= delta_days;
-                        self.end_date -= delta_days;
-                    }
-                });
-                ui.vertical(|ui| {
-                    ui.label("Pick end date:");
-                    if ui
-                        .add(
-                            egui_extras::DatePickerButton::new(&mut picker_end)
-                                .highlight_weekends(false)
-                                .id_salt("end_date"),
-                        )
-                        .changed()
-                    {
-                        let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                            NaiveDateTime::from(picker_end),
-                            Utc,
-                        );
-                        if pick < self.start_date {
-                            self.log_messages
-                                .push("End date can't be before start date.".to_owned());
-                        } else {
-                            self.end_date = pick
-                        }
-                    };
-                });
-            });
-            if self.start_date > self.end_date {
-                self.log_messages.push("End date can't be before start date.".to_owned());
-            }
+            self.date_picker(ui);
 
             if ui.button("Init from db").clicked() {
+                self.commit_all_dirty_cycles();
                 let sender = self.task_done_sender.clone();
                 let result_slot = self.load_result.clone();
                 let start_date = self.start_date;
@@ -1027,7 +1054,7 @@ impl ValidationApp {
                 self.runtime.spawn(async move {
                     let result = match Connection::open("fluxrs.db") {
                         Ok(mut conn) => {
-                            load_fluxes(&mut conn, start_date, end_date, project, serial, None)
+                            load_fluxes(&mut conn, start_date, end_date, project, serial)
                         },
                         Err(e) => Err(e),
                     };
@@ -1039,264 +1066,176 @@ impl ValidationApp {
                     let _ = sender.send(()); // Notify UI
                 });
             }
-            // if ui.button("Init from db").clicked() {
-            //     let mut conn = match Connection::open("fluxrs.db") {
-            //         Ok(conn) => conn,
-            //         Err(e) => {
-            //             eprintln!("Failed to open database: {}", e);
-            //             return; // Exit early if connection fails
-            //         },
-            //     };
-            //
-            //     match load_fluxes(
-            //         &mut conn,
-            //         self.start_date,
-            //         self.end_date,
-            //         self.selected_project.as_ref().unwrap().clone(),
-            //         self.instrument_serial.clone(),
-            //         None,
-            //     ) {
-            //         Ok(cycles) => {
-            //             // self.index.set(0);
-            //             self.cycles = cycles;
-            //
-            //             self.update_plots();
-            //         },
-            //         Err(rusqlite::Error::InvalidQuery) => {
-            //             self.log_messages
-            //                 .push("No cycles found in db, have you initiated the data?".to_owned());
-            //             eprintln!("No cycles found in db, have you initiated the data?")
-            //         },
-            //         Err(e) => eprintln!("Error processing cycles: {}", e),
-            //     }
-            // }
         }
         self.log_display(ui);
     }
+
     pub fn init_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
+        // Check if background task has finished
         if self.task_done_receiver.try_recv().is_ok() {
-            // while let Ok(_) = self.task_done_receiver.try_recv() {
             self.init_in_progress = false;
             self.init_enabled = true;
-            self.log_messages.push("Processing complete.".to_string());
         }
+
+        // Show info if no project selected
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-
+        if let Some(receiver) = &mut self.progress_receiver {
+            while let Ok(msg) = receiver.try_recv() {
+                match msg {
+                    ProcessingMessage::QueryComplete => {
+                        self.query_in_progress = false;
+                    },
+                    ProcessingMessage::Progress(c) => {
+                        self.cycles_state = Some(c);
+                        let (current, _) = c;
+                        self.cycles_progress += current;
+                    },
+                    ProcessingMessage::Error(e) => {
+                        self.log_messages.push_front(format!("Error: {}", e));
+                    },
+                    ProcessingMessage::Done => {
+                        self.log_messages.push_front("All processing finished.".to_string());
+                        self.cycles_progress = 0;
+                    },
+                    ProcessingMessage::NoGasData(date) => {
+                        self.log_messages
+                            .push_front(format!("No gas data found for cycle at {}", date));
+                        self.cycles_progress = 0;
+                    },
+                }
+            }
+        }
+        // Show spinner if processing is ongoing
         if self.init_in_progress || !self.init_enabled {
             ui.add(egui::Spinner::new());
-            ui.label("Loading data...");
-            // return; // optionally stop drawing the rest of the UI while loading
-        } else {
-            let mut picker_start = self.start_date.date_naive();
-            let mut picker_end = self.end_date.date_naive();
-            ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("Pick start date:");
-
-                        if ui
-                            .add(
-                                egui_extras::DatePickerButton::new(&mut picker_start)
-                                    .highlight_weekends(false)
-                                    .id_salt("start_date"),
-                            )
-                            .changed()
-                        {
-                            let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                                NaiveDateTime::from(picker_start),
-                                Utc,
-                            );
-                            if pick > self.end_date {
-                                self.log_messages
-                                    .push("Start date can't be after end date.".to_owned());
-                            } else {
-                                self.start_date = pick
-                            }
-                        };
-                        let delta_days = self.end_date - self.start_date;
-                        if ui
-                            .button(format!(
-                                "Next {} days",
-                                delta_days.to_std().unwrap().as_secs() / 86400
-                            ))
-                            .clicked()
-                        {
-                            self.start_date += delta_days;
-                            self.end_date += delta_days;
-                        }
-                        if ui
-                            .button(format!(
-                                "Previous {:?} days",
-                                delta_days.to_std().unwrap().as_secs() / 86400
-                            ))
-                            .clicked()
-                        {
-                            self.start_date -= delta_days;
-                            self.end_date -= delta_days;
-                        }
-                        if ui
-                            .add_enabled(
-                                self.init_enabled && !self.init_in_progress,
-                                egui::Button::new("Use range"),
-                            )
-                            .clicked()
-                        {
-                            self.init_enabled = false;
-                            self.init_in_progress = true;
-                            let start_date = self.start_date;
-                            let end_date = self.end_date;
-                            let project = self.selected_project.as_ref().unwrap().clone();
-                            let instrument_serial = self.instrument_serial.clone();
-
-                            // Create connection and wrap in Arc<Mutex<>>
-                            let conn = match Connection::open("fluxrs.db") {
-                                Ok(conn) => conn,
-                                Err(e) => {
-                                    eprintln!("Failed to open database: {}", e);
-                                    return;
-                                },
-                            };
-                            let arc_conn = Arc::new(Mutex::new(conn)); //   stays alive
-                            let conn_guard = arc_conn.lock().unwrap();
-                            match (
-                                query_cycles(&conn_guard, start_date, end_date, project.clone()),
-                                query_gas(
-                                    &conn_guard,
-                                    start_date,
-                                    end_date,
-                                    project.clone(),
-                                    instrument_serial,
-                                ),
-                                query_meteo(&conn_guard, start_date, end_date, project.clone()),
-                                query_volume(&conn_guard, start_date, end_date, project.clone()),
-                            ) {
-                                (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
-                                    // ui.add_enabled(false);
-                                    if times.start_time.is_empty() {
-                                        self.log_messages.push(format!(
-                                            "NO CYCLES FOUND IN RANGE {} - {}",
-                                            start_date, end_date
-                                        ));
-                                    }
-                                    if gas_data.is_empty() {
-                                        self.log_messages.push(format!(
-                                            "NO GAS DATA FOUND IN RANGE {} - {}",
-                                            start_date, end_date
-                                        ));
-                                    }
-
-                                    if !times.start_time.is_empty() && !gas_data.is_empty() {
-                                        println!("Run processing.");
-                                        let arc_conn_clone = arc_conn.clone(); //   now this is valid
-                                        let sender = self.task_done_sender.clone(); // Channel to signal when done
-                                        self.runtime.spawn(async move {
-                                            run_processing(
-                                                times,
-                                                gas_data,
-                                                meteo_data,
-                                                volume_data,
-                                                project,
-                                                arc_conn_clone,
-                                            )
-                                            .await;
-                                            let _ = sender.send(()); // done
-                                        });
-                                    } else {
-                                        println!("Empty data.")
-                                    }
-                                },
-                                e => eprintln!("Failed to query database: {:?}", e),
-                            }
-                        }
-                    });
-                    ui.vertical(|ui| {
-                        ui.label("Pick end date:");
-                        if ui
-                            .add(
-                                egui_extras::DatePickerButton::new(&mut picker_end)
-                                    .highlight_weekends(false)
-                                    .id_salt("end_date"),
-                            )
-                            .changed()
-                        {
-                            let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                                NaiveDateTime::from(picker_end),
-                                Utc,
-                            );
-                            if pick < self.start_date {
-                                self.log_messages
-                                    .push("End date can't be before start date.".to_owned());
-                            } else {
-                                self.end_date = pick
-                            }
-                        };
-                    });
-                    // ui.vertical(|ui| {
-                    //     ui.label("");
-                    //     ui.button("inittest");
-                    // });
-                });
-            });
-            if self.start_date > self.end_date {
-                self.log_messages.push("End date can't be before start date.".to_owned());
+            if self.query_in_progress {
+                ui.label("Querying data, this can take a while for large time ranges.");
+            } else if let Some((_, total)) = self.cycles_state {
+                // ui.label(format!("Processed {}/{} cycles...", self.cycles_progress, total));
+                let pb =
+                    egui::widgets::ProgressBar::new(self.cycles_progress as f32 / total as f32)
+                        .desired_width(200.)
+                        .corner_radius(1)
+                        .show_percentage()
+                        .text(format!("{}/{}", self.cycles_progress, total));
+                ui.add(pb);
+            } else {
+                ui.label("Processing cycles...");
             }
+            self.log_display(ui);
+            return;
+        }
 
-            ui.separator();
+        // Main UI layout
+        ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.label(
-                    "Compare the current chamber volume of all calculated fluxes and recalculate if a new one is found.",
-                );
-                ui.label(
-                    "Only changes the fluxes and volume, no need to redo manual validation.",
-                );
-                if ui.button("Recalculate.").clicked() {
-                    let mut conn = match Connection::open("fluxrs.db") {
+                self.date_picker(ui);
+                // Date navigation buttons
+
+                // Trigger processing with selected date range
+                if ui
+                    .add_enabled(
+                        self.init_enabled && !self.init_in_progress,
+                        egui::Button::new("Use range"),
+                    )
+                    .clicked()
+                {
+                    self.commit_all_dirty_cycles();
+                    self.init_enabled = false;
+                    self.init_in_progress = true;
+                    self.query_in_progress = true;
+
+                    let start_date = self.start_date;
+                    let end_date = self.end_date;
+                    let project = self.selected_project.as_ref().unwrap().clone();
+                    let instrument_serial = self.instrument_serial.clone();
+
+                    let conn = match Connection::open("fluxrs.db") {
                         Ok(conn) => conn,
                         Err(e) => {
                             eprintln!("Failed to open database: {}", e);
-                            return; // Exit early if connection fails
+                            return;
                         },
                     };
-                    let project = self.selected_project.as_ref().unwrap().clone();
-                    match (load_fluxes(
-                        &mut conn,
-                        self.start_date,
-                        self.end_date,
-                        project.clone(),
-                        self.instrument_serial.clone(),
-                        None,
-                        ),
-                        query_volume(&conn, self.start_date, self.end_date, self.project_name.clone())) {
-                        (Ok(mut cycles), Ok(volumes)) => {
-                            println!("volumes: {}", volumes.datetime.len());
-                            self.runtime.spawn_blocking(move || {
-                                for c in &mut cycles {
-                                    c.chamber_volume = volumes.get_nearest_previous_volume(c.start_time.timestamp(),&c.chamber_id).unwrap_or(1.0);
-                                    c.compute_all_fluxes();
-                            }
-                                let mut conn = rusqlite::Connection::open("fluxrs.db").unwrap();
-                                if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
-                                    eprintln!("Flux update error: {}", e);
+                    let arc_conn = Arc::new(Mutex::new(conn));
+                    let sender = self.task_done_sender.clone();
+                    let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+                    self.progress_receiver = Some(progress_receiver);
+
+                    self.runtime.spawn(async move {
+                        let cycles_result = query_cycles_async(
+                            arc_conn.clone(),
+                            start_date,
+                            end_date,
+                            project.clone(),
+                        )
+                        .await;
+                        let gas_result = query_gas_async(
+                            arc_conn.clone(),
+                            start_date,
+                            end_date,
+                            project.clone(),
+                            instrument_serial,
+                        )
+                        .await;
+                        let meteo_result = query_meteo_async(
+                            arc_conn.clone(),
+                            start_date,
+                            end_date,
+                            project.clone(),
+                        )
+                        .await;
+                        let volume_result = query_volume_async(
+                            arc_conn.clone(),
+                            start_date,
+                            end_date,
+                            project.clone(),
+                        )
+                        .await;
+
+                        match (cycles_result, gas_result, meteo_result, volume_result) {
+                            (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
+                                let _ = progress_sender.send(ProcessingMessage::QueryComplete);
+                                if !times.start_time.is_empty() && !gas_data.is_empty() {
+                                    run_processing_dynamic(
+                                        times,
+                                        gas_data,
+                                        meteo_data,
+                                        volume_data,
+                                        project,
+                                        arc_conn.clone(),
+                                        progress_sender,
+                                    )
+                                    .await;
+                                    let _ = sender.send(());
                                 }
-                            });
-                        },
-                        // invalidquery returned if cycles is empty
-                        (Err(rusqlite::Error::InvalidQuery), Err(e)) => {
-                            self.log_messages
-                                .push("No cycles found in db, have you initiated the data?".to_owned());
-                            eprintln!("No cycles found in db, have you initiated the data?")
-                        },
-                        e => eprintln!("Error processing cycles"),
-                        // (Err(_), Err(_)) => eprintln!("Error processing cycles.")
-                    }
+                            },
+                            e => eprintln!("Failed to query database: {:?}", e),
+                        }
+                    });
                 }
             });
+            if self.start_date > self.end_date {
+                self.log_messages.push_front("End date can't be before start date.".to_string());
+            }
+
+            ui.separator();
+            render_recalculate_ui(
+                ui,
+                &self.runtime,
+                self.start_date,
+                self.end_date,
+                self.project_name.clone(),
+                self.instrument_serial.clone(),
+                &mut self.log_messages,
+            );
         });
-        }
+        // Handle messages from background processing
+
+        // Display log messages
         self.log_display(ui);
     }
     pub fn file_ui(&mut self, ui: &mut Ui, ctx: &Context) {
@@ -1330,7 +1269,7 @@ impl ValidationApp {
     }
 
     fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
-        self.log_messages.push("Uploading cycle data...".to_string());
+        self.log_messages.push_front("Uploading cycle data...".to_string());
 
         let mut all_times = TimeData::new();
 
@@ -1345,24 +1284,25 @@ impl ValidationApp {
                         all_times.open_offset.extend(res.open_offset);
                         all_times.end_offset.extend(res.end_offset);
 
-                        self.log_messages.push(format!("Successfully read {:?}", path));
+                        self.log_messages.push_front(format!("Successfully read {:?}", path));
                     } else {
                         self.log_messages
-                            .push(format!("Skipped file {:?}: Invalid data length", path));
+                            .push_front(format!("Skipped file {:?}: Invalid data length", path));
                     }
                 },
                 Err(e) => {
-                    self.log_messages.push(format!("Failed to read file {:?}: {}", path, e));
+                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
                 },
             }
         }
         match insert_cycles(conn, &all_times, self.selected_project.as_ref().unwrap().clone()) {
             Ok(row_count) => {
                 self.log_messages
-                    .push(format!("Successfully inserted {} rows into DB.", row_count));
+                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
             },
             Err(e) => {
-                self.log_messages.push(format!("Failed to insert cycle data to db.Error {}", e));
+                self.log_messages
+                    .push_front(format!("Failed to insert cycle data to db.Error {}", e));
             },
         }
     }
@@ -1377,20 +1317,21 @@ impl ValidationApp {
                     meteos.temperature.extend(res.temperature);
                 },
                 Err(e) => {
-                    self.log_messages.push(format!("Failed to read file {:?}: {}", path, e));
+                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
                 },
             }
         }
         match insert_meteo_data(conn, &self.selected_project.as_ref().unwrap().clone(), &meteos) {
             Ok(row_count) => {
                 self.log_messages
-                    .push(format!("Successfully inserted {} rows into DB.", row_count));
+                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
             },
             Err(e) => {
-                self.log_messages.push(format!("Failed to insert cycle data to db.Error {}", e));
+                self.log_messages
+                    .push_front(format!("Failed to insert cycle data to db.Error {}", e));
             },
         }
-        self.log_messages.push("Uploading meteo data...".to_string());
+        self.log_messages.push_front("Uploading meteo data...".to_string());
     }
     fn upload_volume_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
         let mut volumes = VolumeData::default();
@@ -1403,20 +1344,21 @@ impl ValidationApp {
                     volumes.volume.extend(res.volume);
                 },
                 Err(e) => {
-                    self.log_messages.push(format!("Failed to read file {:?}: {}", path, e));
+                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
                 },
             }
         }
         match insert_volume_data(conn, &self.selected_project.as_ref().unwrap().clone(), &volumes) {
             Ok(row_count) => {
                 self.log_messages
-                    .push(format!("Successfully inserted {} rows into DB.", row_count));
+                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
             },
             Err(e) => {
-                self.log_messages.push(format!("Failed to insert cycle data to db.Error {}", e));
+                self.log_messages
+                    .push_front(format!("Failed to insert cycle data to db.Error {}", e));
             },
         }
-        self.log_messages.push("Uploading meteo data...".to_string());
+        self.log_messages.push_front("Uploading meteo data...".to_string());
     }
 
     fn open_file_dialog(&mut self) {
@@ -1442,14 +1384,15 @@ impl ValidationApp {
 
                     if !selected_paths.is_empty() {
                         self.opened_files = Some(selected_paths.clone()); //   Store files properly
-                        self.log_messages.push(format!("Selected files: {:?}", selected_paths));
+                        self.log_messages
+                            .push_front(format!("Selected files: {:?}", selected_paths));
                         self.process_files(selected_paths);
                     }
 
                     self.open_file_dialog = None; //   Close the dialog
                 },
                 egui_file::State::Cancelled | egui_file::State::Closed => {
-                    self.log_messages.push("File selection cancelled.".to_string());
+                    self.log_messages.push_front("File selection cancelled.".to_string());
                     self.open_file_dialog = None;
                 },
                 _ => {}, // Do nothing if still open
@@ -1458,7 +1401,7 @@ impl ValidationApp {
     }
 
     fn process_gas_files(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
-        self.log_messages.push("Uploading gas data...".to_owned());
+        self.log_messages.push_front("Uploading gas data...".to_owned());
         let mut all_gas = GasData::new();
         for path in &selected_paths {
             let instrument = Li7810::default(); // Assuming you have a default instrument
@@ -1475,22 +1418,24 @@ impl ValidationApp {
                         for (gas_type, values) in data.gas {
                             all_gas.gas.entry(gas_type).or_insert_with(Vec::new).extend(values);
                         }
-                        self.log_messages
-                            .push(format!("Succesfully read file {:?} with {} rows.", path, rows));
+                        self.log_messages.push_front(format!(
+                            "Succesfully read file {:?} with {} rows.",
+                            path, rows
+                        ));
                     }
                 },
                 Err(e) => {
-                    self.log_messages.push(format!("Failed to read file {:?}: {}", path, e));
+                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
                 },
             }
         }
         match insert_measurements(conn, &all_gas, self.selected_project.as_ref().unwrap().clone()) {
             Ok(row_count) => {
                 self.log_messages
-                    .push(format!("Successfully inserted {} rows into DB.", row_count));
+                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
             },
             Err(_) => {
-                self.log_messages.push("Failed to insert gas data to db.".to_owned());
+                self.log_messages.push_front("Failed to insert gas data to db.".to_owned());
             },
         }
     }
@@ -1507,7 +1452,7 @@ impl ValidationApp {
                 }
             },
             Err(e) => {
-                self.log_messages.push(format!("❌ Failed to connect to database: {}", e));
+                self.log_messages.push_front(format!("❌ Failed to connect to database: {}", e));
             },
         }
     }
@@ -1570,16 +1515,11 @@ impl ValidationApp {
     fn set_current_project(&mut self, project_name: &str) -> Result<()> {
         let mut conn = Connection::open("fluxrs.db")?;
         let tx = conn.transaction()?;
-
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
-
         tx.execute("UPDATE projects SET current = 1 WHERE project_id = ?1", [project_name])?;
-
         tx.commit()?;
         println!("Current project set: {}", project_name);
-
         self.selected_project = Some(project_name.to_string());
-
         Ok(())
     }
 
@@ -2023,7 +1963,105 @@ impl TableApp {
         }
     }
 }
+const MAX_CONCURRENT_TASKS: usize = 10;
 
+pub async fn run_processing_dynamic(
+    times: TimeData,
+    gas_data: HashMap<String, GasData>,
+    meteo_data: MeteoData,
+    volume_data: VolumeData,
+    project: String,
+    conn: Arc<Mutex<rusqlite::Connection>>,
+    progress_sender: mpsc::UnboundedSender<ProcessingMessage>,
+) {
+    if times.start_time.is_empty() || gas_data.is_empty() {
+        let _ = progress_sender.send(ProcessingMessage::Error("No data available".into()));
+        return;
+    }
+
+    let total_cycles = times.start_time.len();
+    let gas_data_arc = Arc::new(gas_data);
+    let mut time_chunks = VecDeque::from(times.chunk()); // ⬅️ chunk into ~250 cycles
+    let mut active_tasks = Vec::new();
+
+    let mut processed = 0;
+    while !time_chunks.is_empty() || !active_tasks.is_empty() {
+        // Fill up active tasks
+        while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
+            let chunk = time_chunks.pop_front().unwrap();
+            let dates: HashSet<_> =
+                chunk.start_time.iter().map(|dt| dt.format("%Y-%m-%d").to_string()).collect();
+
+            let mut chunk_gas_data = HashMap::new();
+            for date in &dates {
+                if let Some(day_data) = gas_data_arc.get(date) {
+                    chunk_gas_data.insert(date.clone(), day_data.clone());
+                }
+            }
+
+            let meteo = meteo_data.clone();
+            let volume = volume_data.clone();
+            let project_clone = project.clone();
+            let progress_sender = progress_sender.clone();
+
+            let task = tokio::task::spawn_blocking(move || {
+                match process_cycles(
+                    &chunk,
+                    &chunk_gas_data,
+                    &meteo,
+                    &volume,
+                    project_clone,
+                    progress_sender.clone(),
+                ) {
+                    Ok(result) => {
+                        if processed >= total_cycles {
+                            let _ = progress_sender.send(ProcessingMessage::Done);
+                        }
+                        let count = result.iter().flatten().count();
+                        let _ = progress_sender
+                            .send(ProcessingMessage::Progress((count, total_cycles)));
+                        Ok(result)
+                    },
+                    Err(e) => {
+                        let _ = progress_sender.send(ProcessingMessage::Error(e.to_string()));
+                        Err(e)
+                    },
+                }
+            });
+
+            active_tasks.push(task);
+        }
+
+        // Wait for one task to finish
+        let (result, i, remaining_tasks) = futures::future::select_all(active_tasks).await;
+        active_tasks = remaining_tasks; // assign back for next loop
+
+        match result {
+            Ok(Ok(cycles)) => {
+                if cycles.is_empty() {
+                } else {
+                    match insert_fluxes_ignore_duplicates(
+                        &mut conn.lock().unwrap(),
+                        &cycles,
+                        project.clone(),
+                    ) {
+                        Ok((_, _)) => {
+                            // println!("{} Fluxes inserted successfully!", pushed);
+                            // println!("{} cycles skipped.", skipped);
+                        },
+                        Err(e) => eprintln!("Error inserting fluxes: {}", e),
+                    }
+                }
+                // handle your successful cycles
+            },
+            Ok(Err(e)) => eprintln!("Cycle error: {e}"),
+            Err(e) => eprintln!("Join error: {e}"),
+        }
+    }
+
+    // Final insert (if you're collecting cycles earlier)
+    let _ = progress_sender.send(ProcessingMessage::Done);
+}
 async fn run_processing(
     times: TimeData,
     gas_data: HashMap<String, GasData>,
@@ -2031,6 +2069,7 @@ async fn run_processing(
     volume_data: VolumeData,
     project: String,
     conn: Arc<Mutex<rusqlite::Connection>>,
+    progress_sender: mpsc::UnboundedSender<ProcessingMessage>,
 ) {
     println!("Running cycle processing threads.");
     if times.start_time.is_empty() || gas_data.is_empty() {
@@ -2038,6 +2077,7 @@ async fn run_processing(
         return;
     }
 
+    let total_cycles = times.start_time.len();
     let gas_data_arc = Arc::new(gas_data);
     let all_dates: Vec<String> = times
         .start_time
@@ -2065,16 +2105,28 @@ async fn run_processing(
                 gas_data_for_thread.insert(date.clone(), day_data.clone());
             }
         }
-
-        println!("Running cycle processing.");
+        let progress_sender = progress_sender.clone();
         let task = tokio::task::spawn_blocking(move || {
-            process_cycles(
+            match process_cycles(
                 &filtered_times,
                 &gas_data_for_thread,
                 &meteo_clone,
                 &volume_clone,
                 project_clone,
-            )
+                progress_sender.clone(),
+            ) {
+                Ok(result) => {
+                    println!("sent message");
+                    let count = result.iter().flatten().count();
+                    let _ =
+                        progress_sender.send(ProcessingMessage::Progress((count, total_cycles)));
+                    Ok(result)
+                },
+                Err(e) => {
+                    let _ = progress_sender.send(ProcessingMessage::Error(format!("{}", e)));
+                    Err(e)
+                },
+            }
         });
 
         tasks.push(task);
@@ -2082,7 +2134,7 @@ async fn run_processing(
 
     let results = futures::future::join_all(tasks).await;
 
-    let mut all_cycles: Vec<Cycle> = Vec::new();
+    let mut all_cycles: Vec<Option<Cycle>> = Vec::new();
 
     for result in results {
         match result {
@@ -2096,12 +2148,24 @@ async fn run_processing(
         println!("NO CYCLES WITH DATA FOUND");
     } else {
         match insert_fluxes_ignore_duplicates(&mut conn.lock().unwrap(), &all_cycles, project) {
-            Ok(_) => println!("Fluxes inserted successfully!"),
+            Ok((pushed, skipped)) => {
+                println!("{} Fluxes inserted successfully!", pushed);
+                println!("{} cycles skipped.", skipped);
+            },
             Err(e) => eprintln!("Error inserting fluxes: {}", e),
         }
     }
+    // drop(results);
+    // drop(gas_data)
 }
-
+#[derive(Debug)]
+pub enum ProcessingMessage {
+    Progress((usize, usize)), // Number of processed cycles
+    Error(String),            // Error message
+    QueryComplete,            // Error message
+    NoGasData(String),        // Error message
+    Done,                     // Optional: signal completion
+}
 fn chunk_dates(dates: Vec<String>, num_chunks: usize) -> Vec<Vec<String>> {
     let mut chunks = vec![vec![]; num_chunks];
     for (i, date) in dates.into_iter().enumerate() {
@@ -2181,4 +2245,122 @@ pub fn export_sqlite_to_csv(
 
     wtr.flush()?;
     Ok(())
+}
+
+fn _spawn_recalculate_fluxes(
+    runtime: &tokio::runtime::Runtime,
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    selected_project: &Option<String>,
+    instrument_serial: String,
+    project_name: String,
+    log_messages: &mut VecDeque<String>,
+) {
+    let project = match selected_project {
+        Some(p) => p.clone(),
+        None => {
+            log_messages.push_front("No project selected.".to_string());
+            return;
+        },
+    };
+
+    let mut conn = match Connection::open("fluxrs.db") {
+        Ok(conn) => conn,
+        Err(e) => {
+            eprintln!("Failed to open database: {}", e);
+            log_messages.push_front("Failed to open database.".to_string());
+            return;
+        },
+    };
+
+    match (
+        load_fluxes(&mut conn, start_date, end_date, project.clone(), instrument_serial.clone()),
+        query_volume(&conn, start_date, end_date, project_name.clone()),
+    ) {
+        (Ok(mut cycles), Ok(volumes)) => {
+            runtime.spawn_blocking(move || {
+                for c in &mut cycles {
+                    c.chamber_volume = volumes
+                        .get_nearest_previous_volume(c.start_time.timestamp(), &c.chamber_id)
+                        .unwrap_or(1.0);
+                    c.compute_all_fluxes();
+                }
+
+                if let Ok(mut conn) = Connection::open("fluxrs.db") {
+                    if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
+                        eprintln!("Flux update error: {}", e);
+                    }
+                }
+            });
+        },
+        (Err(rusqlite::Error::InvalidQuery), Err(_)) => {
+            log_messages
+                .push_front("No cycles found in db, have you initiated the data?".to_string());
+        },
+        e => {
+            eprintln!("Error processing cycles: {:?}", e);
+            log_messages.push_front("Error processing cycles.".to_string());
+        },
+    }
+}
+
+fn render_recalculate_ui(
+    ui: &mut Ui,
+    runtime: &tokio::runtime::Runtime,
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    project: String,
+    instrument_serial: String,
+    log_messages: &mut VecDeque<String>,
+) {
+    ui.vertical(|ui| {
+        ui.label("Compare the current chamber volume of all calculated fluxes and recalculate if a new one is found.");
+        ui.label("Only changes the fluxes and volume, no need to redo manual validation.");
+
+        if ui.button("Recalculate.").clicked() {
+
+            let mut conn = match Connection::open("fluxrs.db") {
+                Ok(conn) => conn,
+                Err(e) => {
+                    eprintln!("Failed to open database: {}", e);
+                    log_messages.push_front("Failed to open database.".to_string());
+                    return;
+                },
+            };
+
+            match (
+                load_fluxes(&mut conn, start_date, end_date, project.clone(), instrument_serial.clone()),
+                query_volume(&conn, start_date, end_date,project.clone()),
+            ) {
+                (Ok(mut cycles), Ok(volumes)) => {
+                    println!("{}", volumes.volume.len());
+                    if volumes.volume.is_empty() {
+                        log_messages.push_front("No volume data loaded.".to_owned());
+                        return;
+                    }
+                    runtime.spawn_blocking(move || {
+                        for c in &mut cycles {
+                            c.chamber_volume = volumes
+                                .get_nearest_previous_volume(c.start_time.timestamp(), &c.chamber_id)
+                                .unwrap_or(1.0);
+                            c.compute_all_fluxes();
+                        }
+
+                        if let Ok(mut conn) = Connection::open("fluxrs.db") {
+                            if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
+                                eprintln!("Flux update error: {}", e);
+                            }
+                        }
+                    });
+                },
+                (Err(rusqlite::Error::InvalidQuery), Err(_)) => {
+                    log_messages.push_front("No cycles found in db, have you initiated the data?".to_owned());
+                },
+                e => {
+                    eprintln!("Error processing cycles: {:?}", e);
+                    log_messages.push_front("Error processing cycles. Do you have cycles initiated?".to_string());
+                }
+            }
+        }
+    });
 }

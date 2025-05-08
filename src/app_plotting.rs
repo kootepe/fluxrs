@@ -203,13 +203,15 @@ impl ValidationApp {
                 let mut normal_points = Vec::new();
                 let mut highlighted_points = Vec::new();
 
-                for ((x, y), &diag) in
+                for ((x, val_opt), &diag) in
                     dt_v.iter().copied().zip(data.iter().copied()).zip(diag_values.iter())
                 {
-                    if diag != 0 {
-                        highlighted_points.push([x, y]);
-                    } else {
-                        normal_points.push([x, y]);
+                    if let Some(y) = val_opt {
+                        if diag != 0 {
+                            highlighted_points.push([x, y]);
+                        } else {
+                            normal_points.push([x, y]);
+                        }
                     }
                 }
 
@@ -527,6 +529,38 @@ impl ValidationApp {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.set_calc_start(gas_type, x);
+        }
+    }
+    pub fn print_first_dt(&mut self) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            println!("first: {}", cycle.dt_v.first().unwrap());
+        }
+    }
+    pub fn print_last_dt(&mut self) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            println!("last: {}", cycle.dt_v.last().unwrap());
+        }
+    }
+    pub fn reload_gas(&mut self) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.reload_gas_data();
+        }
+    }
+    pub fn print_stats(&self) {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            println!("g {}", cycle.gas_v.get(&GasType::CH4).unwrap().len());
+            println!("t {}", cycle.dt_v.len());
+            println!("d {}", cycle.diag_v.len());
+            println!(
+                "gs {}",
+                cycle
+                    .gas_v
+                    .get(&GasType::CH4)
+                    .map(|v| v.iter().filter_map(|&x| x).sum::<f64>())
+                    .unwrap_or(0.0)
+            );
+            println!("ts {}", cycle.dt_v.iter().map(|v| v.timestamp()).sum::<i64>());
+            println!("###");
         }
     }
 
