@@ -1,4 +1,5 @@
 use crate::instruments::InstrumentType;
+use crate::processevent::ProcessEvent;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use csv::StringRecord;
 use csv::Writer;
@@ -28,6 +29,7 @@ mod index;
 mod instruments;
 pub mod meteodata;
 pub mod myapp;
+pub mod processevent;
 pub mod query;
 mod stats;
 pub mod timedata;
@@ -173,7 +175,11 @@ impl Config {
     }
 }
 
-fn insert_cycles(conn: &mut Connection, cycles: &TimeData, project: String) -> Result<usize> {
+fn insert_cycles(
+    conn: &mut Connection,
+    cycles: &TimeData,
+    project: String,
+) -> Result<(usize, usize)> {
     let close_vec = &cycles.close_offset;
     let open_vec = &cycles.open_offset;
     let end_vec = &cycles.end_offset;
@@ -226,7 +232,7 @@ fn insert_cycles(conn: &mut Connection, cycles: &TimeData, project: String) -> R
     tx.commit()?;
     println!("Inserted {} rows into cycles, {} duplicates skipped.", inserted, duplicates);
 
-    Ok(inserted)
+    Ok((inserted, duplicates))
 }
 
 fn _query_and_group_gas_data(
@@ -432,14 +438,13 @@ fn query_cycles_within_timerange(
     )?;
 
     let cycle_iter = stmt.query_map(params![start_timestamp, end_timestamp], |row| {
-        let raw_timestamp: i64 = row.get(2)?; // Get as i64
-        Ok(CycleBuilder::new()
+        CycleBuilder::new()
             .chamber_id(row.get(0)?) // chamber_id as String
             .start_time(DateTime::from_timestamp(row.get(1)?, 0).unwrap()) // start_time as i64 (UNIX timestamp)
             .close_offset(row.get(2)?) // close_offset as i32
             .open_offset(row.get(3)?) // open_offset as i32
             .end_offset(row.get(4)?) // end_offset as i32
-            .build_db()?)
+            .build_db()
     })?;
 
     cycle_iter.collect::<Result<Vec<_>, _>>()
@@ -451,7 +456,7 @@ fn process_cycles(
     meteo_data: &MeteoData,
     volume_data: &VolumeData,
     project: String,
-    progress_sender: mpsc::UnboundedSender<validation_app::ProcessingMessage>,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn Error + Send + Sync>> {
     // println!("Processing cycles");
     let mut cycle_vec = Vec::new();
@@ -532,9 +537,8 @@ fn process_cycles(
             cycle.chamber_volume = volume;
             cycle.reset();
             if cycle.dt_v.is_empty() {
-                let _ = progress_sender.send(validation_app::ProcessingMessage::NoGasData(
-                    format!("{}", cycle.start_time),
-                ));
+                let _ =
+                    progress_sender.send(ProcessEvent::NoGasData(format!("{}", cycle.start_time)));
                 cycle_vec.push(None);
             } else {
                 cycle_vec.push(Some(cycle));

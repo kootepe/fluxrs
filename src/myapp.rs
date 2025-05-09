@@ -21,6 +21,22 @@ impl eframe::App for MyApp {
                     format!("{GITHUB} fluxrs on GitHub"),
                     "https://github.com/kootepe/fluxrs.git",
                 );
+
+                egui::ComboBox::from_label("Select font size")
+                    .selected_text(format!("{}", self.main_app.validation_panel.font_size))
+                    .show_ui(ui, |ui| {
+                        for size in 10..=32 {
+                            if ui
+                                .selectable_label(
+                                    self.main_app.validation_panel.font_size == size as f32,
+                                    size.to_string(),
+                                )
+                                .clicked()
+                            {
+                                self.main_app.validation_panel.font_size = size as f32;
+                            }
+                        }
+                    });
             });
         });
         egui::CentralPanel::default().show(ctx, |ui| {

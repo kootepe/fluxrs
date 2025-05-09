@@ -1,4 +1,5 @@
 use crate::cycle::{insert_flux_history, update_fluxes, Cycle};
+use crate::cycle_navigator::compute_visible_indexes;
 use crate::errorcode::ErrorCode;
 pub use crate::instruments::GasType;
 use crate::validation_app::ValidationApp;
@@ -1341,24 +1342,4 @@ fn _generate_color(seed: &str) -> Color32 {
 
     let hsva = Hsva::new(hue, saturation, value, alpha);
     Color32::from(Rgba::from(hsva))
-}
-fn compute_visible_indexes(
-    cycles: &[Cycle],
-    visible_traces: &HashMap<String, bool>,
-    show_valids: bool,
-    show_invalids: bool,
-    show_bad: bool,
-) -> Vec<usize> {
-    cycles
-        .iter()
-        .enumerate()
-        .filter(|(_, cycle)| {
-            let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
-            let valid_ok = show_valids || !cycle.is_valid;
-            let invalid_ok = show_invalids || cycle.is_valid;
-            let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
-            trace_visible && valid_ok && invalid_ok && bad_ok
-        })
-        .map(|(i, _)| i)
-        .collect()
 }

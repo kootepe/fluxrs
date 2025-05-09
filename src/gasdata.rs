@@ -9,14 +9,8 @@ use std::sync::{Arc, Mutex};
 use tokio::task;
 
 use csv::StringRecord;
-// use std::error::Error;
 
-// use crate::errorcode::EqualLen;
 use crate::instruments::GasType;
-
-// pub trait EqualLen {
-//     fn validate_lengths(&self) -> bool;
-// }
 
 #[derive(Clone)]
 pub struct GasData {
@@ -209,10 +203,10 @@ pub fn query_gas(
             diag: Vec::new(),
         });
 
-        entry.gas.entry(GasType::CH4).or_insert_with(Vec::new).push(ch4);
-        entry.gas.entry(GasType::CO2).or_insert_with(Vec::new).push(co2);
-        entry.gas.entry(GasType::H2O).or_insert_with(Vec::new).push(h2o);
-        entry.gas.entry(GasType::N2O).or_insert_with(Vec::new).push(n2o);
+        entry.gas.entry(GasType::CH4).or_default().push(ch4);
+        entry.gas.entry(GasType::CO2).or_default().push(co2);
+        entry.gas.entry(GasType::H2O).or_default().push(h2o);
+        entry.gas.entry(GasType::N2O).or_default().push(n2o);
 
         //   Append values
         entry.datetime.push(datetime);
@@ -287,7 +281,7 @@ pub fn insert_measurements(
     conn: &mut Connection,
     all_gas: &GasData,
     project: String,
-) -> Result<usize> {
+) -> Result<(usize, usize)> {
     let diag_vec = &all_gas.diag;
     let datetime_vec = all_gas.datetime.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
 
@@ -324,10 +318,10 @@ pub fn insert_measurements(
         if rows.next()?.is_some() {
             // If a duplicate exists, log it
             duplicates += 1;
-            println!(
-                "Warning: Duplicate record found for datetime: {} and instrument_serial: {}",
-                datetime_vec[i], all_gas.instrument_serial
-            );
+            // println!(
+            //     "Warning: Duplicate record found for datetime: {} and instrument_serial: {}",
+            //     datetime_vec[i], all_gas.instrument_serial
+            // );
         } else {
             // If no duplicate, insert the new record
             stmt.execute(params![
@@ -350,5 +344,5 @@ pub fn insert_measurements(
     // Print how many rows were inserted and how many were duplicates
     println!("Inserted {} rows into measurements, {} duplicates skipped.", inserted, duplicates);
 
-    Ok(inserted)
+    Ok((inserted, duplicates))
 }

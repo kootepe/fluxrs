@@ -1,3 +1,5 @@
+use csv::Error;
+
 use crate::errorcode::ErrorCode;
 use crate::Cycle;
 
@@ -54,7 +56,6 @@ impl CycleNavigator {
         show_invalids: bool,
         show_bad: bool,
     ) {
-        // Save previous selected start_time (if any)
         let previous_start_time = self
             .current_index()
             .and_then(|idx| cycles.get(idx))
@@ -63,21 +64,11 @@ impl CycleNavigator {
         self.visible_cycles.clear();
 
         for (index, cycle) in cycles.iter().enumerate() {
-            if !show_valids && cycle.is_valid {
-                continue;
-            }
-            if !show_invalids && !cycle.is_valid {
-                continue;
-            }
-            if !show_bad && cycle.error_code.contains(ErrorCode::BadOpenClose) {
-                continue;
-            }
-            if visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true) {
+            if is_cycle_visible(cycle, visible_traces, show_valids, show_invalids, show_bad) {
                 self.visible_cycles.push(index);
             }
         }
 
-        // Re-find nearest cycle based on previous start_time
         if let Some(target_time) = previous_start_time {
             if let Some(new_idx) = self.find_closest_visible_cycle(cycles, target_time) {
                 self.cycle_pos.set(new_idx);
@@ -181,4 +172,34 @@ impl CycleNavigator {
             },
         }
     }
+}
+
+fn is_cycle_visible(
+    cycle: &Cycle,
+    visible_traces: &HashMap<String, bool>,
+    show_valids: bool,
+    show_invalids: bool,
+    show_bad: bool,
+) -> bool {
+    let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
+    let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
+    let valid_ok = show_valids || !cycle.is_valid;
+    let invalid_ok = show_invalids || cycle.is_valid;
+    trace_visible && valid_ok && invalid_ok && bad_ok
+}
+pub fn compute_visible_indexes(
+    cycles: &[Cycle],
+    visible_traces: &HashMap<String, bool>,
+    show_valids: bool,
+    show_invalids: bool,
+    show_bad: bool,
+) -> Vec<usize> {
+    cycles
+        .iter()
+        .enumerate()
+        .filter(|(_, cycle)| {
+            is_cycle_visible(cycle, visible_traces, show_valids, show_invalids, show_bad)
+        })
+        .map(|(i, _)| i)
+        .collect()
 }

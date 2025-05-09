@@ -1,26 +1,28 @@
 use crate::app_plotting::{
     init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
 };
-use crate::archiverecord::{self, ArchiveRecord};
+use crate::archiverecord::ArchiveRecord;
 use crate::constants::MIN_CALC_AREA_RANGE;
+use crate::csv_parse;
 use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
+use crate::gasdata::query_gas_async;
 use crate::gasdata::{insert_measurements, GasData};
-use crate::gasdata::{query_gas, query_gas_async};
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
-use crate::meteodata::{insert_meteo_data, query_meteo, query_meteo_async, MeteoData};
-use crate::timedata::{query_cycles, query_cycles_async, TimeData};
+use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
+use crate::timedata::{query_cycles_async, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
-use crate::{csv_parse, errorcode};
+use crate::ProcessEvent;
 use crate::{insert_cycles, process_cycles};
+use egui::FontFamily;
 use tokio::sync::mpsc;
 
-use eframe::egui::{Color32, Context, Id, Key, PointerButton, Stroke, Ui, WidgetInfo, WidgetType};
+use eframe::egui::{Color32, Context, Id, Key, Stroke, Ui, WidgetInfo, WidgetType};
 use egui_file::FileDialog;
 use egui_plot::{LineStyle, PlotPoints, PlotUi, Polygon, VLine};
 
@@ -32,12 +34,12 @@ use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
-use std::f64::consts::E;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 pub enum DataType {
     Gas,
     Cycle,
@@ -61,6 +63,7 @@ impl Default for Panel {
         Self::Empty
     }
 }
+
 #[derive(Default)]
 pub struct MainApp {
     live_panel: Panel,
@@ -70,6 +73,11 @@ pub struct MainApp {
 }
 impl MainApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.apply_font_size(ctx, self.validation_panel.font_size);
+        for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
+            // font_id.size = self.validation_panel.font_size;
+            font_id.family = FontFamily::Monospace;
+        }
         ui.horizontal_wrapped(|ui| {
             let container_response = ui.response();
             container_response
@@ -151,6 +159,23 @@ impl MainApp {
             },
         }
     }
+    fn apply_font_size(&self, ctx: &egui::Context, font_size: f32) {
+        use egui::{FontId, TextStyle};
+
+        let mut style = (*ctx.style()).clone();
+
+        // Update font sizes for the main text styles
+        style.text_styles = [
+            (TextStyle::Heading, FontId::proportional(font_size + 6.0)),
+            (TextStyle::Body, FontId::proportional(font_size)),
+            (TextStyle::Monospace, FontId::monospace(font_size)),
+            (TextStyle::Button, FontId::proportional(font_size)),
+            (TextStyle::Small, FontId::proportional(font_size - 2.0)),
+        ]
+        .into();
+
+        ctx.set_style(style);
+    }
 }
 
 // #[derive(Default)]
@@ -162,7 +187,7 @@ pub struct ValidationApp {
     cycles_state: Option<(usize, usize)>,
     query_in_progress: bool,
     pub load_result: Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>,
-    progress_receiver: Option<tokio::sync::mpsc::UnboundedReceiver<ProcessingMessage>>,
+    progress_receiver: Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
     pub instrument_serial: String,
@@ -179,6 +204,7 @@ pub struct ValidationApp {
     pub gas_plot_h: f32,
     pub flux_plot_w: f32,
     pub flux_plot_h: f32,
+    pub font_size: f32,
     pub measurement_r_plot_w: f32,
     pub measurement_r_plot_h: f32,
     pub calc_r_plot_w: f32,
@@ -240,6 +266,7 @@ impl Default for ValidationApp {
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
             archive_record: None,
+            font_size: 14.,
             lag_plot_w: 600.,
             lag_plot_h: 350.,
             gas_plot_w: 600.,
@@ -353,7 +380,15 @@ impl ValidationApp {
                 });
             });
         });
-
+        let longest_label = "Measurement r plots";
+        let galley = ui.fonts(|f| {
+            f.layout_no_wrap(
+                longest_label.to_string(),
+                egui::FontId::monospace(self.font_size),
+                egui::Color32::WHITE,
+            )
+        });
+        let label_width = galley.size().x;
         egui::Window::new("Select displayed plots").show(ctx, |ui| {
             if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
                 let gases = cycle.gases.clone(); // Clone gases early!
@@ -370,8 +405,10 @@ impl ValidationApp {
                 let mut measurement_r_gases: Vec<(GasType, bool)> =
                     gases.iter().map(|gas| (*gas, self.is_measurement_r_enabled(gas))).collect();
 
+                let min_width = 100.;
                 ui.horizontal(|ui| {
                     ui.group(|ui| {
+                        ui.set_min_width(min_width); // Enforce group width here
                         ui.vertical(|ui| {
                             ui.label("main gas plots");
                             for (gas, mut is_enabled) in &mut main_gases {
@@ -387,6 +424,7 @@ impl ValidationApp {
                     });
 
                     ui.group(|ui| {
+                        ui.set_min_width(min_width); // Enforce group width here
                         ui.vertical(|ui| {
                             ui.label("Flux plots");
                             for (gas, mut is_enabled) in &mut flux_gases {
@@ -402,6 +440,7 @@ impl ValidationApp {
                     });
 
                     ui.group(|ui| {
+                        ui.set_min_width(min_width); // Enforce group width here
                         ui.vertical(|ui| {
                             ui.label("Calc r plots");
                             for (gas, mut is_enabled) in &mut calc_r_gases {
@@ -417,6 +456,7 @@ impl ValidationApp {
                     });
 
                     ui.group(|ui| {
+                        ui.set_min_width(min_width); // Enforce group width here
                         ui.vertical(|ui| {
                             ui.label("Measurement r plots");
                             for (gas, mut is_enabled) in &mut measurement_r_gases {
@@ -435,98 +475,228 @@ impl ValidationApp {
                 ui.label("No current cycle available to select gases from.");
             }
         });
+
         egui::Window::new("Current Cycle details").show(ctx, |ui| {
             if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
                 let errors = ErrorCode::from_mask(cycle.error_code.0);
                 let error_messages: Vec<String> =
                     errors.iter().map(|error| error.to_string()).collect();
 
-                let current_pts = format!(
-                    "Showing: {}/{} cycles in current range.",
-                    self.cycle_nav.visible_count(),
-                    self.cycles.len(),
-                );
-                let datetime = format!("datetime: {}", cycle.start_time);
-                let epoc = format!("epoch : {}", cycle.start_time.timestamp());
-                let epend = format!("epoch : {}", cycle.start_time.timestamp() + cycle.end_offset);
-                let first_ts = format!("epoch: {:?}", cycle.dt_v.first());
-                let last_ts = format!("epoch : {:?}", cycle.dt_v.last());
-                let close_off = format!("close_off : {}", cycle.close_offset);
-                let open_off = format!("open_off : {}", cycle.open_offset);
-                let end_off = format!("end_off : {}", cycle.end_offset);
-                let model = format!("model: {}", cycle.instrument_model);
-                let serial = format!("serial: {}", cycle.instrument_serial);
-                let cur_idx = format!("current index: {}", self.cycle_nav.current_index().unwrap());
-                let ch_id = format!("Chamber: {}", cycle.chamber_id);
-                let valid_txt = format!("Is valid: {}", cycle.is_valid);
-                let vld = format!("manual valid: {:?}", cycle.manual_valid);
-                let over = format!("override: {:?}", cycle.override_valid);
-                let error = format!("error_code: {:?}", cycle.error_code.0);
-
-                ui.label(model);
-                ui.label(serial);
-                ui.label(cur_idx);
-                ui.label(datetime);
-                ui.label(epoc);
-                ui.label(epend);
-                ui.label(first_ts);
-                ui.label(last_ts);
-                ui.label(close_off);
-                ui.label(open_off);
-                ui.label(end_off);
-                ui.label(current_pts);
-                ui.label(ch_id);
-                ui.label(valid_txt);
-                ui.label(vld);
-                ui.label(over);
-                ui.label(error);
-
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        for gas in &self.enabled_gases {
-                            let r_val = match cycle.calc_r2.get(gas) {
-                                Some(r) => format!("calc_r2 {}: {:.6}", gas, r),
-                                None => "Calc r2: N/A".to_string(),
-                            };
-                            ui.label(r_val);
-                        }
-                    });
-
-                    ui.vertical(|ui| {
-                        for gas in &self.enabled_gases {
-                            let flux = match cycle.flux.get(gas) {
-                                Some(r) => format!("flux {}: {:.6}", gas, r),
-                                None => "Flux: N/A".to_string(),
-                            };
-                            ui.label(flux);
-                        }
-                    });
-                });
-
-                let Some(main_gas) = self.main_gas else {
+                let main_gas = if let Some(gas) = self.main_gas {
+                    gas
+                } else {
                     eprintln!("No main gas selected!");
                     return;
                 };
 
-                let measurement_r2 = match cycle.measurement_r2.get(&main_gas) {
-                    Some(r) => format!("measurement r2: {:.6}", r),
-                    None => "Measurement r2: N/A".to_string(),
-                };
-
-                ui.label(measurement_r2);
-
-                if !error_messages.is_empty() {
-                    ui.label(error_messages.join("\n"));
-                }
-
                 ui.style_mut().text_styles.insert(
                     egui::TextStyle::Button,
-                    egui::FontId::new(14.0, eframe::epaint::FontFamily::Proportional),
+                    egui::FontId::new(18.0, eframe::epaint::FontFamily::Monospace),
                 );
+
+                ui.add_space(5.0);
+
+                ui.collapsing("Cycle details", |ui| {
+                    egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
+                        ui.label("Model:");
+                        ui.label(format!("{}", cycle.instrument_model));
+                        ui.end_row();
+                        ui.label("Serial:");
+                        ui.label(&cycle.instrument_serial);
+                        ui.end_row();
+                        ui.label("Chamber:");
+                        ui.label(cycle.chamber_id.to_string());
+                        ui.end_row();
+                        ui.label("Start Time:");
+                        ui.label(cycle.start_time.to_string());
+                        ui.end_row();
+                        ui.label("Epoch:");
+                        ui.label(cycle.start_time.timestamp().to_string());
+                        ui.end_row();
+                        ui.label("Epoch End:");
+                        ui.label((cycle.start_time.timestamp() + cycle.end_offset).to_string());
+                        ui.end_row();
+                        ui.label("First TS:");
+                        if let Some(first_val) = cycle.dt_v.first() {
+                            ui.label(format!("{}", first_val.to_owned()));
+                        } else {
+                            ui.label("None");
+                        }
+                        ui.end_row();
+                        ui.label("Last TS:");
+                        if let Some(last_val) = cycle.dt_v.last() {
+                            ui.label(format!("{}", last_val.to_owned()));
+                        } else {
+                            ui.label("None");
+                        }
+                        ui.end_row();
+                        ui.label("Close Offset:");
+                        ui.label(cycle.close_offset.to_string());
+                        ui.end_row();
+                        ui.label("Open Offset:");
+                        ui.label(cycle.open_offset.to_string());
+                        ui.end_row();
+                        ui.label("End Offset:");
+                        ui.label(cycle.end_offset.to_string());
+                        ui.end_row();
+                        ui.label("Current Index:");
+                        ui.label(self.cycle_nav.current_index().unwrap().to_string());
+                        ui.end_row();
+                        ui.label("Is Valid:");
+                        ui.label(cycle.is_valid.to_string());
+                        ui.end_row();
+                        ui.label("Manual Valid:");
+                        ui.label(format!("{:?}", cycle.manual_valid));
+                        ui.end_row();
+                        ui.label("Override:");
+                        ui.label(format!("{:?}", cycle.override_valid));
+                        ui.end_row();
+                        ui.label("Error Code:");
+                        ui.label(format!("{:?}", cycle.error_code.0));
+                        ui.end_row();
+                        ui.label("Visible Cycles:");
+                        ui.label(format!(
+                            "{}/{}",
+                            self.cycle_nav.visible_count(),
+                            self.cycles.len()
+                        ));
+                        ui.end_row();
+                        ui.label("Measurement R²:");
+                        ui.label(match cycle.measurement_r2.get(&main_gas) {
+                            Some(r) => format!("{:.6}", r),
+                            None => "N/A".to_string(),
+                        });
+                        ui.end_row();
+
+                        if !error_messages.is_empty() {
+                            ui.label("Errors:");
+                            ui.label(error_messages.join("\n"));
+                            ui.end_row();
+                        }
+                    });
+                });
+                ui.separator();
+
+                // Optional: Grid for enabled gases
+                egui::Grid::new("gas_values_grid").striped(true).show(ui, |ui| {
+                    ui.label("Gas");
+                    ui.label("calc_r2");
+                    ui.label("flux");
+                    ui.end_row();
+
+                    for gas in &self.enabled_gases {
+                        let calc_r2 = match cycle.calc_r2.get(gas) {
+                            Some(r) => format!("{:.6}", r),
+                            None => "N/A".to_string(),
+                        };
+
+                        let flux = match cycle.flux.get(gas) {
+                            Some(f) => format!("{:.6}", f),
+                            None => "N/A".to_string(),
+                        };
+
+                        ui.label(format!("{}", gas));
+                        ui.label(calc_r2);
+                        ui.label(flux);
+                        ui.end_row();
+                    }
+                });
             } else {
                 ui.label("No cycle selected.");
             }
         });
+        // egui::Window::new("Current Cycle details").show(ctx, |ui| {
+        //     if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+        //         let errors = ErrorCode::from_mask(cycle.error_code.0);
+        //         let error_messages: Vec<String> =
+        //             errors.iter().map(|error| error.to_string()).collect();
+        //
+        //         let current_pts = format!(
+        //             "Showing: {}/{} cycles in current range.",
+        //             self.cycle_nav.visible_count(),
+        //             self.cycles.len(),
+        //         );
+        //         let datetime = format!("datetime: {}", cycle.start_time);
+        //         let epoc = format!("epoch : {}", cycle.start_time.timestamp());
+        //         let epend = format!("epoch : {}", cycle.start_time.timestamp() + cycle.end_offset);
+        //         let first_ts = format!("epoch: {:?}", cycle.dt_v.first());
+        //         let last_ts = format!("epoch : {:?}", cycle.dt_v.last());
+        //         let close_off = format!("close_off : {}", cycle.close_offset);
+        //         let open_off = format!("open_off : {}", cycle.open_offset);
+        //         let end_off = format!("end_off : {}", cycle.end_offset);
+        //         let model = format!("model: {}", cycle.instrument_model);
+        //         let serial = format!("serial: {}", cycle.instrument_serial);
+        //         let cur_idx = format!("current index: {}", self.cycle_nav.current_index().unwrap());
+        //         let ch_id = format!("Chamber: {}", cycle.chamber_id);
+        //         let valid_txt = format!("Is valid: {}", cycle.is_valid);
+        //         let vld = format!("manual valid: {:?}", cycle.manual_valid);
+        //         let over = format!("override: {:?}", cycle.override_valid);
+        //         let error = format!("error_code: {:?}", cycle.error_code.0);
+        //
+        //         ui.label(model);
+        //         ui.label(serial);
+        //         ui.label(cur_idx);
+        //         ui.label(datetime);
+        //         ui.label(epoc);
+        //         ui.label(epend);
+        //         ui.label(first_ts);
+        //         ui.label(last_ts);
+        //         ui.label(close_off);
+        //         ui.label(open_off);
+        //         ui.label(end_off);
+        //         ui.label(current_pts);
+        //         ui.label(ch_id);
+        //         ui.label(valid_txt);
+        //         ui.label(vld);
+        //         ui.label(over);
+        //         ui.label(error);
+        //
+        //         ui.horizontal(|ui| {
+        //             ui.vertical(|ui| {
+        //                 for gas in &self.enabled_gases {
+        //                     let r_val = match cycle.calc_r2.get(gas) {
+        //                         Some(r) => format!("calc_r2 {}: {:.6}", gas, r),
+        //                         None => "Calc r2: N/A".to_string(),
+        //                     };
+        //                     ui.label(r_val);
+        //                 }
+        //             });
+        //
+        //             ui.vertical(|ui| {
+        //                 for gas in &self.enabled_gases {
+        //                     let flux = match cycle.flux.get(gas) {
+        //                         Some(r) => format!("flux {}: {:.6}", gas, r),
+        //                         None => "Flux: N/A".to_string(),
+        //                     };
+        //                     ui.label(flux);
+        //                 }
+        //             });
+        //         });
+        //
+        //         let Some(main_gas) = self.main_gas else {
+        //             eprintln!("No main gas selected!");
+        //             return;
+        //         };
+        //
+        //         let measurement_r2 = match cycle.measurement_r2.get(&main_gas) {
+        //             Some(r) => format!("measurement r2: {:.6}", r),
+        //             None => "Measurement r2: N/A".to_string(),
+        //         };
+        //
+        //         ui.label(measurement_r2);
+        //
+        //         if !error_messages.is_empty() {
+        //             ui.label(error_messages.join("\n"));
+        //         }
+        //
+        //         ui.style_mut().text_styles.insert(
+        //             egui::TextStyle::Button,
+        //             egui::FontId::new(18.0, eframe::epaint::FontFamily::Monospace),
+        //         );
+        //     } else {
+        //         ui.label("No cycle selected.");
+        //     }
+        // });
 
         let mut prev_clicked = false;
         let mut next_clicked = false;
@@ -1007,6 +1177,7 @@ impl ValidationApp {
         ui.heading("Plot selection");
     }
     pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
+        self.handle_progress_messages();
         if self.task_done_receiver.try_recv().is_ok() {
             self.init_in_progress = false;
             self.init_enabled = true;
@@ -1047,15 +1218,22 @@ impl ValidationApp {
                 let end_date = self.end_date;
                 let project = self.selected_project.as_ref().unwrap().clone();
                 let serial = self.instrument_serial.clone();
+                let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+                self.progress_receiver = Some(progress_receiver);
 
                 self.init_enabled = false;
                 self.init_in_progress = true;
 
                 self.runtime.spawn(async move {
                     let result = match Connection::open("fluxrs.db") {
-                        Ok(mut conn) => {
-                            load_fluxes(&mut conn, start_date, end_date, project, serial)
-                        },
+                        Ok(mut conn) => load_fluxes(
+                            &mut conn,
+                            start_date,
+                            end_date,
+                            project,
+                            serial,
+                            progress_sender,
+                        ),
                         Err(e) => Err(e),
                     };
 
@@ -1082,31 +1260,8 @@ impl ValidationApp {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-        if let Some(receiver) = &mut self.progress_receiver {
-            while let Ok(msg) = receiver.try_recv() {
-                match msg {
-                    ProcessingMessage::QueryComplete => {
-                        self.query_in_progress = false;
-                    },
-                    ProcessingMessage::Progress(c) => {
-                        self.cycles_state = Some(c);
-                        let (current, _) = c;
-                        self.cycles_progress += current;
-                    },
-                    ProcessingMessage::Error(e) => {
-                        self.log_messages.push_front(format!("Error: {}", e));
-                    },
-                    ProcessingMessage::Done => {
-                        self.log_messages.push_front("All processing finished.".to_string());
-                        self.cycles_progress = 0;
-                    },
-                    ProcessingMessage::NoGasData(date) => {
-                        self.log_messages
-                            .push_front(format!("No gas data found for cycle at {}", date));
-                    },
-                }
-            }
-        }
+        self.handle_progress_messages();
+
         // Show spinner if processing is ongoing
         if self.init_in_progress || !self.init_enabled {
             ui.add(egui::Spinner::new());
@@ -1197,7 +1352,7 @@ impl ValidationApp {
 
                         match (cycles_result, gas_result, meteo_result, volume_result) {
                             (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
-                                let _ = progress_sender.send(ProcessingMessage::QueryComplete);
+                                let _ = progress_sender.send(ProcessEvent::QueryComplete);
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
                                     run_processing_dynamic(
                                         times,
@@ -1238,6 +1393,7 @@ impl ValidationApp {
         self.log_display(ui);
     }
     pub fn file_ui(&mut self, ui: &mut Ui, ctx: &Context) {
+        self.handle_progress_messages();
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
@@ -1266,7 +1422,60 @@ impl ValidationApp {
 
         self.log_display(ui);
     }
-
+    pub fn handle_progress_messages(&mut self) {
+        if let Some(receiver) = &mut self.progress_receiver {
+            while let Ok(msg) = receiver.try_recv() {
+                match msg {
+                    ProcessEvent::QueryComplete => {
+                        self.query_in_progress = false;
+                    },
+                    ProcessEvent::Progress(c) => {
+                        self.cycles_state = Some(c);
+                        let (current, _) = c;
+                        self.cycles_progress += current;
+                    },
+                    ProcessEvent::Error(e) => {
+                        self.log_messages.push_front(format!("Error: {}", e));
+                    },
+                    ProcessEvent::Done => {
+                        self.log_messages.push_front("All processing finished.".to_string());
+                        self.cycles_progress = 0;
+                    },
+                    ProcessEvent::NoGasData(start_time) => {
+                        self.log_messages
+                            .push_front(format!("No gas data found for cycle at {}", start_time));
+                    },
+                    ProcessEvent::ReadFile(filename) => {
+                        self.log_messages.push_front(format!("Read file: {}", filename));
+                    },
+                    ProcessEvent::ReadFileRows(filename, rows) => {
+                        self.log_messages
+                            .push_front(format!("Read file: {} with {} rows", filename, rows));
+                    },
+                    ProcessEvent::ReadFileFail(filename, e) => {
+                        self.log_messages
+                            .push_front(format!("Failed to read file {}, error: {}", filename, e));
+                    },
+                    ProcessEvent::InsertOk(rows) => {
+                        self.log_messages.push_front(format!("Inserted {} rows", rows));
+                    },
+                    ProcessEvent::InsertOkSkip(rows, duplicates) => {
+                        self.log_messages.push_front(format!(
+                            "Inserted {} rows, skipped {} duplicates.",
+                            rows, duplicates
+                        ));
+                    },
+                    ProcessEvent::InsertFail(e) => {
+                        self.log_messages.push_front(format!("Failed to insert rows: {}", e));
+                    },
+                    ProcessEvent::ProgressDay(date) => {
+                        self.log_messages.push_front(format!("Loaded cycles from {}", date));
+                    },
+                    _ => self.log_messages.push_front("Unformatted Processing Message".to_owned()),
+                }
+            }
+        }
+    }
     fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
         self.log_messages.push_front("Uploading cycle data...".to_string());
 
@@ -1295,9 +1504,11 @@ impl ValidationApp {
             }
         }
         match insert_cycles(conn, &all_times, self.selected_project.as_ref().unwrap().clone()) {
-            Ok(row_count) => {
-                self.log_messages
-                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
+            Ok((row_count, duplicates)) => {
+                self.log_messages.push_front(format!(
+                    "Successfully inserted {} rows into DB. Skipped {}.",
+                    row_count, duplicates
+                ));
             },
             Err(e) => {
                 self.log_messages
@@ -1381,11 +1592,21 @@ impl ValidationApp {
                     let selected_paths: Vec<PathBuf> =
                         dialog.selection().into_iter().map(|p: &Path| p.to_path_buf()).collect();
 
+                    let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+                    self.progress_receiver = Some(progress_receiver);
+                    let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
                     if !selected_paths.is_empty() {
-                        self.opened_files = Some(selected_paths.clone()); //   Store files properly
-                        self.log_messages
-                            .push_front(format!("Selected files: {:?}", selected_paths));
-                        self.process_files(selected_paths);
+                        self.opened_files = Some(selected_paths.clone());
+                        // self.log_messages
+                        //     .push_front(format!("Selected files: {:?}", selected_paths));
+                        self.process_files_async(
+                            selected_paths,
+                            self.selected_data_type.clone(),
+                            self.project_name.clone(),
+                            arc_msgs,
+                            progress_sender.clone(),
+                            &self.runtime,
+                        );
                     }
 
                     self.open_file_dialog = None; //   Close the dialog
@@ -1429,14 +1650,61 @@ impl ValidationApp {
             }
         }
         match insert_measurements(conn, &all_gas, self.selected_project.as_ref().unwrap().clone()) {
-            Ok(row_count) => {
-                self.log_messages
-                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
+            Ok((row_count, duplicates)) => {
+                self.log_messages.push_front(format!(
+                    "Successfully inserted {} rows into DB. Skipped {} rows.",
+                    row_count, duplicates
+                ));
             },
             Err(_) => {
                 self.log_messages.push_front("Failed to insert gas data to db.".to_owned());
             },
         }
+    }
+
+    pub fn process_files_async(
+        &self,
+        path_list: Vec<PathBuf>,
+        data_type: Option<DataType>,
+        project: String,
+        log_messages: Arc<Mutex<VecDeque<String>>>,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+        runtime: &tokio::runtime::Runtime,
+    ) {
+        runtime.spawn(async move {
+            tokio::task::spawn_blocking(move || match Connection::open("fluxrs.db") {
+                Ok(mut conn) => {
+                    if let Some(data_type) = data_type {
+                        match data_type {
+                            DataType::Gas => process_gas_files_async(
+                                path_list,
+                                &mut conn,
+                                project,
+                                progress_sender,
+                            ),
+                            DataType::Cycle => {
+                                upload_cycle_data_async(path_list, &mut conn, project, log_messages)
+                            },
+                            DataType::Meteo => {
+                                upload_meteo_data_async(path_list, &mut conn, project, log_messages)
+                            },
+                            DataType::Volume => upload_volume_data_async(
+                                path_list,
+                                &mut conn,
+                                project,
+                                log_messages,
+                            ),
+                        }
+                    }
+                },
+                Err(e) => {
+                    let mut logs = log_messages.lock().unwrap();
+                    logs.push_front(format!("❌ Failed to connect to database: {}", e));
+                },
+            })
+            .await
+            .unwrap(); // handle join error if needed
+        });
     }
     fn process_files(&mut self, selected_paths: Vec<PathBuf>) {
         match Connection::open("fluxrs.db") {
@@ -1971,10 +2239,10 @@ pub async fn run_processing_dynamic(
     volume_data: VolumeData,
     project: String,
     conn: Arc<Mutex<rusqlite::Connection>>,
-    progress_sender: mpsc::UnboundedSender<ProcessingMessage>,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     if times.start_time.is_empty() || gas_data.is_empty() {
-        let _ = progress_sender.send(ProcessingMessage::Error("No data available".into()));
+        let _ = progress_sender.send(ProcessEvent::Error("No data available".into()));
         return;
     }
 
@@ -2014,15 +2282,14 @@ pub async fn run_processing_dynamic(
                 ) {
                     Ok(result) => {
                         if processed >= total_cycles {
-                            let _ = progress_sender.send(ProcessingMessage::Done);
+                            let _ = progress_sender.send(ProcessEvent::Done);
                         }
                         let count = result.iter().flatten().count();
-                        let _ = progress_sender
-                            .send(ProcessingMessage::Progress((count, total_cycles)));
+                        let _ = progress_sender.send(ProcessEvent::Progress((count, total_cycles)));
                         Ok(result)
                     },
                     Err(e) => {
-                        let _ = progress_sender.send(ProcessingMessage::Error(e.to_string()));
+                        let _ = progress_sender.send(ProcessEvent::Error(e.to_string()));
                         Err(e)
                     },
                 }
@@ -2059,7 +2326,7 @@ pub async fn run_processing_dynamic(
     }
 
     // Final insert (if you're collecting cycles earlier)
-    let _ = progress_sender.send(ProcessingMessage::Done);
+    let _ = progress_sender.send(ProcessEvent::Done);
 }
 async fn run_processing(
     times: TimeData,
@@ -2068,7 +2335,7 @@ async fn run_processing(
     volume_data: VolumeData,
     project: String,
     conn: Arc<Mutex<rusqlite::Connection>>,
-    progress_sender: mpsc::UnboundedSender<ProcessingMessage>,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     println!("Running cycle processing threads.");
     if times.start_time.is_empty() || gas_data.is_empty() {
@@ -2117,12 +2384,11 @@ async fn run_processing(
                 Ok(result) => {
                     println!("sent message");
                     let count = result.iter().flatten().count();
-                    let _ =
-                        progress_sender.send(ProcessingMessage::Progress((count, total_cycles)));
+                    let _ = progress_sender.send(ProcessEvent::Progress((count, total_cycles)));
                     Ok(result)
                 },
                 Err(e) => {
-                    let _ = progress_sender.send(ProcessingMessage::Error(format!("{}", e)));
+                    let _ = progress_sender.send(ProcessEvent::Error(format!("{}", e)));
                     Err(e)
                 },
             }
@@ -2157,14 +2423,7 @@ async fn run_processing(
     // drop(results);
     // drop(gas_data)
 }
-#[derive(Debug)]
-pub enum ProcessingMessage {
-    Progress((usize, usize)), // Number of processed cycles
-    Error(String),            // Error message
-    QueryComplete,            // Error message
-    NoGasData(String),        // Error message
-    Done,                     // Optional: signal completion
-}
+
 fn chunk_dates(dates: Vec<String>, num_chunks: usize) -> Vec<Vec<String>> {
     let mut chunks = vec![vec![]; num_chunks];
     for (i, date) in dates.into_iter().enumerate() {
@@ -2246,63 +2505,6 @@ pub fn export_sqlite_to_csv(
     Ok(())
 }
 
-fn _spawn_recalculate_fluxes(
-    runtime: &tokio::runtime::Runtime,
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
-    selected_project: &Option<String>,
-    instrument_serial: String,
-    project_name: String,
-    log_messages: &mut VecDeque<String>,
-) {
-    let project = match selected_project {
-        Some(p) => p.clone(),
-        None => {
-            log_messages.push_front("No project selected.".to_string());
-            return;
-        },
-    };
-
-    let mut conn = match Connection::open("fluxrs.db") {
-        Ok(conn) => conn,
-        Err(e) => {
-            eprintln!("Failed to open database: {}", e);
-            log_messages.push_front("Failed to open database.".to_string());
-            return;
-        },
-    };
-
-    match (
-        load_fluxes(&mut conn, start_date, end_date, project.clone(), instrument_serial.clone()),
-        query_volume(&conn, start_date, end_date, project_name.clone()),
-    ) {
-        (Ok(mut cycles), Ok(volumes)) => {
-            runtime.spawn_blocking(move || {
-                for c in &mut cycles {
-                    c.chamber_volume = volumes
-                        .get_nearest_previous_volume(c.start_time.timestamp(), &c.chamber_id)
-                        .unwrap_or(1.0);
-                    c.compute_all_fluxes();
-                }
-
-                if let Ok(mut conn) = Connection::open("fluxrs.db") {
-                    if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
-                        eprintln!("Flux update error: {}", e);
-                    }
-                }
-            });
-        },
-        (Err(rusqlite::Error::InvalidQuery), Err(_)) => {
-            log_messages
-                .push_front("No cycles found in db, have you initiated the data?".to_string());
-        },
-        e => {
-            eprintln!("Error processing cycles: {:?}", e);
-            log_messages.push_front("Error processing cycles.".to_string());
-        },
-    }
-}
-
 fn render_recalculate_ui(
     ui: &mut Ui,
     runtime: &tokio::runtime::Runtime,
@@ -2327,8 +2529,9 @@ fn render_recalculate_ui(
                 },
             };
 
+            let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
             match (
-                load_fluxes(&mut conn, start_date, end_date, project.clone(), instrument_serial.clone()),
+                load_fluxes(&mut conn, start_date, end_date, project.clone(), instrument_serial.clone(), progress_sender),
                 query_volume(&conn, start_date, end_date,project.clone()),
             ) {
                 (Ok(mut cycles), Ok(volumes)) => {
@@ -2362,4 +2565,165 @@ fn render_recalculate_ui(
             }
         }
     });
+}
+
+pub fn process_gas_files_async(
+    selected_paths: Vec<PathBuf>,
+    conn: &mut Connection,
+    project: String,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+) {
+    // {
+    //     let mut logs = log_messages.lock().unwrap();
+    //     logs.push_front("Uploading gas data...".to_string());
+    //
+    // }
+    // let _ progress_sender.send)
+
+    let mut all_gas = GasData::new();
+
+    for path in &selected_paths {
+        let instrument = Li7810::default();
+        match instrument.read_data_file(path) {
+            Ok(data) => {
+                if data.validate_lengths() && !data.any_col_invalid() {
+                    let rows = data.datetime.len();
+                    all_gas.datetime.extend(data.datetime);
+                    all_gas.diag.extend(data.diag);
+                    all_gas.instrument_model = data.instrument_model;
+                    all_gas.instrument_serial = data.instrument_serial;
+
+                    for (gas_type, values) in data.gas {
+                        all_gas.gas.entry(gas_type).or_default().extend(values);
+                    }
+
+                    let _ = progress_sender
+                        .send(ProcessEvent::ReadFileRows(path.to_str().unwrap().to_owned(), rows));
+                }
+            },
+            Err(e) => {
+                let _ = progress_sender.send(ProcessEvent::ReadFileFail(
+                    path.to_str().unwrap().to_owned(),
+                    format!("{}", e),
+                ));
+            },
+        }
+    }
+
+    match insert_measurements(conn, &all_gas, project) {
+        Ok((count, duplicates)) => {
+            let _ = progress_sender.send(ProcessEvent::InsertOkSkip(count, duplicates));
+        },
+        Err(e) => {
+            let _ = progress_sender.send(ProcessEvent::InsertFail(format!("{}", e)));
+        },
+    }
+}
+fn upload_cycle_data_async(
+    selected_paths: Vec<PathBuf>,
+    conn: &mut Connection,
+    project: String,
+    log_messages: Arc<Mutex<VecDeque<String>>>,
+) {
+    let mut log_msgs = log_messages.lock().unwrap();
+    log_msgs.push_front("Uploading cycle data...".to_string());
+
+    let mut all_times = TimeData::new();
+
+    for path in &selected_paths {
+        match csv_parse::read_time_csv(path) {
+            //   Pass `path` directly
+            Ok(res) => {
+                if res.validate_lengths() {
+                    all_times.chamber_id.extend(res.chamber_id);
+                    all_times.start_time.extend(res.start_time);
+                    all_times.close_offset.extend(res.close_offset);
+                    all_times.open_offset.extend(res.open_offset);
+                    all_times.end_offset.extend(res.end_offset);
+
+                    log_msgs.push_front(format!("Successfully read {:?}", path));
+                } else {
+                    log_msgs.push_front(format!("Skipped file {:?}: Invalid data length", path));
+                }
+            },
+            Err(e) => {
+                log_msgs.push_front(format!("Failed to read file {:?}: {}", path, e));
+            },
+        }
+    }
+    match insert_cycles(conn, &all_times, project) {
+        Ok((row_count, duplicates)) => {
+            log_msgs.push_front(format!(
+                "Successfully inserted {} rows into DB. Skipped {}.",
+                row_count, duplicates
+            ));
+        },
+        Err(e) => {
+            log_msgs.push_front(format!("Failed to insert cycle data to db.Error {}", e));
+        },
+    }
+}
+
+fn upload_meteo_data_async(
+    selected_paths: Vec<PathBuf>,
+    conn: &mut Connection,
+    project: String,
+    log_messages: Arc<Mutex<VecDeque<String>>>,
+) {
+    let mut log_msgs = log_messages.lock().unwrap();
+    let mut meteos = MeteoData::default();
+    for path in &selected_paths {
+        match csv_parse::read_meteo_csv(path) {
+            //   Pass `path` directly
+            Ok(res) => {
+                meteos.datetime.extend(res.datetime);
+                meteos.pressure.extend(res.pressure);
+                meteos.temperature.extend(res.temperature);
+            },
+            Err(e) => {
+                log_msgs.push_front(format!("Failed to read file {:?}: {}", path, e));
+            },
+        }
+    }
+    match insert_meteo_data(conn, &project, &meteos) {
+        Ok(row_count) => {
+            log_msgs.push_front(format!("Successfully inserted {} rows into DB.", row_count));
+        },
+        Err(e) => {
+            log_msgs.push_front(format!("Failed to insert cycle data to db.Error {}", e));
+        },
+    }
+    log_msgs.push_front("Uploading meteo data...".to_string());
+}
+// fn upload_volume_data_async(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
+fn upload_volume_data_async(
+    selected_paths: Vec<PathBuf>,
+    conn: &mut Connection,
+    project: String,
+    log_messages: Arc<Mutex<VecDeque<String>>>,
+) {
+    let mut log_msgs = log_messages.lock().unwrap();
+    let mut volumes = VolumeData::default();
+    for path in &selected_paths {
+        match csv_parse::read_volume_csv(path) {
+            //   Pass `path` directly
+            Ok(res) => {
+                volumes.datetime.extend(res.datetime);
+                volumes.chamber_id.extend(res.chamber_id);
+                volumes.volume.extend(res.volume);
+            },
+            Err(e) => {
+                log_msgs.push_front(format!("Failed to read file {:?}: {}", path, e));
+            },
+        }
+    }
+    match insert_volume_data(conn, &project, &volumes) {
+        Ok(row_count) => {
+            log_msgs.push_front(format!("Successfully inserted {} rows into DB.", row_count));
+        },
+        Err(e) => {
+            log_msgs.push_front(format!("Failed to insert cycle data to db.Error {}", e));
+        },
+    }
+    log_msgs.push_front("Uploading meteo data...".to_string());
 }
