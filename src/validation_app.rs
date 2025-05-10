@@ -1,6 +1,4 @@
-use crate::app_plotting::{
-    init_calc_r_plot, init_flux_plot, init_gas_plot, init_lag_plot, init_measurement_r_plot,
-};
+use crate::app_plotting::{init_attribute_plot, init_gas_plot, init_lag_plot};
 use crate::archiverecord::ArchiveRecord;
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::csv_parse;
@@ -195,6 +193,7 @@ pub struct ValidationApp {
     pub enabled_fluxes: HashSet<GasType>, // Stores which fluxes are enabled for plotting
     pub enabled_calc_rs: HashSet<GasType>, // Stores which r values are enabled for plotting
     pub enabled_measurement_rs: HashSet<GasType>, // Stores which gases are enabled for plotting
+    pub enabled_conc_t0: HashSet<GasType>, // Stores which gases are enabled for plotting
     pub cycles: Vec<Cycle>,
     pub cycle_nav: CycleNavigator,
     archive_record: Option<(usize, ArchiveRecord)>,
@@ -209,6 +208,8 @@ pub struct ValidationApp {
     pub measurement_r_plot_h: f32,
     pub calc_r_plot_w: f32,
     pub calc_r_plot_h: f32,
+    pub conc_t0_plot_w: f32,
+    pub conc_t0_plot_h: f32,
     pub dirty_cycles: HashSet<usize>,
     pub zoom_to_measurement: u8,
     pub should_reset_bounds: bool,
@@ -263,6 +264,7 @@ impl Default for ValidationApp {
             enabled_fluxes: HashSet::new(),
             enabled_measurement_rs: HashSet::new(),
             enabled_calc_rs: HashSet::new(),
+            enabled_conc_t0: HashSet::new(),
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
             archive_record: None,
@@ -275,6 +277,8 @@ impl Default for ValidationApp {
             flux_plot_h: 350.,
             calc_r_plot_w: 600.,
             calc_r_plot_h: 350.,
+            conc_t0_plot_w: 600.,
+            conc_t0_plot_h: 350.,
             measurement_r_plot_w: 600.,
             measurement_r_plot_h: 350.,
             zoom_to_measurement: 0,
@@ -405,6 +409,9 @@ impl ValidationApp {
                 let mut measurement_r_gases: Vec<(GasType, bool)> =
                     gases.iter().map(|gas| (*gas, self.is_measurement_r_enabled(gas))).collect();
 
+                let mut conc_t0_gases: Vec<(GasType, bool)> =
+                    gases.iter().map(|gas| (*gas, self.is_conc_t0_enabled(gas))).collect();
+
                 let min_width = 100.;
                 ui.horizontal(|ui| {
                     ui.group(|ui| {
@@ -465,6 +472,21 @@ impl ValidationApp {
                                         self.enabled_measurement_rs.insert(*gas);
                                     } else {
                                         self.enabled_measurement_rs.remove(gas);
+                                    }
+                                }
+                            }
+                        });
+                    });
+                    ui.group(|ui| {
+                        ui.set_min_width(min_width); // Enforce group width here
+                        ui.vertical(|ui| {
+                            ui.label("Concentration at t0");
+                            for (gas, mut is_enabled) in &mut conc_t0_gases {
+                                if ui.checkbox(&mut is_enabled, format!("{:?}", gas)).changed() {
+                                    if is_enabled {
+                                        self.enabled_conc_t0.insert(*gas);
+                                    } else {
+                                        self.enabled_conc_t0.remove(gas);
                                     }
                                 }
                             }
@@ -605,98 +627,6 @@ impl ValidationApp {
                 ui.label("No cycle selected.");
             }
         });
-        // egui::Window::new("Current Cycle details").show(ctx, |ui| {
-        //     if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-        //         let errors = ErrorCode::from_mask(cycle.error_code.0);
-        //         let error_messages: Vec<String> =
-        //             errors.iter().map(|error| error.to_string()).collect();
-        //
-        //         let current_pts = format!(
-        //             "Showing: {}/{} cycles in current range.",
-        //             self.cycle_nav.visible_count(),
-        //             self.cycles.len(),
-        //         );
-        //         let datetime = format!("datetime: {}", cycle.start_time);
-        //         let epoc = format!("epoch : {}", cycle.start_time.timestamp());
-        //         let epend = format!("epoch : {}", cycle.start_time.timestamp() + cycle.end_offset);
-        //         let first_ts = format!("epoch: {:?}", cycle.dt_v.first());
-        //         let last_ts = format!("epoch : {:?}", cycle.dt_v.last());
-        //         let close_off = format!("close_off : {}", cycle.close_offset);
-        //         let open_off = format!("open_off : {}", cycle.open_offset);
-        //         let end_off = format!("end_off : {}", cycle.end_offset);
-        //         let model = format!("model: {}", cycle.instrument_model);
-        //         let serial = format!("serial: {}", cycle.instrument_serial);
-        //         let cur_idx = format!("current index: {}", self.cycle_nav.current_index().unwrap());
-        //         let ch_id = format!("Chamber: {}", cycle.chamber_id);
-        //         let valid_txt = format!("Is valid: {}", cycle.is_valid);
-        //         let vld = format!("manual valid: {:?}", cycle.manual_valid);
-        //         let over = format!("override: {:?}", cycle.override_valid);
-        //         let error = format!("error_code: {:?}", cycle.error_code.0);
-        //
-        //         ui.label(model);
-        //         ui.label(serial);
-        //         ui.label(cur_idx);
-        //         ui.label(datetime);
-        //         ui.label(epoc);
-        //         ui.label(epend);
-        //         ui.label(first_ts);
-        //         ui.label(last_ts);
-        //         ui.label(close_off);
-        //         ui.label(open_off);
-        //         ui.label(end_off);
-        //         ui.label(current_pts);
-        //         ui.label(ch_id);
-        //         ui.label(valid_txt);
-        //         ui.label(vld);
-        //         ui.label(over);
-        //         ui.label(error);
-        //
-        //         ui.horizontal(|ui| {
-        //             ui.vertical(|ui| {
-        //                 for gas in &self.enabled_gases {
-        //                     let r_val = match cycle.calc_r2.get(gas) {
-        //                         Some(r) => format!("calc_r2 {}: {:.6}", gas, r),
-        //                         None => "Calc r2: N/A".to_string(),
-        //                     };
-        //                     ui.label(r_val);
-        //                 }
-        //             });
-        //
-        //             ui.vertical(|ui| {
-        //                 for gas in &self.enabled_gases {
-        //                     let flux = match cycle.flux.get(gas) {
-        //                         Some(r) => format!("flux {}: {:.6}", gas, r),
-        //                         None => "Flux: N/A".to_string(),
-        //                     };
-        //                     ui.label(flux);
-        //                 }
-        //             });
-        //         });
-        //
-        //         let Some(main_gas) = self.main_gas else {
-        //             eprintln!("No main gas selected!");
-        //             return;
-        //         };
-        //
-        //         let measurement_r2 = match cycle.measurement_r2.get(&main_gas) {
-        //             Some(r) => format!("measurement r2: {:.6}", r),
-        //             None => "Measurement r2: N/A".to_string(),
-        //         };
-        //
-        //         ui.label(measurement_r2);
-        //
-        //         if !error_messages.is_empty() {
-        //             ui.label(error_messages.join("\n"));
-        //         }
-        //
-        //         ui.style_mut().text_styles.insert(
-        //             egui::TextStyle::Button,
-        //             egui::FontId::new(18.0, eframe::epaint::FontFamily::Monospace),
-        //         );
-        //     } else {
-        //         ui.label("No cycle selected.");
-        //     }
-        // });
 
         let mut prev_clicked = false;
         let mut next_clicked = false;
@@ -1010,8 +940,12 @@ impl ValidationApp {
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     for gas in self.enabled_fluxes.clone() {
-                        let measurement_r_plot =
-                            init_flux_plot(&gas, self.flux_plot_w, self.flux_plot_h);
+                        let measurement_r_plot = init_attribute_plot(
+                            "flux".to_owned(),
+                            &gas,
+                            self.flux_plot_w,
+                            self.flux_plot_h,
+                        );
                         // ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                         let response = measurement_r_plot.show(ui, |plot_ui| {
                             self.render_attribute_plot(
@@ -1030,7 +964,8 @@ impl ValidationApp {
                 });
                 ui.vertical(|ui| {
                     for gas in self.enabled_measurement_rs.clone() {
-                        let measurement_r_plot = init_measurement_r_plot(
+                        let measurement_r_plot = init_attribute_plot(
+                            "measurement r2".to_owned(),
                             &gas,
                             self.measurement_r_plot_w,
                             self.measurement_r_plot_h,
@@ -1055,8 +990,12 @@ impl ValidationApp {
                 });
                 ui.vertical(|ui| {
                     for gas in self.enabled_calc_rs.clone() {
-                        let calc_r_plot =
-                            init_calc_r_plot(&gas, self.calc_r_plot_w, self.calc_r_plot_h);
+                        let calc_r_plot = init_attribute_plot(
+                            "calc r2".to_owned(),
+                            &gas,
+                            self.calc_r_plot_w,
+                            self.calc_r_plot_h,
+                        );
                         // ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                         let response = calc_r_plot.show(ui, |plot_ui| {
                             self.render_attribute_plot(
@@ -1073,6 +1012,32 @@ impl ValidationApp {
                         }
                     }
                 });
+                ui.vertical(|ui| {
+                    for gas in self.enabled_conc_t0.clone() {
+                        let conc_plot = init_attribute_plot(
+                            "Concentration t0".to_owned(),
+                            &gas,
+                            self.conc_t0_plot_w,
+                            self.conc_t0_plot_h,
+                        );
+                        // ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                        let response = conc_plot.show(ui, |plot_ui| {
+                            self.render_attribute_plot(
+                                plot_ui,
+                                &gas,
+                                |cycle, gas_type| {
+                                    *cycle.concentration_t0.get(gas_type).unwrap_or(&0.0)
+                                },
+                                "Conc t0",
+                            );
+                        });
+                        if response.response.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            // Hide cursor
+                            // println!("Gas plot is hovered!");
+                        }
+                    }
+                })
             });
         });
         //
@@ -2029,21 +1994,23 @@ pub fn create_polygon(
     id: &str,
     idd: Id,
 ) -> Polygon {
-    Polygon::new(PlotPoints::from(vec![
-        [start_x, min_y],
-        [start_x, max_y],
-        [end_x, max_y],
-        [end_x, min_y],
-        [start_x, min_y], // Close the polygon
-    ]))
-    .name(id)
+    Polygon::new(
+        id,
+        PlotPoints::from(vec![
+            [start_x, min_y],
+            [start_x, max_y],
+            [end_x, max_y],
+            [end_x, min_y],
+            [start_x, min_y], // Close the polygon
+        ]),
+    )
     .fill_color(color)
     .stroke(Stroke::new(2.0, stroke))
     .allow_hover(true)
 }
 
 pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine {
-    VLine::new(x).name(id).allow_hover(true).style(style).stroke(Stroke::new(2.0, color))
+    VLine::new(id, x).allow_hover(true).style(style).stroke(Stroke::new(2.0, color))
 }
 // TableApp struct
 #[derive(Default)]

@@ -6,8 +6,8 @@ edition = "2021"
 [dependencies]
 rayon = "1.10.0"
 egui_file = "0.22"
-egui_extras = { version = "*", features = ["datepicker"] }
-rusqlite = { version = "0.33.0", features = ["bundled"] }
+egui_extras = { version = "*", default-features = false, features = ["datepicker"] }
+rusqlite = { version = "0.35.0", features = ["bundled"] }
 fxhash = "0.2.1"
 csv = "1.3.1"
 chrono = "0.4.39"
@@ -18,9 +18,8 @@ plotters = "0.3.7"
 egui = "0.31.0"
 ecolor = "0.31.0"
 eframe = "0.31.0"
-egui_plot = "0.31.0"
+egui_plot = "0.32.1"
 image = "0.25.0"
-rfd = "0.15.1"
 futures = "0.3.31"
 tokio = {version = "1.44.1", features = ["rt-multi-thread", "macros", "sync", "time"]}
 

@@ -36,6 +36,9 @@ impl ValidationApp {
         self.enabled_measurement_rs.contains(gas_type)
     }
 
+    pub fn is_conc_t0_enabled(&self, gas_type: &GasType) -> bool {
+        self.enabled_conc_t0.contains(gas_type)
+    }
     pub fn mark_dirty(&mut self) {
         if let Some(i) = self.cycle_nav.current_index() {
             self.dirty_cycles.insert(i);
@@ -185,16 +188,16 @@ impl ValidationApp {
                     errors.iter().map(|error| error.to_string()).collect();
 
                 let msg = error_messages.join("\n");
-                let has_errors = Id::new(format!("haserrors{}", gas_type));
+                let has_errors = format!("haserrors{}", gas_type);
                 plot_ui.text(
                     Text::new(
+                        has_errors,
                         PlotPoint::new(self.get_start(), max_y),
                         RichText::new(msg).size(20.0),
                     )
                     .highlight(true)
                     .anchor(Align2::LEFT_TOP)
-                    .color(Color32::from_rgba_unmultiplied(250, 128, 128, 255))
-                    .id(has_errors),
+                    .color(Color32::from_rgba_unmultiplied(250, 128, 128, 255)),
                 );
             }
             if let Some(data) = cycle.gas_v.get(&gas_type) {
@@ -218,7 +221,7 @@ impl ValidationApp {
 
                 if !normal_points.is_empty() {
                     plot_ui.points(
-                        Points::new(PlotPoints::from(normal_points))
+                        Points::new("normals", PlotPoints::from(normal_points))
                             .name(format!("{}", gas_type))
                             .shape(MarkerShape::Circle)
                             .color(gas_type.color())
@@ -228,7 +231,7 @@ impl ValidationApp {
 
                 if !highlighted_points.is_empty() {
                     plot_ui.points(
-                        Points::new(PlotPoints::from(highlighted_points))
+                        Points::new("errorpoints", PlotPoints::from(highlighted_points))
                             .name(format!("{} (Error)", gas_type))
                             .shape(MarkerShape::Circle)
                             .color(egui::Color32::RED)
@@ -249,7 +252,7 @@ impl ValidationApp {
                         .collect();
 
                     plot_ui.line(
-                        Line::new(line_points)
+                        Line::new("linfit", line_points)
                             .name("Fitted Line")
                             .color(egui::Color32::RED)
                             .style(egui_plot::LineStyle::Solid)
@@ -262,18 +265,17 @@ impl ValidationApp {
                 plot_ui.vline(close_line);
             } else {
                 let half_way_x = self.get_start() + ((self.get_end() - self.get_start()) / 2.0);
-                let bad_plot = Id::new(format!("bad_plot {}", gas_type));
-                plot_ui.text(
-                    Text::new(
-                        PlotPoint::new(half_way_x, 0.0),
-                        RichText::new("No data points").size(20.0),
-                    )
-                    .id(bad_plot),
-                );
+                let bad_plot = format!("bad_plot {}", gas_type);
+                plot_ui.text(Text::new(
+                    bad_plot,
+                    PlotPoint::new(half_way_x, 0.0),
+                    RichText::new("No data points").size(20.0),
+                ));
             }
         } else {
             // No visible cycle selected
             plot_ui.text(Text::new(
+                "no cycle",
                 PlotPoint::new(0.0, 0.0),
                 RichText::new("No cycle selected").size(20.0),
             ));
@@ -639,7 +641,7 @@ impl ValidationApp {
                 let plot_points = PlotPoints::from(points.clone());
 
                 plot_ui.points(
-                    Points::new(plot_points)
+                    Points::new("valid_pts", plot_points)
                         .name(format!("{} {}", plot_name, chamber_id))
                         .shape(MarkerShape::Circle)
                         .radius(2.)
@@ -652,7 +654,7 @@ impl ValidationApp {
                 let plot_points = PlotPoints::from(points.clone());
 
                 plot_ui.points(
-                    Points::new(plot_points)
+                    Points::new("invalid_pts", plot_points)
                     .name(format!("{} {} (Invalid)", plot_name, chamber_id))
                     .shape(MarkerShape::Cross) // Different shape for invalid points
                     .radius(3.)
@@ -703,7 +705,7 @@ impl ValidationApp {
         // Draw updated selected point
         if let Some(selected) = self.selected_point {
             plot_ui.points(
-                Points::new(PlotPoints::from(vec![selected]))
+                Points::new("currentpt", PlotPoints::from(vec![selected]))
                     .name("Current")
                     .shape(MarkerShape::Circle)
                     .radius(5.0)
@@ -716,7 +718,7 @@ impl ValidationApp {
         if let Some(hovered) = hovered_point {
             if Some(hovered) != self.selected_point {
                 plot_ui.points(
-                    Points::new(PlotPoints::from(vec![hovered]))
+                    Points::new("hovered_pt", PlotPoints::from(vec![hovered]))
                         .name("Closest")
                         .shape(MarkerShape::Circle)
                         .radius(5.0)
@@ -765,7 +767,7 @@ impl ValidationApp {
 
             if let Some(points) = valid_traces.get(chamber_id) {
                 plot_ui.points(
-                    Points::new(PlotPoints::from(points.clone()))
+                    Points::new("valid_pts", PlotPoints::from(points.clone()))
                         .name(format!("{} (Valid)", chamber_id))
                         .shape(MarkerShape::Circle)
                         .radius(2.)
@@ -775,7 +777,7 @@ impl ValidationApp {
 
             if let Some(points) = invalid_traces.get(chamber_id) {
                 plot_ui.points(
-                    Points::new(PlotPoints::from(points.clone()))
+                    Points::new("invalid_pts", PlotPoints::from(points.clone()))
                         .name(format!("{} (Invalid)", chamber_id))
                         .shape(MarkerShape::Cross)
                         .radius(3.)
@@ -794,7 +796,7 @@ impl ValidationApp {
                     &transform,
                     Some(cursor_pos),
                     &lag_traces,
-                    80.0,
+                    20.0,
                 );
             }
         }
@@ -860,7 +862,7 @@ impl ValidationApp {
         // Draw selected point
         if let Some(selected) = self.selected_point {
             plot_ui.points(
-                Points::new(PlotPoints::from(vec![selected]))
+                Points::new("selected_pt", PlotPoints::from(vec![selected]))
                     .name("Selected Point")
                     .shape(MarkerShape::Circle)
                     .radius(5.)
@@ -873,7 +875,7 @@ impl ValidationApp {
         if let Some(hovered) = hovered_point {
             if Some(hovered) != self.selected_point {
                 plot_ui.points(
-                    Points::new(PlotPoints::from(vec![hovered]))
+                    Points::new("hovered_pt", PlotPoints::from(vec![hovered]))
                         .name("Hovered Point")
                         .shape(MarkerShape::Circle)
                         .radius(5.)
@@ -1095,7 +1097,39 @@ impl ValidationApp {
         self.visible_traces.insert(chamber_id.clone(), !is_visible);
     }
 }
+pub fn init_attribute_plot(
+    attribute: String,
+    gas_type: &GasType,
+    w: f32,
+    h: f32,
+) -> egui_plot::Plot {
+    let attrib = attribute.clone();
+    Plot::new(format!("{}{}", gas_type, attribute.clone()))
+        .coordinates_formatter(
+            Corner::LeftBottom,
+            CoordinatesFormatter::new(move |value, _| {
+                let timestamp = value.x as i64;
+                let datetime = NaiveDateTime::UNIX_EPOCH
+                    .checked_add_signed(Duration::seconds(timestamp))
+                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
+                    .unwrap_or_else(|| format!("{:.1}", value.x));
+                // let datetime = DateTime::from_timestamp(timestamp, 0)
+                //     .map(|dt| {
+                //         // DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
+                //         Utc::from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string()
+                //     })
+                //     .unwrap_or_else(|| format!("{:.1}", value.x));
 
+                format!("Time: {}\n{} {}: {:.5}", datetime, gas_type, attrib, value.y)
+            }),
+        )
+        .label_formatter(|_, _| String::new())
+        .allow_drag(false)
+        .width(w)
+        .height(h)
+        .x_axis_formatter(format_x_axis)
+        .y_axis_label(format!("{} {}", gas_type, attribute))
+}
 pub fn init_gas_plot(gas_type: &GasType, start: f64, end: f64, w: f32, h: f32) -> egui_plot::Plot {
     let x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
         let timestamp = mark.value as i64;
@@ -1136,7 +1170,7 @@ pub fn init_gas_plot(gas_type: &GasType, start: f64, end: f64, w: f32, h: f32) -
 
             format!("Time: {}\nConc: {:.3} ppm", datetime, value.y)
         })
-        .x_axis_formatter(x_axis_formatter)
+        .x_axis_formatter(format_x_axis)
         .allow_drag(false)
         .width(w)
         .height(h)
@@ -1145,6 +1179,7 @@ pub fn init_gas_plot(gas_type: &GasType, start: f64, end: f64, w: f32, h: f32) -
         .y_axis_label(format!("{}", gas_type))
     // .legend(Legend::default().position(Corner::LeftTop))
 }
+
 pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}calc_r2_plot", gas_type))
         .coordinates_formatter(

@@ -70,9 +70,11 @@ pub struct Cycle {
 
     // gas vectors
     pub gas_v: HashMap<GasType, Vec<Option<f64>>>,
+    pub gas_v_mole: HashMap<GasType, Vec<Option<f64>>>,
     pub calc_gas_v: HashMap<GasType, Vec<Option<f64>>>,
     pub measurement_gas_v: HashMap<GasType, Vec<Option<f64>>>,
     pub measurement_diag_v: Vec<i64>,
+    pub concentration_t0: HashMap<GasType, f64>,
 
     pub diag_v: Vec<i64>,
 }
@@ -281,6 +283,17 @@ impl Cycle {
             return;
         }
         self.reload_gas_data();
+    }
+    pub fn calculate_concentration_at_t0(&mut self) {
+        for gas_type in self.gases.clone() {
+            if self.measurement_gas_v.get(&gas_type).unwrap().is_empty() {
+                self.concentration_t0.insert(gas_type, 0.0);
+            } else {
+                let t0 =
+                    self.measurement_gas_v.get(&gas_type).unwrap().first().unwrap().unwrap_or(0.0);
+                self.concentration_t0.insert(gas_type, t0);
+            }
+        }
     }
 
     pub fn set_end_lag_s(&mut self, new_lag: f64) {
@@ -970,6 +983,7 @@ impl Cycle {
         {
             self.get_peak_datetime(self.main_gas);
             self.get_measurement_datas();
+            self.calculate_concentration_at_t0();
             self.calculate_measurement_rs();
             self.check_main_r();
             self.find_highest_r_windows();
@@ -1102,6 +1116,30 @@ impl Cycle {
         self.flux.insert(gas_type, flux);
     }
 
+    pub fn ppb_to_nmol(&mut self) {
+        // Constants
+        const R: f64 = 8.314462618; // J/mol·K
+
+        let pressure_pa = self.air_pressure * 100.0; // Convert hPa to Pa
+        let temperature_k = self.air_temperature + 273.15; // Convert °C to K
+        let volume_m3 = self.chamber_volume / 1000.0; // Convert L to m³
+
+        let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
+        let ppb_to_nmol = conversion_factor * 1e-9 * 1e9; // mol → nmol, and ppb = 1e-9
+        let mut converted: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
+        for gas_type in self.gases.clone() {
+            if let Some(values) = self.gas_v.get(&gas_type) {
+                let new_vals = values.iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
+                converted.insert(gas_type, new_vals);
+            }
+            // if let Some(values) = self.gas_v.get_mut(&gas_type) {
+            //     for value in values.iter_mut().flatten() {
+            //         let val = *value *= ppb_to_nmol;
+            //     }
+            // }
+        }
+        self.gas_v_mole = converted;
+    }
     pub fn update_cycle(&mut self, _project: String) {
         self.get_calc_datas();
         self.get_measurement_datas();
@@ -1248,6 +1286,7 @@ impl CycleBuilder {
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
+            concentration_t0: HashMap::new(),
             open_lag_s: 0.,
             close_lag_s: 0.,
             end_lag_s: 0.,
@@ -1262,6 +1301,7 @@ impl CycleBuilder {
             diag_v: vec![],
             dt_v: vec![],
             gas_v: HashMap::new(),
+            gas_v_mole: HashMap::new(),
             calc_gas_v: HashMap::new(),
             calc_dt_v: HashMap::new(),
             measurement_gas_v: HashMap::new(),
@@ -1304,6 +1344,7 @@ impl CycleBuilder {
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
+            concentration_t0: HashMap::new(),
             open_lag_s: 0.,
             close_lag_s: 0.,
             end_lag_s: 0.,
@@ -1318,6 +1359,7 @@ impl CycleBuilder {
             diag_v: vec![],
             dt_v: vec![],
             gas_v: HashMap::new(),
+            gas_v_mole: HashMap::new(),
             calc_gas_v: HashMap::new(),
             calc_dt_v: HashMap::new(),
             measurement_gas_v: HashMap::new(),
@@ -1759,10 +1801,12 @@ pub fn load_fluxes(
             min_calc_range: MIN_CALC_AREA_RANGE,
             start_time,
             calc_dt_v,
+            concentration_t0: HashMap::new(),
             calc_gas_v,
             diag_v,
             dt_v,
             gas_v,
+            gas_v_mole: HashMap::new(),
             max_y,
             min_y,
             measurement_dt_v,
@@ -1809,11 +1853,15 @@ pub fn load_fluxes(
         }))
     })?;
 
-    let cycles: Vec<Cycle> =
+    let mut cycles: Vec<Cycle> =
         cycle_iter.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
     if cycles.is_empty() {
         // return Err("No cycles found".into());
         return Err(rusqlite::Error::InvalidQuery);
+    }
+    for c in &mut cycles {
+        c.calculate_concentration_at_t0();
+        c.ppb_to_nmol();
     }
     Ok(cycles)
 }
