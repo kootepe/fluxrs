@@ -7,8 +7,8 @@ use crate::fluxes_schema::{
 use crate::gasdata::{query_gas, query_gas_all};
 use crate::instruments::GasType;
 use crate::instruments::{get_instrument_by_model, InstrumentType};
+use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::stats::{self, LinReg};
-use crate::ProcessEvent;
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rusqlite::{params, Connection, Error, Result};
@@ -74,7 +74,7 @@ pub struct Cycle {
     pub calc_gas_v: HashMap<GasType, Vec<Option<f64>>>,
     pub measurement_gas_v: HashMap<GasType, Vec<Option<f64>>>,
     pub measurement_diag_v: Vec<i64>,
-    pub concentration_t0: HashMap<GasType, f64>,
+    pub t0_concentration: HashMap<GasType, f64>,
 
     pub diag_v: Vec<i64>,
 }
@@ -287,11 +287,11 @@ impl Cycle {
     pub fn calculate_concentration_at_t0(&mut self) {
         for gas_type in self.gases.clone() {
             if self.measurement_gas_v.get(&gas_type).unwrap().is_empty() {
-                self.concentration_t0.insert(gas_type, 0.0);
+                self.t0_concentration.insert(gas_type, 0.0);
             } else {
                 let t0 =
                     self.measurement_gas_v.get(&gas_type).unwrap().first().unwrap().unwrap_or(0.0);
-                self.concentration_t0.insert(gas_type, t0);
+                self.t0_concentration.insert(gas_type, t0);
             }
         }
     }
@@ -1286,7 +1286,7 @@ impl CycleBuilder {
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
-            concentration_t0: HashMap::new(),
+            t0_concentration: HashMap::new(),
             open_lag_s: 0.,
             close_lag_s: 0.,
             end_lag_s: 0.,
@@ -1344,7 +1344,7 @@ impl CycleBuilder {
             calc_range_start: HashMap::new(),
             min_y: HashMap::new(),
             max_y: HashMap::new(),
-            concentration_t0: HashMap::new(),
+            t0_concentration: HashMap::new(),
             open_lag_s: 0.,
             close_lag_s: 0.,
             end_lag_s: 0.,
@@ -1478,6 +1478,7 @@ fn execute_history_insert(
         cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
@@ -1485,6 +1486,7 @@ fn execute_history_insert(
         cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
@@ -1492,6 +1494,7 @@ fn execute_history_insert(
         cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
@@ -1499,6 +1502,7 @@ fn execute_history_insert(
         cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.manual_adjusted,
         cycle.manual_valid,
     ])?;
@@ -1532,6 +1536,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
@@ -1539,6 +1544,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
@@ -1546,6 +1552,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
@@ -1553,6 +1560,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.manual_adjusted,
         cycle.manual_valid,
     ])?;
@@ -1586,6 +1594,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::CH4).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CH4).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::CH4).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::CO2).copied().unwrap_or(1.0),
@@ -1593,6 +1602,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::CO2).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::CO2).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::CO2).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::H2O).copied().unwrap_or(1.0),
@@ -1600,6 +1610,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::H2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::H2O).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::H2O).copied().unwrap_or(0.0),
         cycle.flux.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
         cycle.measurement_r2.get(&GasType::N2O).copied().unwrap_or(1.0),
@@ -1607,6 +1618,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         cycle.linfit.get(&GasType::N2O).unwrap_or(&LinReg::new()).slope,
         cycle.calc_range_start.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.calc_range_end.get(&GasType::N2O).copied().unwrap_or(0.0),
+        cycle.t0_concentration.get(&GasType::N2O).copied().unwrap_or(0.0),
         cycle.manual_adjusted,
         cycle.manual_valid,
     ])?;
@@ -1646,7 +1658,7 @@ pub fn load_fluxes(
         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
         if let Some(prev_date) = date.clone() {
             if prev_date != day {
-                progress_sender.send(ProcessEvent::ProgressDay(day.clone())).ok();
+                progress_sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
             }
         }
 
@@ -1698,6 +1710,7 @@ pub fn load_fluxes(
         let mut slope_map = HashMap::new();
         let mut calc_range_start_map = HashMap::new();
         let mut calc_range_end_map = HashMap::new();
+        let mut t0_concentration = HashMap::new();
         let mut calc_gas_v = HashMap::new();
         let mut calc_dt_v = HashMap::new();
         let mut measurement_dt_v = Vec::new();
@@ -1730,6 +1743,8 @@ pub fn load_fluxes(
                         row.get(*column_index.get(&gas.calc_range_start_col()).unwrap())?;
                     let gas_calc_range_end: f64 =
                         row.get(*column_index.get(&gas.calc_range_end_col()).unwrap())?;
+                    let gas_t0_concentration: f64 =
+                        row.get(*column_index.get(&gas.t0_concentration_col()).unwrap())?;
 
                     flux.insert(gas, gas_flux);
                     calc_r2.insert(gas, gas_r2);
@@ -1737,6 +1752,8 @@ pub fn load_fluxes(
                     slope_map.insert(gas, gas_slope);
                     calc_range_start_map.insert(gas, gas_calc_range_start);
                     calc_range_end_map.insert(gas, gas_calc_range_end);
+                    calc_range_end_map.insert(gas, gas_calc_range_end);
+                    t0_concentration.insert(gas, gas_t0_concentration);
 
                     // Filter for calculation range using the per-gas calc range.
                     let (calc_dt, calc_vals) = filter_data_in_range(
@@ -1801,7 +1818,7 @@ pub fn load_fluxes(
             min_calc_range: MIN_CALC_AREA_RANGE,
             start_time,
             calc_dt_v,
-            concentration_t0: HashMap::new(),
+            t0_concentration,
             calc_gas_v,
             diag_v,
             dt_v,
@@ -1858,10 +1875,6 @@ pub fn load_fluxes(
     if cycles.is_empty() {
         // return Err("No cycles found".into());
         return Err(rusqlite::Error::InvalidQuery);
-    }
-    for c in &mut cycles {
-        c.calculate_concentration_at_t0();
-        c.ppb_to_nmol();
     }
     Ok(cycles)
 }

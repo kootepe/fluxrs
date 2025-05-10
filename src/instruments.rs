@@ -77,7 +77,9 @@ impl GasType {
     pub fn calc_range_end_col(&self) -> String {
         format!("{}_calc_range_end", self.column_name().to_lowercase())
     }
-
+    pub fn t0_concentration_col(&self) -> String {
+        format!("{}_t0_concentration", self.column_name().to_lowercase())
+    }
     pub fn color(&self) -> Color32 {
         match self {
             GasType::CH4 => Color32::GREEN,

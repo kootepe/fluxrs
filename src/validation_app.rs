@@ -11,11 +11,11 @@ use crate::gasdata::{insert_measurements, GasData};
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
+use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::timedata::{query_cycles_async, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
-use crate::ProcessEvent;
 use crate::{insert_cycles, process_cycles};
 use egui::FontFamily;
 use tokio::sync::mpsc;
@@ -37,7 +37,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum DataType {
     Gas,
     Cycle,
@@ -126,7 +126,7 @@ impl MainApp {
             });
         });
         ui.separator();
-        if !self.validation_panel.initiated {
+        if self.validation_panel.selected_project.is_none() {
             self.validation_panel.load_projects_from_db().unwrap();
         }
 
@@ -1026,7 +1026,7 @@ impl ValidationApp {
                                 plot_ui,
                                 &gas,
                                 |cycle, gas_type| {
-                                    *cycle.concentration_t0.get(gas_type).unwrap_or(&0.0)
+                                    *cycle.t0_concentration.get(gas_type).unwrap_or(&0.0)
                                 },
                                 "Conc t0",
                             );
@@ -1317,7 +1317,8 @@ impl ValidationApp {
 
                         match (cycles_result, gas_result, meteo_result, volume_result) {
                             (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
-                                let _ = progress_sender.send(ProcessEvent::QueryComplete);
+                                let _ = progress_sender
+                                    .send(ProcessEvent::Query(QueryEvent::QueryComplete));
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
                                     run_processing_dynamic(
                                         times,
@@ -1330,6 +1331,13 @@ impl ValidationApp {
                                     )
                                     .await;
                                     let _ = sender.send(());
+                                } else {
+                                    // let _ = progress_sender.send(ProcessEvent::Query(
+                                    //     QueryEvent::NoGasData("No data available".into()),
+                                    // ));
+                                    let _ = progress_sender.send(ProcessEvent::Done(Err(
+                                        "No data available.".to_owned(),
+                                    )));
                                 }
                             },
                             e => eprintln!("Failed to query database: {:?}", e),
@@ -1363,23 +1371,31 @@ impl ValidationApp {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-        ui.horizontal(|ui| {
-            if ui.button("Select Gas Files").clicked() {
-                self.selected_data_type = Some(DataType::Gas);
-                self.open_file_dialog();
-            }
-            if ui.button("Select Cycle Files").clicked() {
-                self.selected_data_type = Some(DataType::Cycle);
-                self.open_file_dialog();
-            }
-            if ui.button("Select Meteo Files").clicked() {
-                self.selected_data_type = Some(DataType::Meteo);
-                self.open_file_dialog();
-            }
-            if ui.button("Select Volume Files").clicked() {
-                self.selected_data_type = Some(DataType::Volume);
-                self.open_file_dialog();
-            }
+        if self.init_in_progress || !self.init_enabled {
+            ui.add(egui::Spinner::new());
+            ui.label("Reading files.");
+        }
+        let btns_disabled = self.init_enabled && !self.init_in_progress;
+        ui.add_enabled(btns_disabled, |ui: &mut egui::Ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Select Gas Files").clicked() {
+                    self.selected_data_type = Some(DataType::Gas);
+                    self.open_file_dialog();
+                }
+                if ui.button("Select Cycle Files").clicked() {
+                    self.selected_data_type = Some(DataType::Cycle);
+                    self.open_file_dialog();
+                }
+                if ui.button("Select Meteo Files").clicked() {
+                    self.selected_data_type = Some(DataType::Meteo);
+                    self.open_file_dialog();
+                }
+                if ui.button("Select Volume Files").clicked() {
+                    self.selected_data_type = Some(DataType::Volume);
+                    self.open_file_dialog();
+                }
+            })
+            .response
         });
 
         // Handle file selection
@@ -1387,60 +1403,177 @@ impl ValidationApp {
 
         self.log_display(ui);
     }
+
     pub fn handle_progress_messages(&mut self) {
         if let Some(receiver) = &mut self.progress_receiver {
             while let Ok(msg) = receiver.try_recv() {
                 match msg {
-                    ProcessEvent::QueryComplete => {
+                    ProcessEvent::Query(query_event) => match query_event {
+                        QueryEvent::InitStarted => {
+                            self.init_in_progress = true;
+                        },
+                        QueryEvent::InitEnded => {
+                            self.init_in_progress = false;
+                        },
+                        QueryEvent::QueryComplete => {
+                            self.query_in_progress = false;
+                            self.log_messages.push_front("Finished queries.".to_owned());
+                        },
+                        QueryEvent::NoGasData(start_time) => {
+                            self.log_messages.push_front(format!(
+                                "No gas data found for cycle at {}",
+                                start_time
+                            ));
+                        },
+                        QueryEvent::NoGasDataDay(day) => {
+                            self.log_messages
+                                .push_front(format!("No gas data found for day {}", day));
+                        },
+                    },
+
+                    ProcessEvent::Progress(progress_event) => match progress_event {
+                        ProgressEvent::Rows(current, total) => {
+                            self.cycles_state = Some((current, total));
+                            self.cycles_progress += current;
+                        },
+                        ProgressEvent::Day(date) => {
+                            self.log_messages.push_front(format!("Loaded cycles from {}", date));
+                        },
+                        ProgressEvent::NoGas(msg) => {
+                            self.log_messages.push_front(format!("Gas missing: {}", msg));
+                        },
+                    },
+
+                    ProcessEvent::Read(read_event) => match read_event {
+                        ReadEvent::File(filename) => {
+                            self.log_messages.push_front(format!("Read file: {}", filename));
+                        },
+                        ReadEvent::FileRows(filename, rows) => {
+                            self.log_messages
+                                .push_front(format!("Read file: {} with {} rows", filename, rows));
+                        },
+                        ReadEvent::FileFail(filename, e) => {
+                            self.log_messages.push_front(format!(
+                                "Failed to read file {}, error: {}",
+                                filename, e
+                            ));
+                        },
+                    },
+
+                    ProcessEvent::Insert(insert_event) => match insert_event {
+                        InsertEvent::Ok(rows) => {
+                            self.log_messages.push_front(format!("Inserted {} rows", rows));
+                        },
+                        InsertEvent::OkSkip(rows, duplicates) => {
+                            self.log_messages.push_front(format!(
+                                "Inserted {} rows, skipped {} duplicates.",
+                                rows, duplicates
+                            ));
+                        },
+                        InsertEvent::Fail(e) => {
+                            self.log_messages.push_front(format!("Failed to insert rows: {}", e));
+                        },
+                    },
+
+                    // ProcessEvent::Error(e) | ProcessEvent::NoGasError(e) => {
+                    //     self.log_messages.push_front(format!("Error: {}", e));
+                    // },
+                    ProcessEvent::Done(result) => {
+                        match result {
+                            Ok(()) => {
+                                self.log_messages.push_front("All processing finished.".into());
+                            },
+                            Err(e) => {
+                                self.log_messages
+                                    .push_front(format!("Processing finished with error: {}", e));
+                            },
+                        }
+                        self.cycles_progress = 0;
+                        self.init_in_progress = false;
+                        self.init_enabled = true;
                         self.query_in_progress = false;
                     },
-                    ProcessEvent::Progress(c) => {
-                        self.cycles_state = Some(c);
-                        let (current, _) = c;
-                        self.cycles_progress += current;
-                    },
-                    ProcessEvent::Error(e) => {
-                        self.log_messages.push_front(format!("Error: {}", e));
-                    },
-                    ProcessEvent::Done => {
-                        self.log_messages.push_front("All processing finished.".to_string());
-                        self.cycles_progress = 0;
-                    },
-                    ProcessEvent::NoGasData(start_time) => {
-                        self.log_messages
-                            .push_front(format!("No gas data found for cycle at {}", start_time));
-                    },
-                    ProcessEvent::ReadFile(filename) => {
-                        self.log_messages.push_front(format!("Read file: {}", filename));
-                    },
-                    ProcessEvent::ReadFileRows(filename, rows) => {
-                        self.log_messages
-                            .push_front(format!("Read file: {} with {} rows", filename, rows));
-                    },
-                    ProcessEvent::ReadFileFail(filename, e) => {
-                        self.log_messages
-                            .push_front(format!("Failed to read file {}, error: {}", filename, e));
-                    },
-                    ProcessEvent::InsertOk(rows) => {
-                        self.log_messages.push_front(format!("Inserted {} rows", rows));
-                    },
-                    ProcessEvent::InsertOkSkip(rows, duplicates) => {
-                        self.log_messages.push_front(format!(
-                            "Inserted {} rows, skipped {} duplicates.",
-                            rows, duplicates
-                        ));
-                    },
-                    ProcessEvent::InsertFail(e) => {
-                        self.log_messages.push_front(format!("Failed to insert rows: {}", e));
-                    },
-                    ProcessEvent::ProgressDay(date) => {
-                        self.log_messages.push_front(format!("Loaded cycles from {}", date));
-                    },
-                    _ => self.log_messages.push_front("Unformatted Processing Message".to_owned()),
+                    // ProcessEvent::Done => {
+                    //     self.log_messages.push_front("All processing finished.".to_string());
+                    //     self.cycles_progress = 0;
+                    // },
                 }
             }
         }
     }
+    // pub fn handle_progress_messages(&mut self) {
+    //     if let Some(receiver) = &mut self.progress_receiver {
+    //         while let Ok(msg) = receiver.try_recv() {
+    //             match msg {
+    //                 ProcessEvent::QueryComplete => {
+    //                     self.query_in_progress = false;
+    //                     self.log_messages.push_front("Finished queries.".to_owned());
+    //                 },
+    //                 ProcessEvent::Progress(c) => {
+    //                     self.cycles_state = Some(c);
+    //                     let (current, _) = c;
+    //                     self.cycles_progress += current;
+    //                 },
+    //                 ProcessEvent::Error(e) => {
+    //                     self.log_messages.push_front(format!("Error: {}", e));
+    //                 },
+    //                 ProcessEvent::NoGasError(e) => {
+    //                     self.log_messages.push_front(format!("Error: {}", e));
+    //                 },
+    //                 ProcessEvent::InitStarted => {
+    //                     self.init_in_progress = true;
+    //                     // self.log_messages.push_front(format!("Error: {}", e));
+    //                 },
+    //                 ProcessEvent::InitEnded => {
+    //                     self.init_in_progress = false;
+    //                     // self.log_messages.push_front(format!("Error: {}", e));
+    //                 },
+    //                 ProcessEvent::Done => {
+    //                     self.log_messages.push_front("All processing finished.".to_string());
+    //                     self.cycles_progress = 0;
+    //                 },
+    //                 ProcessEvent::DoneFail => {
+    //                     self.log_messages.push_front("All processing finished.".to_string());
+    //                     self.cycles_progress = 0;
+    //                     self.init_enabled = true;
+    //                     self.init_in_progress = false;
+    //                     self.query_in_progress = false;
+    //                 },
+    //                 ProcessEvent::NoGasData(start_time) => {
+    //                     self.log_messages
+    //                         .push_front(format!("No gas data found for cycle at {}", start_time));
+    //                 },
+    //                 ProcessEvent::ReadFile(filename) => {
+    //                     self.log_messages.push_front(format!("Read file: {}", filename));
+    //                 },
+    //                 ProcessEvent::ReadFileRows(filename, rows) => {
+    //                     self.log_messages
+    //                         .push_front(format!("Read file: {} with {} rows", filename, rows));
+    //                 },
+    //                 ProcessEvent::ReadFileFail(filename, e) => {
+    //                     self.log_messages
+    //                         .push_front(format!("Failed to read file {}, error: {}", filename, e));
+    //                 },
+    //                 ProcessEvent::InsertOk(rows) => {
+    //                     self.log_messages.push_front(format!("Inserted {} rows", rows));
+    //                 },
+    //                 ProcessEvent::InsertOkSkip(rows, duplicates) => {
+    //                     self.log_messages.push_front(format!(
+    //                         "Inserted {} rows, skipped {} duplicates.",
+    //                         rows, duplicates
+    //                     ));
+    //                 },
+    //                 ProcessEvent::InsertFail(e) => {
+    //                     self.log_messages.push_front(format!("Failed to insert rows: {}", e));
+    //                 },
+    //                 ProcessEvent::ProgressDay(date) => {
+    //                     self.log_messages.push_front(format!("Loaded cycles from {}", date));
+    //                 },
+    //                 _ => self.log_messages.push_front("Unformatted Processing Message".to_owned()),
+    //             }
+    //         }
+    //     }
+    // }
     fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
         self.log_messages.push_front("Uploading cycle data...".to_string());
 
@@ -1641,12 +1774,16 @@ impl ValidationApp {
                 Ok(mut conn) => {
                     if let Some(data_type) = data_type {
                         match data_type {
-                            DataType::Gas => process_gas_files_async(
-                                path_list,
-                                &mut conn,
-                                project,
-                                progress_sender,
-                            ),
+                            DataType::Gas => {
+                                let _ = progress_sender
+                                    .send(ProcessEvent::Query(QueryEvent::InitStarted));
+                                process_gas_files_async(
+                                    path_list,
+                                    &mut conn,
+                                    project,
+                                    progress_sender,
+                                )
+                            },
                             DataType::Cycle => {
                                 upload_cycle_data_async(path_list, &mut conn, project, log_messages)
                             },
@@ -1690,6 +1827,7 @@ impl ValidationApp {
     }
 
     fn load_projects_from_db(&mut self) -> Result<()> {
+        println!("loading project");
         let conn = Connection::open("fluxrs.db")?;
 
         let mut stmt = conn.prepare("SELECT project_id FROM projects")?;
@@ -1761,7 +1899,7 @@ impl ValidationApp {
         ui.separator();
         ui.heading("Change current project");
         ui.add_space(10.);
-        if !self.initiated {
+        if self.selected_project.is_none() {
             self.load_projects_from_db().unwrap();
         }
 
@@ -1835,10 +1973,15 @@ impl ValidationApp {
         ui.add_space(10.);
 
         if ui.button("Add Project").clicked() {
-            if let Err(err) = self.save_project_to_db() {
-                eprintln!("Failed to save project: {}", err);
+            if let Some(gas) = self.main_gas {
+                if let Err(err) = self.save_project_to_db() {
+                    eprintln!("Failed to save project: {}", err);
+                }
+            } else {
+                self.log_messages.push_front("No main gas selected.".to_string());
             }
         }
+        self.log_display(ui);
     }
 
     pub fn dl_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
@@ -2208,8 +2351,9 @@ pub async fn run_processing_dynamic(
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    if times.start_time.is_empty() || gas_data.is_empty() {
-        let _ = progress_sender.send(ProcessEvent::Error("No data available".into()));
+    let all_empty = gas_data.values().all(|g| g.datetime.is_empty());
+    if all_empty {
+        let _ = progress_sender.send(ProcessEvent::Done(Err("No data available".to_owned())));
         return;
     }
 
@@ -2249,14 +2393,15 @@ pub async fn run_processing_dynamic(
                 ) {
                     Ok(result) => {
                         if processed >= total_cycles {
-                            let _ = progress_sender.send(ProcessEvent::Done);
+                            let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
                         }
                         let count = result.iter().flatten().count();
-                        let _ = progress_sender.send(ProcessEvent::Progress((count, total_cycles)));
+                        let _ = progress_sender
+                            .send(ProcessEvent::Progress(ProgressEvent::Rows(count, total_cycles)));
                         Ok(result)
                     },
                     Err(e) => {
-                        let _ = progress_sender.send(ProcessEvent::Error(e.to_string()));
+                        let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
                         Err(e)
                     },
                 }
@@ -2293,7 +2438,7 @@ pub async fn run_processing_dynamic(
     }
 
     // Final insert (if you're collecting cycles earlier)
-    let _ = progress_sender.send(ProcessEvent::Done);
+    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
 }
 async fn run_processing(
     times: TimeData,
@@ -2351,11 +2496,12 @@ async fn run_processing(
                 Ok(result) => {
                     println!("sent message");
                     let count = result.iter().flatten().count();
-                    let _ = progress_sender.send(ProcessEvent::Progress((count, total_cycles)));
+                    let _ = progress_sender
+                        .send(ProcessEvent::Progress(ProgressEvent::Rows(count, total_cycles)));
                     Ok(result)
                 },
                 Err(e) => {
-                    let _ = progress_sender.send(ProcessEvent::Error(format!("{}", e)));
+                    let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
                     Err(e)
                 },
             }
@@ -2564,25 +2710,29 @@ pub fn process_gas_files_async(
                         all_gas.gas.entry(gas_type).or_default().extend(values);
                     }
 
-                    let _ = progress_sender
-                        .send(ProcessEvent::ReadFileRows(path.to_str().unwrap().to_owned(), rows));
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileRows(
+                        path.to_str().unwrap().to_owned(),
+                        rows,
+                    )));
                 }
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::ReadFileFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
                     path.to_str().unwrap().to_owned(),
                     format!("{}", e),
-                ));
+                )));
             },
         }
     }
 
     match insert_measurements(conn, &all_gas, project) {
         Ok((count, duplicates)) => {
-            let _ = progress_sender.send(ProcessEvent::InsertOkSkip(count, duplicates));
+            let _ =
+                progress_sender.send(ProcessEvent::Insert(InsertEvent::OkSkip(count, duplicates)));
+            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::InitEnded));
         },
         Err(e) => {
-            let _ = progress_sender.send(ProcessEvent::InsertFail(format!("{}", e)));
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!("{}", e))));
         },
     }
 }

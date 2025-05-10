@@ -1,7 +1,7 @@
 use crate::fluxes_schema::{create_flux_history_table, create_flux_table};
 use rusqlite::{Connection, Result};
 
-const DB_VERSION: i32 = 5;
+const DB_VERSION: i32 = 6;
 
 pub fn migrate_db() -> Result<i32> {
     let conn = Connection::open("fluxrs.db")?;
@@ -42,6 +42,43 @@ pub fn migrate_db() -> Result<i32> {
         conn.execute("ALTER TABLE fluxes ADD COLUMN h2o_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
         conn.execute("ALTER TABLE fluxes ADD COLUMN n2o_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
         migrated = 5;
+    }
+    if current_version < 6 {
+        println!("Applying migration 6: Add t0 concentration");
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+        conn.execute(
+            "ALTER TABLE fluxes ADD COLUMN ch4_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE fluxes ADD COLUMN co2_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE fluxes ADD COLUMN h2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE fluxes ADD COLUMN n2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE flux_history ADD COLUMN ch4_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE flux_history ADD COLUMN co2_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE flux_history ADD COLUMN h2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        conn.execute(
+            "ALTER TABLE flux_history ADD COLUMN n2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
+            [],
+        )?;
+        migrated = 6;
     }
 
     Ok(migrated)

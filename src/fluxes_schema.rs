@@ -338,29 +338,33 @@ pub mod fluxes_col {
     pub const CH4_SLOPE: usize = 23;
     pub const CH4_CALC_START: usize = 24;
     pub const CH4_CALC_END: usize = 25;
-    pub const CO2_FLUX: usize = 26;
-    pub const CO2_R2: usize = 27;
-    pub const CO2_MEASUREMENT_R2: usize = 28;
-    pub const CO2_INTERCEPT: usize = 29;
-    pub const CO2_SLOPE: usize = 30;
-    pub const CO2_CALC_START: usize = 31;
-    pub const CO2_CALC_END: usize = 32;
-    pub const H2O_FLUX: usize = 33;
-    pub const H2O_R2: usize = 34;
-    pub const H2O_MEASUREMENT_R2: usize = 35;
-    pub const H2O_INTERCEPT: usize = 36;
-    pub const H2O_SLOPE: usize = 37;
-    pub const H2O_CALC_START: usize = 38;
-    pub const H2O_CALC_END: usize = 39;
-    pub const N2O_FLUX: usize = 40;
-    pub const N2O_R2: usize = 41;
-    pub const N2O_MEASUREMENT_R2: usize = 42;
-    pub const N2O_INTERCEPT: usize = 43;
-    pub const N2O_SLOPE: usize = 44;
-    pub const N2O_CALC_START: usize = 45;
-    pub const N2O_CALC_END: usize = 46;
-    pub const MANUAL_ADJUSTED: usize = 47;
-    pub const MANUAL_VALID: usize = 48;
+    pub const CH4_T0_CONC: usize = 26;
+    pub const CO2_FLUX: usize = 27;
+    pub const CO2_R2: usize = 28;
+    pub const CO2_MEASUREMENT_R2: usize = 29;
+    pub const CO2_INTERCEPT: usize = 30;
+    pub const CO2_SLOPE: usize = 31;
+    pub const CO2_CALC_START: usize = 32;
+    pub const CO2_CALC_END: usize = 33;
+    pub const CO2_T0_CONC: usize = 34;
+    pub const H2O_FLUX: usize = 35;
+    pub const H2O_R2: usize = 36;
+    pub const H2O_MEASUREMENT_R2: usize = 37;
+    pub const H2O_INTERCEPT: usize = 38;
+    pub const H2O_SLOPE: usize = 39;
+    pub const H2O_CALC_START: usize = 40;
+    pub const H2O_CALC_END: usize = 41;
+    pub const H2O_T0_CONC: usize = 42;
+    pub const N2O_FLUX: usize = 43;
+    pub const N2O_R2: usize = 44;
+    pub const N2O_MEASUREMENT_R2: usize = 45;
+    pub const N2O_INTERCEPT: usize = 46;
+    pub const N2O_SLOPE: usize = 47;
+    pub const N2O_CALC_START: usize = 48;
+    pub const N2O_CALC_END: usize = 49;
+    pub const N2O_T0_CONC: usize = 50;
+    pub const MANUAL_ADJUSTED: usize = 51;
+    pub const MANUAL_VALID: usize = 52;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -414,6 +418,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "ch4_slope",
     "ch4_calc_range_start",
     "ch4_calc_range_end",
+    "ch4_t0_concentration",
     "co2_flux",
     "co2_r2",
     "co2_measurement_r2",
@@ -421,6 +426,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "co2_slope",
     "co2_calc_range_start",
     "co2_calc_range_end",
+    "co2_t0_concentration",
     "h2o_flux",
     "h2o_r2",
     "h2o_measurement_r2",
@@ -428,6 +434,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "h2o_slope",
     "h2o_calc_range_start",
     "h2o_calc_range_end",
+    "h2o_t0_concentration",
     "n2o_flux",
     "n2o_r2",
     "n2o_measurement_r2",
@@ -435,6 +442,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "n2o_slope",
     "n2o_calc_range_start",
     "n2o_calc_range_end",
+    "n2o_t0_concentration",
     "manual_adjusted",
     "manual_valid",
 ];
@@ -525,6 +533,7 @@ pub fn create_flux_table() -> String {
             ch4_slope FLOAT,
             ch4_calc_range_start FLOAT,
             ch4_calc_range_end FLOAT,
+            ch4_t0_concentration FLOAT,
 
             co2_flux FLOAT,
             co2_r2 FLOAT,
@@ -533,6 +542,7 @@ pub fn create_flux_table() -> String {
             co2_slope FLOAT,
             co2_calc_range_start FLOAT,
             co2_calc_range_end FLOAT,
+            co2_t0_concentration FLOAT,
 
             h2o_flux FLOAT,
             h2o_r2 FLOAT,
@@ -541,6 +551,7 @@ pub fn create_flux_table() -> String {
             h2o_slope FLOAT,
             h2o_calc_range_start FLOAT,
             h2o_calc_range_end FLOAT,
+            h2o_t0_concentration FLOAT,
 
             n2o_flux FLOAT,
             n2o_r2 FLOAT,
@@ -549,6 +560,7 @@ pub fn create_flux_table() -> String {
             n2o_slope FLOAT,
             n2o_calc_range_start FLOAT,
             n2o_calc_range_end FLOAT,
+            n2o_t0_concentration FLOAT,
 
             manual_adjusted BOOL NOT NULL,
             manual_valid bool NOT NULL,
@@ -591,6 +603,7 @@ pub fn create_flux_history_table() -> String {
             ch4_slope FLOAT,
             ch4_calc_range_start FLOAT,
             ch4_calc_range_end FLOAT,
+            ch4_t0_concentration FLOAT,
 
             co2_flux FLOAT,
             co2_r2 FLOAT,
@@ -599,6 +612,7 @@ pub fn create_flux_history_table() -> String {
             co2_slope FLOAT,
             co2_calc_range_start FLOAT,
             co2_calc_range_end FLOAT,
+            co2_t0_concentration FLOAT,
 
             h2o_flux FLOAT,
             h2o_r2 FLOAT,
@@ -607,6 +621,7 @@ pub fn create_flux_history_table() -> String {
             h2o_slope FLOAT,
             h2o_calc_range_start FLOAT,
             h2o_calc_range_end FLOAT,
+            h2o_t0_concentration FLOAT,
 
             n2o_flux FLOAT,
             n2o_r2 FLOAT,
@@ -615,6 +630,7 @@ pub fn create_flux_history_table() -> String {
             n2o_slope FLOAT,
             n2o_calc_range_start FLOAT,
             n2o_calc_range_end FLOAT,
+            n2o_t0_concentration FLOAT,
 
             manual_adjusted BOOL NOT NULL,
             manual_valid bool NOT NULL,

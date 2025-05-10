@@ -1,16 +1,22 @@
+use crate::gasdata::{query_gas, GasData};
 use crate::instruments::InstrumentType;
-use crate::processevent::ProcessEvent;
+use crate::meteodata::MeteoData;
+use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::timedata::TimeData;
+use crate::traits::EqualLen;
+use crate::volumedata::VolumeData;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use csv::StringRecord;
 use csv::Writer;
+use cycle::{Cycle, CycleBuilder};
+use instruments::GasType;
+use instruments::Li7810;
 use rusqlite::{params, Connection, Result};
-use tokio::sync::mpsc;
-// use gas_plot::draw_gas_plot;
+use std::collections::HashMap;
+use std::error::Error;
 use std::fs::File;
 use std::process;
-
-use instruments::Li7810;
-use std::error::Error;
+use tokio::sync::mpsc;
 
 pub mod app_plotting;
 pub mod archiverecord;
@@ -36,18 +42,7 @@ pub mod timedata;
 pub mod traits;
 mod validation_app;
 pub mod volumedata;
-use crate::gasdata::{query_gas, GasData};
-use crate::meteodata::MeteoData;
-use crate::timedata::TimeData;
-use crate::traits::EqualLen;
-use crate::volumedata::VolumeData;
-use instruments::GasType;
-// mod app;
-// mod plot_demo;
 
-use std::collections::HashMap;
-
-use cycle::{Cycle, CycleBuilder};
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,
     flux: Vec<f64>,
@@ -537,14 +532,21 @@ fn process_cycles(
             cycle.chamber_volume = volume;
             cycle.reset();
             if cycle.dt_v.is_empty() {
-                let _ =
-                    progress_sender.send(ProcessEvent::NoGasData(format!("{}", cycle.start_time)));
+                let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(format!(
+                    "{}",
+                    cycle.start_time
+                ))));
+                // progress_sender.send(ProcessEvent::NoGasData(format!("{}", cycle.start_time)));
                 cycle_vec.push(None);
             } else {
                 cycle_vec.push(Some(cycle));
             }
         } else {
             no_data_for_day = true;
+            progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(format!(
+                "{}",
+                &start.format("%Y-%m-%d").to_string()
+            ))))?;
             continue;
         }
     }

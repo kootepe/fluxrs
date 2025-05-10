@@ -31,6 +31,7 @@ fn main() -> eframe::Result {
             Ok(3) => println!("Successfully migrated to db version 3"),
             Ok(4) => println!("Successfully migrated to db version 4"),
             Ok(5) => println!("Successfully migrated to db version 5"),
+            Ok(6) => println!("Successfully migrated to db version 6"),
             Ok(_) => println!("Unknown success code."),
             Err(e) => println!("Err:\n {}", e),
         }
