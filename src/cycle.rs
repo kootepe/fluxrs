@@ -60,6 +60,7 @@ pub struct Cycle {
     pub linfit: HashMap<GasType, LinReg>,
     pub measurement_range_start: f64,
     pub measurement_range_end: f64,
+    pub fluxes: Vec<Box<dyn FluxModel>>,
     pub measurement_r2: HashMap<GasType, f64>,
     pub calc_r2: HashMap<GasType, f64>,
 

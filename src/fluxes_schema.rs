@@ -330,41 +330,41 @@ pub mod fluxes_col {
     pub const CHAMBER_VOLUME: usize = 15;
     pub const ERROR_CODE: usize = 16;
     pub const IS_VALID: usize = 17;
-    pub const MAIN_GAS_R2: usize = 18;
-    pub const CH4_FLUX: usize = 19;
+    pub const MANUAL_ADJUSTED: usize = 18;
+    pub const MANUAL_VALID: usize = 19;
+    // pub const MAIN_GAS_R2: usize = 19;
+    // pub const CH4_FLUX: usize = 20;
     pub const CH4_R2: usize = 20;
-    pub const CH4_MEASUREMENT_R2: usize = 21;
-    pub const CH4_INTERCEPT: usize = 22;
-    pub const CH4_SLOPE: usize = 23;
-    pub const CH4_CALC_START: usize = 24;
-    pub const CH4_CALC_END: usize = 25;
-    pub const CH4_T0_CONC: usize = 26;
-    pub const CO2_FLUX: usize = 27;
-    pub const CO2_R2: usize = 28;
-    pub const CO2_MEASUREMENT_R2: usize = 29;
-    pub const CO2_INTERCEPT: usize = 30;
-    pub const CO2_SLOPE: usize = 31;
-    pub const CO2_CALC_START: usize = 32;
-    pub const CO2_CALC_END: usize = 33;
-    pub const CO2_T0_CONC: usize = 34;
-    pub const H2O_FLUX: usize = 35;
-    pub const H2O_R2: usize = 36;
-    pub const H2O_MEASUREMENT_R2: usize = 37;
-    pub const H2O_INTERCEPT: usize = 38;
-    pub const H2O_SLOPE: usize = 39;
-    pub const H2O_CALC_START: usize = 40;
-    pub const H2O_CALC_END: usize = 41;
-    pub const H2O_T0_CONC: usize = 42;
-    pub const N2O_FLUX: usize = 43;
-    pub const N2O_R2: usize = 44;
-    pub const N2O_MEASUREMENT_R2: usize = 45;
-    pub const N2O_INTERCEPT: usize = 46;
-    pub const N2O_SLOPE: usize = 47;
-    pub const N2O_CALC_START: usize = 48;
-    pub const N2O_CALC_END: usize = 49;
-    pub const N2O_T0_CONC: usize = 50;
-    pub const MANUAL_ADJUSTED: usize = 51;
-    pub const MANUAL_VALID: usize = 52;
+    // pub const CH4_MEASUREMENT_R2: usize = 22;
+    // pub const CH4_INTERCEPT: usize = 23;
+    // pub const CH4_SLOPE: usize = 24;
+    // pub const CH4_CALC_START: usize = 25;
+    // pub const CH4_CALC_END: usize = 26;
+    pub const CH4_T0_CONC: usize = 21;
+    // pub const CO2_FLUX: usize = 28;
+    pub const CO2_R2: usize = 22;
+    // pub const CO2_MEASUREMENT_R2: usize = 30;
+    // pub const CO2_INTERCEPT: usize = 31;
+    // pub const CO2_SLOPE: usize = 32;
+    // pub const CO2_CALC_START: usize = 33;
+    // pub const CO2_CALC_END: usize = 34;
+    pub const CO2_T0_CONC: usize = 23;
+    // pub const H2O_FLUX: usize = 36;
+    pub const H2O_R2: usize = 24;
+    // pub const H2O_MEASUREMENT_R2: usize = 38;
+    // pub const H2O_INTERCEPT: usize = 39;
+    // pub const H2O_SLOPE: usize = 40;
+    // pub const H2O_CALC_START: usize = 41;
+    // pub const H2O_CALC_END: usize = 42;
+    pub const H2O_T0_CONC: usize = 25;
+    // pub const N2O_FLUX: usize = 44;
+    pub const N2O_R2: usize = 26;
+    // pub const N2O_MEASUREMENT_R2: usize = 46;
+    // pub const N2O_INTERCEPT: usize = 47;
+    // pub const N2O_SLOPE: usize = 48;
+    // pub const N2O_CALC_START: usize = 49;
+    // pub const N2O_CALC_END: usize = 50;
+    // pub const N2O_T0_CONC: usize = 51;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -410,41 +410,16 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "chamber_volume",
     "error_code",
     "is_valid",
-    "main_gas_r2",
-    "ch4_flux",
-    "ch4_r2",
-    "ch4_measurement_r2",
-    "ch4_intercept",
-    "ch4_slope",
-    "ch4_calc_range_start",
-    "ch4_calc_range_end",
-    "ch4_t0_concentration",
-    "co2_flux",
-    "co2_r2",
-    "co2_measurement_r2",
-    "co2_intercept",
-    "co2_slope",
-    "co2_calc_range_start",
-    "co2_calc_range_end",
-    "co2_t0_concentration",
-    "h2o_flux",
-    "h2o_r2",
-    "h2o_measurement_r2",
-    "h2o_intercept",
-    "h2o_slope",
-    "h2o_calc_range_start",
-    "h2o_calc_range_end",
-    "h2o_t0_concentration",
-    "n2o_flux",
-    "n2o_r2",
-    "n2o_measurement_r2",
-    "n2o_intercept",
-    "n2o_slope",
-    "n2o_calc_range_start",
-    "n2o_calc_range_end",
-    "n2o_t0_concentration",
     "manual_adjusted",
     "manual_valid",
+    "ch4_measurement_r2",
+    "ch4_t0_concentration",
+    "co2_measurement_r2",
+    "co2_t0_concentration",
+    "h2o_measurement_r2",
+    "h2o_t0_concentration",
+    "n2o_measurement_r2",
+    "n2o_t0_concentration",
 ];
 pub fn make_select_all_fluxes() -> String {
     format!(
@@ -503,7 +478,74 @@ pub fn make_update_fluxes() -> String {
     format!("UPDATE fluxes SET {} WHERE {}", set_clause.join(", "), where_clause)
 }
 
+pub fn make_insert_flux_results() -> String {
+    "INSERT INTO flux_results (
+        cycle_id, fit_id, gas_type,
+        flux, r2, intercept, slope,
+        range_start, range_end
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+        .to_owned()
+}
 pub fn create_flux_table() -> String {
+    "CREATE TABLE IF NOT EXISTS fluxes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    instrument_model TEXT NOT NULL,
+    instrument_serial TEXT NOT NULL,
+    chamber_id TEXT NOT NULL,
+    main_gas TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    start_time INTEGER NOT NULL,
+
+    close_offset INTEGER NOT NULL,
+    open_offset INTEGER NOT NULL,
+    end_offset INTEGER NOT NULL,
+    open_lag_s INTEGER NOT NULL,
+    close_lag_s INTEGER NOT NULL,
+    end_lag_s INTEGER NOT NULL,
+    start_lag_s INTEGER NOT NULL,
+
+    air_pressure FLOAT,
+    air_temperature FLOAT,
+    chamber_volume FLOAT,
+
+    error_code INTEGER,
+    is_valid BOOL,
+    manual_adjusted BOOL NOT NULL,
+    manual_valid BOOL NOT NULL,
+
+    ch4_measurement_r2 FLOAT,
+    ch4_t0_concentration FLOAT,
+    co2_measurement_r2 FLOAT,
+    co2_t0_concentration FLOAT,
+    n2o_measurement_r2 FLOAT,
+    n2o_t0_concentration FLOAT,
+    h2o_measurement_r2 FLOAT,
+    h2o_t0_concentration FLOAT,
+    UNIQUE (instrument_serial, start_time, project_id)
+);"
+    .to_owned()
+}
+pub fn create_flux_results_table() -> String {
+    "CREATE TABLE flux_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cycle_id INTEGER NOT NULL, -- FK to fluxes.id
+    gas_type TEXT NOT NULL,
+    fit_id TEXT NOT NULL, -- e.g., \"linear\", \"robust\", etc.
+    flux FLOAT NOT NULL,
+    r2 FLOAT,
+    intercept FLOAT,
+    slope FLOAT,
+    range_start INTEGER,
+    range_end INTEGER,
+
+
+    FOREIGN KEY (cycle_id) REFERENCES fluxes(id) ON DELETE CASCADE,
+    UNIQUE (cycle_id, gas_type, fit_id)
+);"
+    .to_owned()
+}
+pub fn _create_flux_table() -> String {
     "CREATE TABLE IF NOT EXISTS fluxes (
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,

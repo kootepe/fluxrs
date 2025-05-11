@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+dyn-clone = "1.0.19"
 rayon = "1.10.0"
 egui_file = "0.22"
 egui_extras = { version = "*", default-features = false, features = ["datepicker"] }

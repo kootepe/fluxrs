@@ -2416,21 +2416,58 @@ pub async fn run_processing_dynamic(
 
         match result {
             Ok(Ok(cycles)) => {
-                if cycles.is_empty() {
-                } else {
-                    match insert_fluxes_ignore_duplicates(
-                        &mut conn.lock().unwrap(),
-                        &cycles,
-                        project.clone(),
-                    ) {
+                if !cycles.is_empty() {
+                    let mut conn = conn.lock().unwrap();
+                    match insert_fluxes_ignore_duplicates(&mut conn, &cycles, project.clone()) {
                         Ok((_, _)) => {
-                            // println!("{} Fluxes inserted successfully!", pushed);
-                            // println!("{} cycles skipped.", skipped);
+                            for cycle_opt in cycles.into_iter().flatten() {
+                                // Lookup the inserted flux ID to associate flux results
+                                let cycle_id: i64 = conn.query_row(
+                                "SELECT id FROM fluxes
+                                 WHERE instrument_serial = ?1 AND start_time = ?2 AND project_id = ?3",
+                                params![
+                                    cycle_opt.instrument_serial,
+                                    cycle_opt.start_time.timestamp(),
+                                    cycle_opt.project_id
+                                ],
+                                |row| row.get(0),
+                            ).unwrap_or(-1);
+
+                                if cycle_id >= 0 {
+                                    if let Err(e) =
+                                        insert_flux_results(&mut conn, cycle_id, &cycle_opt.fluxes)
+                                    {
+                                        eprintln!("Error inserting flux results: {}", e);
+                                    }
+                                }
+                            }
+                            // for cycle_opt in &cycles {
+                            //     if let Some(cycle) = cycle_opt {
+                            //         // Lookup the inserted flux ID to associate flux results
+                            //         let cycle_id: i64 = conn.query_row(
+                            //     "SELECT id FROM fluxes
+                            //      WHERE instrument_serial = ?1 AND start_time = ?2 AND project_id = ?3",
+                            //     params![
+                            //         cycle.instrument_serial,
+                            //         cycle.start_time.timestamp(),
+                            //         cycle.project_id
+                            //     ],
+                            //     |row| row.get(0),
+                            // ).unwrap_or(-1);
+                            //
+                            //         if cycle_id >= 0 {
+                            //             if let Err(e) =
+                            //                 insert_flux_results(&mut conn, cycle_id, &cycle.fluxes)
+                            //             {
+                            //                 eprintln!("Error inserting flux results: {}", e);
+                            //             }
+                            //         }
+                            //     }
+                            // }
                         },
                         Err(e) => eprintln!("Error inserting fluxes: {}", e),
                     }
                 }
-                // handle your successful cycles
             },
             Ok(Err(e)) => eprintln!("Cycle error: {e}"),
             Err(e) => eprintln!("Join error: {e}"),

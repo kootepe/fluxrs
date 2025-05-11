@@ -1,4 +1,6 @@
-use crate::fluxes_schema::{create_flux_history_table, create_flux_table};
+use crate::fluxes_schema::{
+    create_flux_history_table, create_flux_results_table, create_flux_table,
+};
 use rusqlite::{Connection, Result};
 
 const DB_VERSION: i32 = 6;
@@ -149,6 +151,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
     conn.execute(&create_flux_table(), [])?;
+    conn.execute(&create_flux_results_table(), [])?;
     conn.execute(&create_flux_history_table(), [])?;
 
     Ok(())
