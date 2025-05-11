@@ -26,6 +26,7 @@ mod csv_parse;
 pub mod cycle;
 pub mod cycle_navigator;
 pub mod errorcode;
+pub mod flux;
 pub mod fluxes_schema;
 mod gas_plot;
 pub mod gasdata;

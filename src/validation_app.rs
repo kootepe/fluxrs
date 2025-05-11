@@ -26,7 +26,7 @@ use egui_plot::{LineStyle, PlotPoints, PlotUi, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use csv::Writer;
-use rusqlite::{types::ValueRef, Connection, Result, Row};
+use rusqlite::{params, types::ValueRef, Connection, Result, Row};
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
@@ -2428,7 +2428,7 @@ pub async fn run_processing_dynamic(
                                 params![
                                     cycle_opt.instrument_serial,
                                     cycle_opt.start_time.timestamp(),
-                                    cycle_opt.project_id
+                                    cycle_opt.project_name
                                 ],
                                 |row| row.get(0),
                             ).unwrap_or(-1);

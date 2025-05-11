@@ -126,12 +126,10 @@ impl LinearFlux {
         gas_type: GasType,
         flux: f64,
         r2: f64,
-        intercept: f64,
-        slope: f64,
+        model: LinReg,
         range_start: f64,
         range_end: f64,
     ) -> Option<Self> {
-        let model = LinReg::from_val(intercept, slope);
         Some(Self { fit_id: fit_id.to_string(), gas_type, flux, r2, model, range_start, range_end })
     }
     pub fn flux_from_vec(

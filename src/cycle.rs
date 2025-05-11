@@ -1,5 +1,6 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::errorcode::{ErrorCode, ErrorMask};
+use crate::flux::{FluxModel, LinearFlux};
 use crate::fluxes_schema::{
     fluxes_col, make_insert_flux_history, make_insert_or_ignore_fluxes, make_select_fluxes,
     make_update_fluxes,
@@ -1294,6 +1295,7 @@ impl CycleBuilder {
             start_lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
+            fluxes: Vec::new(),
             linfit: HashMap::new(),
             calc_r2: HashMap::new(),
             measurement_r2: HashMap::new(),
@@ -1352,6 +1354,7 @@ impl CycleBuilder {
             start_lag_s: 0.,
             max_idx: 0.,
             flux: HashMap::new(),
+            fluxes: Vec::new(),
             linfit: HashMap::new(),
             calc_r2: HashMap::new(),
             measurement_r2: HashMap::new(),
@@ -1865,6 +1868,7 @@ pub fn load_fluxes(
             .timestamp() as f64,
             linfit: slope_map,
             flux,
+            fluxes: Vec::new(),
             measurement_r2,
             calc_r2,
             // Other fields (dt_v, calc_dt_v, etc.) can be initialized as needed.
