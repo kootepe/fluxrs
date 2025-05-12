@@ -343,9 +343,9 @@ pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
 }
 
-pub fn get_instrument_by_model(model: &str) -> Option<Li7810> {
+pub fn get_instrument_by_model(model: InstrumentType) -> Option<Li7810> {
     match model {
-        "LI-7810" => Some(Li7810::default()),
+        InstrumentType::Li7810 => Some(Li7810::default()),
         _ => None,
     }
 }

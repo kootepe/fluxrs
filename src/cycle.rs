@@ -5,7 +5,7 @@ use crate::fluxes_schema::{
     fluxes_col, make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
     make_select_fluxes, make_update_fluxes,
 };
-use crate::gasdata::{query_gas, query_gas_all};
+use crate::gasdata::{query_gas, query_gas2, query_gas_all};
 use crate::instruments::GasType;
 use crate::instruments::{get_instrument_by_model, InstrumentType};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
@@ -24,6 +24,7 @@ pub const WINDOW_INCREMENT: usize = 5;
 
 #[derive(Clone)]
 pub struct Cycle {
+    pub id: i64,
     pub chamber_id: String,
     pub instrument_model: InstrumentType,
     pub instrument_serial: String,
@@ -1971,6 +1972,183 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
 //     }
 //     Ok(cycles)
 // }
+
+pub fn load_cycles(
+    conn: &Connection,
+    project: &str,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+) -> Result<Vec<Cycle>> {
+    let mut date: Option<String> = None;
+    let start = start.timestamp();
+    let end = end.timestamp();
+    let gas_data = query_gas2(conn, start, end, project.to_owned())?;
+    let mut stmt = conn.prepare(
+        "SELECT * FROM fluxes
+         WHERE project_id = ?1 AND start_time BETWEEN ?2 AND ?3
+         ORDER BY start_time",
+    )?;
+
+    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let column_index: HashMap<String, usize> =
+        column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
+    let mut cycles = Vec::new();
+    let rows = stmt.query_map(params![project, start, end], |row| {
+        let id: i64 = row.get(*column_index.get("id").unwrap())?;
+        let model_string: String = row.get(*column_index.get("instrument_model").unwrap())?;
+        let instrument_model = InstrumentType::from_str(&model_string);
+        let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
+        let start_timestamp: i64 = row.get(*column_index.get("start_time").unwrap())?;
+        let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
+
+        let gastypes = get_instrument_by_model(instrument_model).unwrap().base.gas_cols;
+        let gases: Vec<GasType> =
+            gastypes.iter().filter_map(|name| name.parse::<GasType>().ok()).collect();
+
+        let main_gas_str: String = row.get(*column_index.get("main_gas").unwrap())?;
+        let main_gas = main_gas_str.parse::<GasType>().ok().unwrap();
+        let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+        let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+        if let Some(prev_date) = date.clone() {
+            if prev_date != day {
+                progress_sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
+            }
+        }
+
+        date = Some(day.clone());
+        let close_offset: i64 = row.get(*column_index.get("close_offset").unwrap())?;
+        let open_offset: i64 = row.get(*column_index.get("open_offset").unwrap())?;
+        let end_offset: i64 = row.get(*column_index.get("end_offset").unwrap())?;
+        // needs to be on two rows
+        let open_lag_s: f64 = row.get(*column_index.get("open_lag_s").unwrap())?;
+        let close_lag_s: f64 = row.get(*column_index.get("close_lag_s").unwrap())?;
+        let end_lag_s: f64 = row.get(*column_index.get("end_lag_s").unwrap())?;
+        let start_lag_s: f64 = row.get(*column_index.get("start_lag_s").unwrap())?;
+
+        let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
+        let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
+        let chamber_volume: f64 = row.get(*column_index.get("chamber_volume").unwrap())?;
+
+        let close_time = start_time + TimeDelta::seconds(close_offset);
+        let open_time = start_time + TimeDelta::seconds(open_offset);
+        let end_time = start_time + TimeDelta::seconds(end_offset);
+
+        let error_code_u16: u16 = row.get(*column_index.get("error_code").unwrap())?;
+        let error_code = ErrorMask::from_u16(error_code_u16);
+        let is_valid: bool = row.get(*column_index.get("is_valid").unwrap())?;
+        let project_name = row.get(*column_index.get("project_id").unwrap())?;
+        let manual_adjusted = row.get(*column_index.get("manual_adjusted").unwrap())?;
+        let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
+
+        let mut override_valid = None;
+        if manual_valid {
+            override_valid = Some(is_valid);
+        }
+
+        let mut dt_v = Vec::new();
+        let mut diag_v = Vec::new();
+        let mut gas_v = HashMap::new();
+        let mut min_y = HashMap::new();
+        let mut max_y = HashMap::new();
+        let mut t0_concentration = HashMap::new();
+        let mut measurement_r2 = HashMap::new();
+        let mut calc_range_start = HashMap::new();
+        let mut calc_range_end = HashMap::new();
+
+        if let Some(gas_data_day) = gas_data.get(&day) {
+            for (i, gas) in instrument_model.available_gases().iter().enumerate() {
+                if let Some(g_values) = gas_data_day.gas.get(&gas) {
+                    let (meas_dt, meas_vals) = filter_data_in_range(
+                        &gas_data_day.datetime,
+                        g_values,
+                        start_time.timestamp() as f64,
+                        end_time.timestamp() as f64,
+                    );
+                    if i == 0 {
+                        dt_v = meas_dt;
+                    }
+                    gas_v.insert(*gas, meas_vals.clone());
+                    max_y.insert(*gas, calculate_max_y_from_vec(&meas_vals));
+                    min_y.insert(*gas, calculate_min_y_from_vec(&meas_vals));
+                    let target = close_offset + close_lag_s as i64 + open_lag_s as i64;
+
+                    let s = target as usize;
+                    let e = (open_offset + close_lag_s as i64 + open_lag_s as i64) as usize;
+
+                    let y: Vec<f64> = dt_v[s..e].iter().map(|d| d.timestamp() as f64).collect();
+                    let x: Vec<f64> = meas_vals[s..e].iter().map(|g| g.unwrap()).collect();
+                    let r2 = stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2);
+                    let t0 = meas_vals[target as usize].unwrap();
+                    t0_concentration.insert(*gas, t0);
+                    measurement_r2.insert(*gas, r2);
+                }
+                if i == 0 {
+                    let (_, diag_vals) = filter_diag_data(
+                        &gas_data_day.datetime,
+                        &gas_data_day.diag,
+                        start_time.timestamp() as f64,
+                        end_time.timestamp() as f64,
+                    );
+                    diag_v = diag_vals;
+                }
+            }
+        }
+        // pub fn get_measurement_data2(&self, gas_type: GasType) -> (Vec<f64>, Vec<Option<f64>>) {
+        //         let mut gas_ret = Vec::new();
+        //         let mut dt_ret = Vec::new();
+        //         if let Some(gas_v) = self.gas_v.get(&gas_type) {
+        //             let s = self.get_adjusted_close_offset() as usize;
+        //             let e = self.get_adjusted_open_offset() as usize;
+        //             dt_ret = self.dt_v[s..e].iter().map(|d| d.timestamp() as f64).collect();
+        //             gas_ret = gas_v[s..e].to_vec();
+        //         }
+        //         (dt_ret, gas_ret)
+        //     }
+        Ok(Cycle {
+            id,
+            instrument_model,
+            instrument_serial,
+            chamber_id,
+            project_name,
+            start_time,
+            close_offset,
+            open_offset,
+            end_offset,
+            open_lag_s,
+            close_lag_s,
+            end_lag_s,
+            start_lag_s,
+            max_idx: 0.0, // Default value.
+            gases,
+            calc_range_start,
+            calc_range_end,
+            // The following fields were not stored; use defaults.
+            measurement_range_start: (start_time
+                + TimeDelta::seconds(start_lag_s as i64)
+                + TimeDelta::seconds(close_offset)
+                + TimeDelta::seconds(open_lag_s as i64))
+            .timestamp() as f64,
+            measurement_range_end: (start_time
+                + TimeDelta::seconds(end_lag_s as i64)
+                + TimeDelta::seconds(close_offset)
+                + TimeDelta::seconds(open_lag_s as i64))
+            .timestamp() as f64,
+            linfit: slope_map,
+            flux,
+            measurement_r2,
+            calc_r2,
+            // Other fields (dt_v, calc_dt_v, etc.) can be initialized as needed.
+        })
+    })?;
+
+    let cycles: Vec<Cycle> = rows.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+    if cycles.is_empty() {
+        // return Err("No cycles found".into());
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    Ok(cycles)
+}
 // pub fn load_fluxes(
 //     conn: &mut Connection,
 //     start: DateTime<Utc>,
