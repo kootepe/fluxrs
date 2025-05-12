@@ -13,8 +13,9 @@ use crate::stats::{self, LinReg};
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use rusqlite::{params, Connection, Error, Result};
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 use std::fmt;
+use std::hash::Hash;
 use tokio::sync::mpsc;
 
 // the window of max r must be at least 240 seconds
@@ -30,9 +31,6 @@ pub struct Cycle {
     pub instrument_serial: String,
     pub project_name: String,
     pub start_time: chrono::DateTime<chrono::Utc>,
-    pub close_time: chrono::DateTime<chrono::Utc>,
-    pub open_time: chrono::DateTime<chrono::Utc>,
-    pub end_time: chrono::DateTime<chrono::Utc>,
     pub air_temperature: f64,
     pub air_pressure: f64,
     pub chamber_volume: f64,
@@ -2049,6 +2047,9 @@ pub fn load_cycles(
         let mut dt_v = Vec::new();
         let mut diag_v = Vec::new();
         let mut gas_v = HashMap::new();
+        let mut measurement_dt_v = Vec::new();
+        let mut measurement_diag_v = Vec::new();
+        let mut measurement_gas_v = HashMap::new();
         let mut min_y = HashMap::new();
         let mut max_y = HashMap::new();
         let mut t0_concentration = HashMap::new();
@@ -2065,19 +2066,31 @@ pub fn load_cycles(
                         start_time.timestamp() as f64,
                         end_time.timestamp() as f64,
                     );
+                    let (_, diag_vals) = filter_diag_data(
+                        &gas_data_day.datetime,
+                        &gas_data_day.diag,
+                        start_time.timestamp() as f64,
+                        end_time.timestamp() as f64,
+                    );
                     if i == 0 {
                         dt_v = meas_dt;
                     }
                     gas_v.insert(*gas, meas_vals.clone());
+                    dt_v = meas_dt;
+                    diag_v = diag_vals;
                     max_y.insert(*gas, calculate_max_y_from_vec(&meas_vals));
                     min_y.insert(*gas, calculate_min_y_from_vec(&meas_vals));
                     let target = close_offset + close_lag_s as i64 + open_lag_s as i64;
 
                     let s = target as usize;
                     let e = (open_offset + close_lag_s as i64 + open_lag_s as i64) as usize;
+                    measurement_dt_v = dt_v[s..e].to_vec();
+                    measurement_diag_v = diag_vals[s..e].to_vec();
+                    measurement_gas_v.insert(*gas, meas_vals[s..e].to_vec());
 
                     let y: Vec<f64> = dt_v[s..e].iter().map(|d| d.timestamp() as f64).collect();
                     let x: Vec<f64> = meas_vals[s..e].iter().map(|g| g.unwrap()).collect();
+
                     let r2 = stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2);
                     let t0 = meas_vals[target as usize].unwrap();
                     t0_concentration.insert(*gas, t0);
@@ -2109,6 +2122,9 @@ pub fn load_cycles(
             id,
             instrument_model,
             instrument_serial,
+            air_pressure,
+            air_temperature,
+            chamber_volume,
             chamber_id,
             project_name,
             start_time,
@@ -2123,6 +2139,25 @@ pub fn load_cycles(
             gases,
             calc_range_start,
             calc_range_end,
+            min_y,
+            max_y,
+            is_valid,
+            manual_valid,
+            override_valid,
+            min_calc_range: MIN_CALC_AREA_RANGE,
+            error_code,
+            main_gas,
+            dt_v,
+            gas_v,
+            manual_adjusted,
+            fluxes: Vec::new(),
+            gas_v_mole: HashMap::new(),
+            measurement_dt_v,
+            measurement_gas_v,
+            measurement_diag_v,
+            t0_concentration,
+            diag_v,
+
             // The following fields were not stored; use defaults.
             measurement_range_start: (start_time
                 + TimeDelta::seconds(start_lag_s as i64)
@@ -2134,18 +2169,58 @@ pub fn load_cycles(
                 + TimeDelta::seconds(close_offset)
                 + TimeDelta::seconds(open_lag_s as i64))
             .timestamp() as f64,
-            linfit: slope_map,
-            flux,
             measurement_r2,
-            calc_r2,
             // Other fields (dt_v, calc_dt_v, etc.) can be initialized as needed.
         })
     })?;
 
-    let cycles: Vec<Cycle> = rows.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
-    if cycles.is_empty() {
-        // return Err("No cycles found".into());
-        return Err(rusqlite::Error::InvalidQuery);
+    // let cycles: Vec<Cycle> = rows.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+    // if cycles.is_empty() {
+    //     // return Err("No cycles found".into());
+    //     return Err(rusqlite::Error::InvalidQuery);
+    let mut stmt = conn.prepare(
+    "SELECT cycle_id, fit_id, gas_type, flux, r2, intercept, slope, range_start, range_end
+     FROM flux_results
+     WHERE cycle_id IN (SELECT id FROM fluxes WHERE project_id = ?1 AND start_time BETWEEN ?2 AND ?3)"
+)?;
+    let mut flux_models_by_cycle: HashMap<i64, Vec<Box<dyn FluxModel>>> = HashMap::new();
+
+    let flux_rows = stmt.query_map(params![project, start, end], |row| {
+        let cycle_id: i64 = row.get(0)?;
+        let fit_id: String = row.get(1)?;
+        let gas_type: GasType = row.get::<_, String>(2)?.parse().unwrap_or(GasType::CH4);
+
+        let flux = row.get(3)?;
+        let r2 = row.get(4)?;
+        let intercept = row.get(5)?;
+        let slope = row.get(6)?;
+        let range_start = row.get(7)?;
+        let range_end = row.get(8)?;
+        let model = LinReg::from_val(intercept, slope);
+
+        let model = LinearFlux {
+            fit_id: fit_id.clone(),
+            gas_type,
+            flux,
+            r2,
+            model,
+            range_start,
+            range_end,
+        };
+
+        Ok((cycle_id, Box::new(model) as Box<dyn FluxModel>))
+    })?;
+    for row in flux_rows {
+        let (cycle_id, model) = row?;
+        flux_models_by_cycle.entry(cycle_id).or_default().push(model);
+    }
+    for row in rows {
+        cycles.push(row?);
+    }
+    for cycle in &mut cycles {
+        if let Some(models) = flux_models_by_cycle.remove(&cycle.id) {
+            cycle.fluxes = models;
+        }
     }
     Ok(cycles)
 }

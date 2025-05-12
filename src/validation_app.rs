@@ -3,7 +3,7 @@ use crate::archiverecord::ArchiveRecord;
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::csv_parse;
 use crate::cycle::{
-    insert_flux_results, insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes,
+    insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, update_fluxes,
 };
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
@@ -1193,14 +1193,9 @@ impl ValidationApp {
 
                 self.runtime.spawn(async move {
                     let result = match Connection::open("fluxrs.db") {
-                        Ok(mut conn) => load_fluxes(
-                            &mut conn,
-                            start_date,
-                            end_date,
-                            project,
-                            serial,
-                            progress_sender,
-                        ),
+                        Ok(mut conn) => {
+                            load_cycles(&mut conn, &project, start_date, end_date, progress_sender)
+                        },
                         Err(e) => Err(e),
                     };
 
@@ -2683,7 +2678,7 @@ fn render_recalculate_ui(
 
             let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
             match (
-                load_fluxes(&mut conn, start_date, end_date, project.clone(), instrument_serial.clone(), progress_sender),
+                load_cycles(&mut conn, &project, start_date, end_date, progress_sender),
                 query_volume(&conn, start_date, end_date,project.clone()),
             ) {
                 (Ok(mut cycles), Ok(volumes)) => {
