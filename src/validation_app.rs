@@ -2,7 +2,9 @@ use crate::app_plotting::{init_attribute_plot, init_gas_plot, init_lag_plot};
 use crate::archiverecord::ArchiveRecord;
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::csv_parse;
-use crate::cycle::{insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes};
+use crate::cycle::{
+    insert_flux_results, insert_fluxes_ignore_duplicates, load_fluxes, update_fluxes,
+};
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
