@@ -2,8 +2,8 @@ use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::errorcode::{ErrorCode, ErrorMask};
 use crate::flux::{FluxModel, LinearFlux};
 use crate::fluxes_schema::{
-    fluxes_col, make_insert_flux_history, make_insert_or_ignore_fluxes, make_select_fluxes,
-    make_update_fluxes,
+    fluxes_col, make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
+    make_select_fluxes, make_update_fluxes,
 };
 use crate::gasdata::{query_gas, query_gas_all};
 use crate::instruments::GasType;
@@ -1409,6 +1409,94 @@ pub fn insert_fluxes_ignore_duplicates(
     tx.commit()?;
     Ok((inserted, skipped))
 }
+
+pub fn insert_flux_results(
+    conn: &mut Connection,
+    cycle_id: i64,
+    fluxes: &[Box<dyn FluxModel>],
+) -> rusqlite::Result<(usize, usize)> {
+    let mut inserted = 0;
+    let mut skipped = 0;
+
+    let tx = conn.transaction()?;
+
+    {
+        let mut stmt = tx.prepare(&make_insert_flux_results())?;
+
+        for model in fluxes {
+            // Only handling LinearFlux for now — add others as needed
+            if let Some(lin) = model.as_any().downcast_ref::<LinearFlux>() {
+                // Skip if flux is NaN or invalid
+                if lin.flux.is_nan() || lin.r2.is_nan() {
+                    skipped += 1;
+                    continue;
+                }
+
+                stmt.execute(params![
+                    cycle_id,
+                    lin.fit_id,
+                    lin.gas_type.to_string(),
+                    lin.flux,
+                    lin.r2,
+                    lin.model.intercept,
+                    lin.model.slope,
+                    lin.range_start,
+                    lin.range_end,
+                ])?;
+                inserted += 1;
+            } else {
+                skipped += 1;
+            }
+        }
+    }
+
+    tx.commit()?;
+    Ok((inserted, skipped))
+}
+// pub fn insert_flux_results(
+//     conn: &mut Connection,
+//     cycle_id: i64,
+//     fluxes: &[Box<dyn FluxModel>],
+// ) -> Result<usize, usize> {
+//     let mut inserted = 0;
+//     let mut skipped = 0;
+//     let tx = conn.transaction()?;
+//
+//     {
+//         let mut stmt = tx.prepare(
+//             "INSERT INTO flux_results (
+//             cycle_id, fit_id, gas_type,
+//             flux, r2, intercept, slope,
+//             range_start, range_end
+//         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+//         )?;
+//
+//         for model in fluxes {
+//             if let Some(lin) = model.as_any().downcast_ref::<LinearFlux>() {
+//                 match model {
+//                     Some(m) => {
+//                         stmt.execute(params![
+//                             cycle_id,
+//                             lin.fit_id,
+//                             lin.gas_type.to_string(),
+//                             lin.flux,
+//                             lin.r2,
+//                             lin.model.intercept,
+//                             lin.model.slope,
+//                             lin.range_start,
+//                             lin.range_end,
+//                         ])?;
+//                     },
+//                     None => println!("fail"),
+//                 };
+//             }
+//             // Add other model types here if needed
+//         }
+//     }
+//
+//     tx.commit()?;
+//     Ok((inserted, skipped))
+// }
 pub fn update_fluxes(
     conn: &mut Connection,
     cycles: &[Cycle],
@@ -1628,261 +1716,261 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
     ])?;
     Ok(())
 }
-pub fn load_fluxes(
-    conn: &mut Connection,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    project: String,
-    instrument_serial: String,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) -> Result<Vec<Cycle>> {
-    let mut stmt = conn.prepare(&make_select_fluxes())?;
-    let gas_data = query_gas(conn, start, end, project.clone(), instrument_serial)?;
-    let s = start.timestamp();
-    let e = end.timestamp();
-    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-    let column_index: HashMap<String, usize> =
-        column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
-    let mut date: Option<String> = None;
-    let cycle_iter = stmt.query_map(params![s, e, project.clone()], |row| {
-        // Basic fields
-        let instrument_model: String = row.get(*column_index.get("instrument_model").unwrap())?;
-        let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
-        let start_timestamp: i64 = row.get(*column_index.get("start_time").unwrap())?;
-        let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
-        // let flux_key = (chamber_id.clone(), start_timestamp);
-
-        let gases = get_instrument_by_model(&instrument_model).unwrap().base.gas_cols;
-        let gastypes: Vec<GasType> =
-            gases.iter().filter_map(|name| name.parse::<GasType>().ok()).collect();
-
-        let main_gas_str: String = row.get(*column_index.get("main_gas").unwrap())?;
-        let main_gas = main_gas_str.parse::<GasType>().ok().unwrap();
-        let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
-        let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
-        if let Some(prev_date) = date.clone() {
-            if prev_date != day {
-                progress_sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
-            }
-        }
-
-        date = Some(day.clone());
-        let close_offset: i64 = row.get(*column_index.get("close_offset").unwrap())?;
-        let open_offset: i64 = row.get(*column_index.get("open_offset").unwrap())?;
-        let end_offset: i64 = row.get(*column_index.get("end_offset").unwrap())?;
-        // needs to be on two rows
-        let open_lag_s: f64 = row.get(*column_index.get("open_lag_s").unwrap())?;
-        let close_lag_s: f64 = row.get(*column_index.get("close_lag_s").unwrap())?;
-        let end_lag_s: f64 = row.get(*column_index.get("end_lag_s").unwrap())?;
-        let start_lag_s: f64 = row.get(*column_index.get("start_lag_s").unwrap())?;
-
-        let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
-        let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
-
-        let error_code_u16: u16 = row.get(*column_index.get("error_code").unwrap())?;
-        let error_code = ErrorMask::from_u16(error_code_u16);
-
-        let is_valid: bool = row.get(*column_index.get("is_valid").unwrap())?;
-        // let main_gas_r2: f64 = row.get(fluxes_col::MAIN_GAS_R2)?;
-
-        // Compute derived times from start_time and offsets.
-        let close_time = start_time + TimeDelta::seconds(close_offset);
-        let open_time = start_time + TimeDelta::seconds(open_offset);
-        let end_time = start_time + TimeDelta::seconds(end_offset);
-
-        let gas_columns = vec![
-            (GasType::CH4, fluxes_col::CH4_FLUX),
-            (GasType::CO2, fluxes_col::CO2_FLUX),
-            (GasType::H2O, fluxes_col::H2O_FLUX),
-            (GasType::N2O, fluxes_col::N2O_FLUX),
-        ];
-
-        let manual_adjusted = row.get(*column_index.get("manual_adjusted").unwrap())?;
-        let project_name = row.get(*column_index.get("project_id").unwrap())?;
-        let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
-        let chamber_volume: f64 = row.get(*column_index.get("chamber_volume").unwrap())?;
-        let mut override_valid = None;
-        if manual_valid {
-            override_valid = Some(is_valid);
-        }
-        let filtered: Vec<(GasType, usize)> =
-            gas_columns.into_iter().filter(|(gas, _)| gastypes.contains(gas)).collect();
-        // Initialize the HashMaps.
-        let mut flux = HashMap::new();
-        let mut calc_r2 = HashMap::new();
-        // let mut measurement_r2 = HashMap::new();
-        let mut slope_map = HashMap::new();
-        let mut calc_range_start_map = HashMap::new();
-        let mut calc_range_end_map = HashMap::new();
-        let mut t0_concentration = HashMap::new();
-        let mut calc_gas_v = HashMap::new();
-        let mut calc_dt_v = HashMap::new();
-        let mut measurement_dt_v = Vec::new();
-        let measurement_diag_v = Vec::new();
-        let mut measurement_gas_v = HashMap::new();
-        let measurement_range_start = close_time + TimeDelta::seconds(open_lag_s as i64);
-        let measurement_range_end = open_time + TimeDelta::seconds(open_lag_s as i64);
-        let mut dt_v = Vec::new();
-        let mut diag_v = Vec::new();
-        let mut gas_v = HashMap::new();
-        let mut min_y = HashMap::new();
-        let mut max_y = HashMap::new();
-        let mut measurement_r2 = HashMap::new();
-
-        if let Some(gas_data_day) = gas_data.get(&day) {
-            // --- Calculation & Measurement Filtering for Each Gas ---
-            for (gas, _base_idx) in filtered {
-                if let Some(g_values) = gas_data_day.gas.get(&gas) {
-                    // Here you extract per-gas values from the flux row.
-                    // (We assume that part of the code remains the same.)
-                    let gas_flux: f64 = row.get(*column_index.get(&gas.flux_col()).unwrap())?;
-                    let gas_r2: f64 = row.get(*column_index.get(&gas.r2_col()).unwrap())?;
-                    let gas_measurement_r2: f64 =
-                        row.get(*column_index.get(&gas.measurement_r2_col()).unwrap())?;
-                    let gas_slope = LinReg::from_val(
-                        row.get(*column_index.get(&gas.intercept_col()).unwrap())?,
-                        row.get(*column_index.get(&gas.slope_col()).unwrap())?,
-                    );
-                    let gas_calc_range_start: f64 =
-                        row.get(*column_index.get(&gas.calc_range_start_col()).unwrap())?;
-                    let gas_calc_range_end: f64 =
-                        row.get(*column_index.get(&gas.calc_range_end_col()).unwrap())?;
-                    let gas_t0_concentration: f64 =
-                        row.get(*column_index.get(&gas.t0_concentration_col()).unwrap())?;
-
-                    flux.insert(gas, gas_flux);
-                    calc_r2.insert(gas, gas_r2);
-                    measurement_r2.insert(gas, gas_measurement_r2);
-                    slope_map.insert(gas, gas_slope);
-                    calc_range_start_map.insert(gas, gas_calc_range_start);
-                    calc_range_end_map.insert(gas, gas_calc_range_end);
-                    calc_range_end_map.insert(gas, gas_calc_range_end);
-                    t0_concentration.insert(gas, gas_t0_concentration);
-
-                    // Filter for calculation range using the per-gas calc range.
-                    let (calc_dt, calc_vals) = filter_data_in_range(
-                        &gas_data_day.datetime,
-                        g_values,
-                        calc_range_start_map.get(&gas).copied().unwrap_or(0.0),
-                        calc_range_end_map.get(&gas).copied().unwrap_or(0.0),
-                    );
-
-                    calc_dt_v.insert(gas, calc_dt);
-                    calc_gas_v.insert(gas, calc_vals);
-
-                    // Filter for measurement range using the cycle's measurement range.
-                    let (meas_dt, meas_vals) = filter_data_in_range(
-                        &gas_data_day.datetime,
-                        g_values,
-                        measurement_range_start.timestamp() as f64,
-                        measurement_range_end.timestamp() as f64,
-                    );
-                    if gas == main_gas {
-                        // For the main gas, assign the filtered datetime vector.
-                        measurement_dt_v = meas_dt;
-                    }
-                    measurement_gas_v.insert(gas, meas_vals);
-                }
-            }
-
-            // --- Overall Cycle Data Filtering ---
-            // Filter diagnostic data (diag_v) and full datetime (dt_v) for the entire cycle:
-            let (dt_v_full, diag_v_full) = filter_diag_data(
-                &gas_data_day.datetime,
-                &gas_data_day.diag,
-                start_time.timestamp() as f64 + start_lag_s,
-                end_time.timestamp() as f64 + end_lag_s,
-            );
-            dt_v = dt_v_full; // Assign overall datetime vector.
-            diag_v = diag_v_full; // Assign overall diagnostic vector.
-            if dt_v.is_empty() {
-                return Ok(None); // Use `None` to skip cycle
-            }
-            for &gas in &gastypes {
-                if let Some(g_values) = gas_data_day.gas.get(&gas) {
-                    let (_full_dt, full_vals) = filter_data_in_range(
-                        &gas_data_day.datetime,
-                        g_values,
-                        start_time.timestamp() as f64 + start_lag_s,
-                        end_time.timestamp() as f64 + end_lag_s,
-                    );
-                    max_y.insert(gas, calculate_max_y_from_vec(&full_vals));
-                    min_y.insert(gas, calculate_min_y_from_vec(&full_vals));
-                    gas_v.insert(gas, full_vals);
-                    // Optionally, store full_dt in a dedicated dt map if needed.
-                }
-            }
-        }
-        Ok(Some(Cycle {
-            instrument_model: InstrumentType::from_str(&instrument_model),
-            instrument_serial,
-            project_name,
-            manual_adjusted,
-            chamber_id,
-            min_calc_range: MIN_CALC_AREA_RANGE,
-            start_time,
-            calc_dt_v,
-            t0_concentration,
-            calc_gas_v,
-            diag_v,
-            dt_v,
-            gas_v,
-            gas_v_mole: HashMap::new(),
-            max_y,
-            min_y,
-            measurement_dt_v,
-            measurement_gas_v,
-            measurement_diag_v,
-            close_time,
-            open_time,
-            end_time,
-            air_temperature,
-            air_pressure,
-            chamber_volume,
-            error_code,
-            is_valid,
-            override_valid,
-            manual_valid,
-            main_gas,
-            close_offset,
-            open_offset,
-            end_offset,
-            open_lag_s,
-            close_lag_s,
-            end_lag_s,
-            start_lag_s,
-            max_idx: 0.0, // Default value.
-            gases: gastypes,
-            calc_range_start: calc_range_start_map,
-            calc_range_end: calc_range_end_map,
-            // The following fields were not stored; use defaults.
-            measurement_range_start: (start_time
-                + TimeDelta::seconds(start_lag_s as i64)
-                + TimeDelta::seconds(close_offset)
-                + TimeDelta::seconds(open_lag_s as i64))
-            .timestamp() as f64,
-            measurement_range_end: (start_time
-                + TimeDelta::seconds(end_lag_s as i64)
-                + TimeDelta::seconds(close_offset)
-                + TimeDelta::seconds(open_lag_s as i64))
-            .timestamp() as f64,
-            linfit: slope_map,
-            flux,
-            fluxes: Vec::new(),
-            measurement_r2,
-            calc_r2,
-            // Other fields (dt_v, calc_dt_v, etc.) can be initialized as needed.
-        }))
-    })?;
-
-    let mut cycles: Vec<Cycle> =
-        cycle_iter.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
-    if cycles.is_empty() {
-        // return Err("No cycles found".into());
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    Ok(cycles)
-}
+// pub fn load_fluxes(
+//     conn: &mut Connection,
+//     start: DateTime<Utc>,
+//     end: DateTime<Utc>,
+//     project: String,
+//     instrument_serial: String,
+//     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+// ) -> Result<Vec<Cycle>> {
+//     let mut stmt = conn.prepare(&make_select_fluxes())?;
+//     let gas_data = query_gas(conn, start, end, project.clone(), instrument_serial)?;
+//     let s = start.timestamp();
+//     let e = end.timestamp();
+//     let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+//     let column_index: HashMap<String, usize> =
+//         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
+//     let mut date: Option<String> = None;
+//     let cycle_iter = stmt.query_map(params![s, e, project.clone()], |row| {
+//         // Basic fields
+//         let instrument_model: String = row.get(*column_index.get("instrument_model").unwrap())?;
+//         let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
+//         let start_timestamp: i64 = row.get(*column_index.get("start_time").unwrap())?;
+//         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
+//         // let flux_key = (chamber_id.clone(), start_timestamp);
+//
+//         let gases = get_instrument_by_model(&instrument_model).unwrap().base.gas_cols;
+//         let gastypes: Vec<GasType> =
+//             gases.iter().filter_map(|name| name.parse::<GasType>().ok()).collect();
+//
+//         let main_gas_str: String = row.get(*column_index.get("main_gas").unwrap())?;
+//         let main_gas = main_gas_str.parse::<GasType>().ok().unwrap();
+//         let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+//         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+//         if let Some(prev_date) = date.clone() {
+//             if prev_date != day {
+//                 progress_sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
+//             }
+//         }
+//
+//         date = Some(day.clone());
+//         let close_offset: i64 = row.get(*column_index.get("close_offset").unwrap())?;
+//         let open_offset: i64 = row.get(*column_index.get("open_offset").unwrap())?;
+//         let end_offset: i64 = row.get(*column_index.get("end_offset").unwrap())?;
+//         // needs to be on two rows
+//         let open_lag_s: f64 = row.get(*column_index.get("open_lag_s").unwrap())?;
+//         let close_lag_s: f64 = row.get(*column_index.get("close_lag_s").unwrap())?;
+//         let end_lag_s: f64 = row.get(*column_index.get("end_lag_s").unwrap())?;
+//         let start_lag_s: f64 = row.get(*column_index.get("start_lag_s").unwrap())?;
+//
+//         let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
+//         let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
+//
+//         let error_code_u16: u16 = row.get(*column_index.get("error_code").unwrap())?;
+//         let error_code = ErrorMask::from_u16(error_code_u16);
+//
+//         let is_valid: bool = row.get(*column_index.get("is_valid").unwrap())?;
+//         // let main_gas_r2: f64 = row.get(fluxes_col::MAIN_GAS_R2)?;
+//
+//         // Compute derived times from start_time and offsets.
+//         let close_time = start_time + TimeDelta::seconds(close_offset);
+//         let open_time = start_time + TimeDelta::seconds(open_offset);
+//         let end_time = start_time + TimeDelta::seconds(end_offset);
+//
+//         let gas_columns = vec![
+//             (GasType::CH4, fluxes_col::CH4_FLUX),
+//             (GasType::CO2, fluxes_col::CO2_FLUX),
+//             (GasType::H2O, fluxes_col::H2O_FLUX),
+//             (GasType::N2O, fluxes_col::N2O_FLUX),
+//         ];
+//
+//         let manual_adjusted = row.get(*column_index.get("manual_adjusted").unwrap())?;
+//         let project_name = row.get(*column_index.get("project_id").unwrap())?;
+//         let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
+//         let chamber_volume: f64 = row.get(*column_index.get("chamber_volume").unwrap())?;
+//         let mut override_valid = None;
+//         if manual_valid {
+//             override_valid = Some(is_valid);
+//         }
+//         let filtered: Vec<(GasType, usize)> =
+//             gas_columns.into_iter().filter(|(gas, _)| gastypes.contains(gas)).collect();
+//         // Initialize the HashMaps.
+//         let mut flux = HashMap::new();
+//         let mut calc_r2 = HashMap::new();
+//         // let mut measurement_r2 = HashMap::new();
+//         let mut slope_map = HashMap::new();
+//         let mut calc_range_start_map = HashMap::new();
+//         let mut calc_range_end_map = HashMap::new();
+//         let mut t0_concentration = HashMap::new();
+//         let mut calc_gas_v = HashMap::new();
+//         let mut calc_dt_v = HashMap::new();
+//         let mut measurement_dt_v = Vec::new();
+//         let measurement_diag_v = Vec::new();
+//         let mut measurement_gas_v = HashMap::new();
+//         let measurement_range_start = close_time + TimeDelta::seconds(open_lag_s as i64);
+//         let measurement_range_end = open_time + TimeDelta::seconds(open_lag_s as i64);
+//         let mut dt_v = Vec::new();
+//         let mut diag_v = Vec::new();
+//         let mut gas_v = HashMap::new();
+//         let mut min_y = HashMap::new();
+//         let mut max_y = HashMap::new();
+//         let mut measurement_r2 = HashMap::new();
+//
+//         if let Some(gas_data_day) = gas_data.get(&day) {
+//             // --- Calculation & Measurement Filtering for Each Gas ---
+//             for (gas, _base_idx) in filtered {
+//                 if let Some(g_values) = gas_data_day.gas.get(&gas) {
+//                     // Here you extract per-gas values from the flux row.
+//                     // (We assume that part of the code remains the same.)
+//                     let gas_flux: f64 = row.get(*column_index.get(&gas.flux_col()).unwrap())?;
+//                     let gas_r2: f64 = row.get(*column_index.get(&gas.r2_col()).unwrap())?;
+//                     let gas_measurement_r2: f64 =
+//                         row.get(*column_index.get(&gas.measurement_r2_col()).unwrap())?;
+//                     let gas_slope = LinReg::from_val(
+//                         row.get(*column_index.get(&gas.intercept_col()).unwrap())?,
+//                         row.get(*column_index.get(&gas.slope_col()).unwrap())?,
+//                     );
+//                     let gas_calc_range_start: f64 =
+//                         row.get(*column_index.get(&gas.calc_range_start_col()).unwrap())?;
+//                     let gas_calc_range_end: f64 =
+//                         row.get(*column_index.get(&gas.calc_range_end_col()).unwrap())?;
+//                     let gas_t0_concentration: f64 =
+//                         row.get(*column_index.get(&gas.t0_concentration_col()).unwrap())?;
+//
+//                     flux.insert(gas, gas_flux);
+//                     calc_r2.insert(gas, gas_r2);
+//                     measurement_r2.insert(gas, gas_measurement_r2);
+//                     slope_map.insert(gas, gas_slope);
+//                     calc_range_start_map.insert(gas, gas_calc_range_start);
+//                     calc_range_end_map.insert(gas, gas_calc_range_end);
+//                     calc_range_end_map.insert(gas, gas_calc_range_end);
+//                     t0_concentration.insert(gas, gas_t0_concentration);
+//
+//                     // Filter for calculation range using the per-gas calc range.
+//                     let (calc_dt, calc_vals) = filter_data_in_range(
+//                         &gas_data_day.datetime,
+//                         g_values,
+//                         calc_range_start_map.get(&gas).copied().unwrap_or(0.0),
+//                         calc_range_end_map.get(&gas).copied().unwrap_or(0.0),
+//                     );
+//
+//                     calc_dt_v.insert(gas, calc_dt);
+//                     calc_gas_v.insert(gas, calc_vals);
+//
+//                     // Filter for measurement range using the cycle's measurement range.
+//                     let (meas_dt, meas_vals) = filter_data_in_range(
+//                         &gas_data_day.datetime,
+//                         g_values,
+//                         measurement_range_start.timestamp() as f64,
+//                         measurement_range_end.timestamp() as f64,
+//                     );
+//                     if gas == main_gas {
+//                         // For the main gas, assign the filtered datetime vector.
+//                         measurement_dt_v = meas_dt;
+//                     }
+//                     measurement_gas_v.insert(gas, meas_vals);
+//                 }
+//             }
+//
+//             // --- Overall Cycle Data Filtering ---
+//             // Filter diagnostic data (diag_v) and full datetime (dt_v) for the entire cycle:
+//             let (dt_v_full, diag_v_full) = filter_diag_data(
+//                 &gas_data_day.datetime,
+//                 &gas_data_day.diag,
+//                 start_time.timestamp() as f64 + start_lag_s,
+//                 end_time.timestamp() as f64 + end_lag_s,
+//             );
+//             dt_v = dt_v_full; // Assign overall datetime vector.
+//             diag_v = diag_v_full; // Assign overall diagnostic vector.
+//             if dt_v.is_empty() {
+//                 return Ok(None); // Use `None` to skip cycle
+//             }
+//             for &gas in &gastypes {
+//                 if let Some(g_values) = gas_data_day.gas.get(&gas) {
+//                     let (_full_dt, full_vals) = filter_data_in_range(
+//                         &gas_data_day.datetime,
+//                         g_values,
+//                         start_time.timestamp() as f64 + start_lag_s,
+//                         end_time.timestamp() as f64 + end_lag_s,
+//                     );
+//                     max_y.insert(gas, calculate_max_y_from_vec(&full_vals));
+//                     min_y.insert(gas, calculate_min_y_from_vec(&full_vals));
+//                     gas_v.insert(gas, full_vals);
+//                     // Optionally, store full_dt in a dedicated dt map if needed.
+//                 }
+//             }
+//         }
+//         Ok(Some(Cycle {
+//             instrument_model: InstrumentType::from_str(&instrument_model),
+//             instrument_serial,
+//             project_name,
+//             manual_adjusted,
+//             chamber_id,
+//             min_calc_range: MIN_CALC_AREA_RANGE,
+//             start_time,
+//             calc_dt_v,
+//             t0_concentration,
+//             calc_gas_v,
+//             diag_v,
+//             dt_v,
+//             gas_v,
+//             gas_v_mole: HashMap::new(),
+//             max_y,
+//             min_y,
+//             measurement_dt_v,
+//             measurement_gas_v,
+//             measurement_diag_v,
+//             close_time,
+//             open_time,
+//             end_time,
+//             air_temperature,
+//             air_pressure,
+//             chamber_volume,
+//             error_code,
+//             is_valid,
+//             override_valid,
+//             manual_valid,
+//             main_gas,
+//             close_offset,
+//             open_offset,
+//             end_offset,
+//             open_lag_s,
+//             close_lag_s,
+//             end_lag_s,
+//             start_lag_s,
+//             max_idx: 0.0, // Default value.
+//             gases: gastypes,
+//             calc_range_start: calc_range_start_map,
+//             calc_range_end: calc_range_end_map,
+//             // The following fields were not stored; use defaults.
+//             measurement_range_start: (start_time
+//                 + TimeDelta::seconds(start_lag_s as i64)
+//                 + TimeDelta::seconds(close_offset)
+//                 + TimeDelta::seconds(open_lag_s as i64))
+//             .timestamp() as f64,
+//             measurement_range_end: (start_time
+//                 + TimeDelta::seconds(end_lag_s as i64)
+//                 + TimeDelta::seconds(close_offset)
+//                 + TimeDelta::seconds(open_lag_s as i64))
+//             .timestamp() as f64,
+//             linfit: slope_map,
+//             flux,
+//             fluxes: Vec::new(),
+//             measurement_r2,
+//             calc_r2,
+//             // Other fields (dt_v, calc_dt_v, etc.) can be initialized as needed.
+//         }))
+//     })?;
+//
+//     let mut cycles: Vec<Cycle> =
+//         cycle_iter.collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+//     if cycles.is_empty() {
+//         // return Err("No cycles found".into());
+//         return Err(rusqlite::Error::InvalidQuery);
+//     }
+//     Ok(cycles)
+// }
 // pub fn load_fluxes(
 //     conn: &mut Connection,
 //     start: DateTime<Utc>,
