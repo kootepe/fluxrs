@@ -488,9 +488,10 @@ fn process_cycles(
             if start < &cur_data.datetime[0] || start > cur_data.datetime.last().unwrap() {
                 continue;
             }
+            let end_time = DateTime::from_timestamp(cycle.get_end() as i64, 0).unwrap();
             cur_data.datetime.iter().enumerate().for_each(|(i, t)| {
                 // println!("{}", t);
-                if t >= &cycle.start_time && t <= &cycle.end_time {
+                if t >= &cycle.start_time && t <= &end_time {
                     cycle.dt_v.push(*t);
                     for (gas_type, gas_values) in &cur_data.gas {
                         if let Some(value) = gas_values.get(i) {

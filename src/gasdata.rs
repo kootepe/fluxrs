@@ -370,39 +370,49 @@ pub fn insert_measurements(
 
     // Prepare the statement for insertion
     let mut stmt = tx.prepare(
-        "INSERT INTO measurements (datetime, ch4, co2, h2o, diag, instrument_serial, instrument_model, project_id)
+        "INSERT OR IGNORE INTO measurements (datetime, ch4, co2, h2o, diag, instrument_serial, instrument_model, project_id)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
 
     println!("Pushing data!");
     for i in 0..datetime_vec.len() {
         // Check for duplicates first
-        let mut check_stmt = tx
-            .prepare("SELECT 1 FROM measurements WHERE datetime = ?1 AND instrument_serial = ?2 AND project_id = ?3")?;
-        let mut rows =
-            check_stmt.query(params![datetime_vec[i], all_gas.instrument_serial, project])?;
-
-        if rows.next()?.is_some() {
-            // If a duplicate exists, log it
-            duplicates += 1;
-            // println!(
-            //     "Warning: Duplicate record found for datetime: {} and instrument_serial: {}",
-            //     datetime_vec[i], all_gas.instrument_serial
-            // );
-        } else {
-            // If no duplicate, insert the new record
-            stmt.execute(params![
-                datetime_vec[i],           //   Individual timestamp
-                ch4_vec[i],                //   Individual CH4 value
-                co2_vec[i],                //   Individual CO2 value
-                h2o_vec[i],                //   Individual H2O value
-                diag_vec[i],               //   Individual diag value
-                all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
-                all_gas.instrument_model,  // Example: Instrument model
-                project
-            ])?;
-            inserted += 1;
-        }
+        // let mut check_stmt = tx
+        //     .prepare("SELECT 1 FROM measurements WHERE datetime = ?1 AND instrument_serial = ?2 AND project_id = ?3")?;
+        // let mut rows =
+        //     check_stmt.query(params![datetime_vec[i], all_gas.instrument_serial, project])?;
+        stmt.execute(params![
+            datetime_vec[i],           //   Individual timestamp
+            ch4_vec[i],                //   Individual CH4 value
+            co2_vec[i],                //   Individual CO2 value
+            h2o_vec[i],                //   Individual H2O value
+            diag_vec[i],               //   Individual diag value
+            all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
+            all_gas.instrument_model,  // Example: Instrument model
+            project
+        ])?;
+        inserted += 1;
+        // if rows.next()?.is_some() {
+        //     // If a duplicate exists, log it
+        //     duplicates += 1;
+        //     // println!(
+        //     //     "Warning: Duplicate record found for datetime: {} and instrument_serial: {}",
+        //     //     datetime_vec[i], all_gas.instrument_serial
+        //     // );
+        // } else {
+        //     // If no duplicate, insert the new record
+        //     stmt.execute(params![
+        //         datetime_vec[i],           //   Individual timestamp
+        //         ch4_vec[i],                //   Individual CH4 value
+        //         co2_vec[i],                //   Individual CO2 value
+        //         h2o_vec[i],                //   Individual H2O value
+        //         diag_vec[i],               //   Individual diag value
+        //         all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
+        //         all_gas.instrument_model,  // Example: Instrument model
+        //         project
+        //     ])?;
+        //     inserted += 1;
+        // }
     }
 
     drop(stmt);

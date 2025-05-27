@@ -151,7 +151,6 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
     conn.execute(&create_flux_table(), [])?;
-    conn.execute(&create_flux_results_table(), [])?;
     conn.execute(&create_flux_history_table(), [])?;
 
     Ok(())

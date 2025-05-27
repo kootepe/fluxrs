@@ -8,3 +8,5 @@ images/
 *.html
 *.png
 *.csv
+*.db
+*.bak

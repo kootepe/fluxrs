@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+statrs = "0.18.0"
+nalgebra = "0.33.2"
 dyn-clone = "1.0.19"
 rayon = "1.10.0"
 egui_file = "0.22"

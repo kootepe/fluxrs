@@ -1,370 +1,33 @@
-use chrono::Utc;
-
-pub struct ColumnDef {
-    pub name: &'static str,
-    pub data_type: &'static str,
-    pub not_null: bool,
-    pub default: Option<&'static str>,
-    pub is_pk: bool,
-}
-
-pub const FLUX_COLUMNS: &[ColumnDef] = &[
-    ColumnDef {
-        name: "instrument_model",
-        data_type: "TEXT",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "instrument_serial",
-        data_type: "TEXT",
-        not_null: true,
-        default: None,
-        is_pk: true,
-    },
-    ColumnDef {
-        name: "chamber_id",
-        data_type: "TEXT",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef { name: "main_gas", data_type: "TEXT", not_null: true, default: None, is_pk: false },
-    ColumnDef { name: "project_id", data_type: "TEXT", not_null: true, default: None, is_pk: true },
-    ColumnDef {
-        name: "start_time",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: true,
-    },
-    ColumnDef {
-        name: "close_offset",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "open_offset",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "end_offset",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "open_lag_s",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "close_lag_s",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "end_lag_s",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "start_lag_s",
-        data_type: "INTEGER",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "air_pressure",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "air_temperature",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "error_code",
-        data_type: "INTEGER",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef { name: "is_valid", data_type: "BOOL", not_null: false, default: None, is_pk: false },
-    ColumnDef {
-        name: "main_gas_r2",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "ch4_flux",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef { name: "ch4_r2", data_type: "FLOAT", not_null: false, default: None, is_pk: false },
-    ColumnDef {
-        name: "ch4_measurement_r2",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "ch4_intercept",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "ch4_slope",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "ch4_calc_range_start",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "ch4_calc_range_end",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "co2_flux",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef { name: "co2_r2", data_type: "FLOAT", not_null: false, default: None, is_pk: false },
-    ColumnDef {
-        name: "co2_measurement_r2",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "co2_intercept",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "co2_slope",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "co2_calc_range_start",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "co2_calc_range_end",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "h2o_flux",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef { name: "h2o_r2", data_type: "FLOAT", not_null: false, default: None, is_pk: false },
-    ColumnDef {
-        name: "h2o_measurement_r2",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "h2o_intercept",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "h2o_slope",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "h2o_calc_range_start",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "h2o_calc_range_end",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "n2o_flux",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef { name: "n2o_r2", data_type: "FLOAT", not_null: false, default: None, is_pk: false },
-    ColumnDef {
-        name: "n2o_measurement_r2",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "n2o_intercept",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "n2o_slope",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "n2o_calc_range_start",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "n2o_calc_range_end",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "manual_adjusted",
-        data_type: "BOOL",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "manual_valid",
-        data_type: "bool",
-        not_null: true,
-        default: None,
-        is_pk: false,
-    },
-    ColumnDef {
-        name: "chamber_volume",
-        data_type: "FLOAT",
-        not_null: false,
-        default: None,
-        is_pk: false,
-    },
-];
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
     pub const CHAMBER_ID: usize = 1;
     pub const INSTRUMENT_MODEL: usize = 2;
     pub const INSTRUMENT_SERIAL: usize = 3;
     pub const MAIN_GAS: usize = 4;
-    pub const PROJECT_ID: usize = 5;
-    pub const CLOSE_OFFSET: usize = 6;
-    pub const OPEN_OFFSET: usize = 7;
-    pub const END_OFFSET: usize = 8;
-    pub const OPEN_LAG_S: usize = 9;
-    pub const CLOSE_LAG_S: usize = 10;
-    pub const END_LAG_S: usize = 11;
-    pub const START_LAG_S: usize = 12;
-    pub const AIR_PRESSURE: usize = 13;
-    pub const AIR_TEMPERATURE: usize = 14;
-    pub const CHAMBER_VOLUME: usize = 15;
-    pub const ERROR_CODE: usize = 16;
-    pub const IS_VALID: usize = 17;
-    pub const MANUAL_ADJUSTED: usize = 18;
-    pub const MANUAL_VALID: usize = 19;
-    // pub const MAIN_GAS_R2: usize = 19;
-    // pub const CH4_FLUX: usize = 20;
-    pub const CH4_R2: usize = 20;
-    // pub const CH4_MEASUREMENT_R2: usize = 22;
-    // pub const CH4_INTERCEPT: usize = 23;
-    // pub const CH4_SLOPE: usize = 24;
-    // pub const CH4_CALC_START: usize = 25;
-    // pub const CH4_CALC_END: usize = 26;
-    pub const CH4_T0_CONC: usize = 21;
-    // pub const CO2_FLUX: usize = 28;
-    pub const CO2_R2: usize = 22;
-    // pub const CO2_MEASUREMENT_R2: usize = 30;
-    // pub const CO2_INTERCEPT: usize = 31;
-    // pub const CO2_SLOPE: usize = 32;
-    // pub const CO2_CALC_START: usize = 33;
-    // pub const CO2_CALC_END: usize = 34;
-    pub const CO2_T0_CONC: usize = 23;
-    // pub const H2O_FLUX: usize = 36;
-    pub const H2O_R2: usize = 24;
-    // pub const H2O_MEASUREMENT_R2: usize = 38;
-    // pub const H2O_INTERCEPT: usize = 39;
-    // pub const H2O_SLOPE: usize = 40;
-    // pub const H2O_CALC_START: usize = 41;
-    // pub const H2O_CALC_END: usize = 42;
-    pub const H2O_T0_CONC: usize = 25;
-    // pub const N2O_FLUX: usize = 44;
-    pub const N2O_R2: usize = 26;
-    // pub const N2O_MEASUREMENT_R2: usize = 46;
-    // pub const N2O_INTERCEPT: usize = 47;
-    // pub const N2O_SLOPE: usize = 48;
-    // pub const N2O_CALC_START: usize = 49;
-    // pub const N2O_CALC_END: usize = 50;
-    // pub const N2O_T0_CONC: usize = 51;
+    pub const GAS: usize = 5;
+    pub const PROJECT_ID: usize = 6;
+    pub const CLOSE_OFFSET: usize = 7;
+    pub const OPEN_OFFSET: usize = 8;
+    pub const END_OFFSET: usize = 9;
+    pub const OPEN_LAG_S: usize = 10;
+    pub const CLOSE_LAG_S: usize = 11;
+    pub const END_LAG_S: usize = 12;
+    pub const START_LAG_S: usize = 13;
+    pub const AIR_PRESSURE: usize = 14;
+    pub const AIR_TEMPERATURE: usize = 15;
+    pub const CHAMBER_VOLUME: usize = 16;
+    pub const ERROR_CODE: usize = 17;
+    pub const IS_VALID: usize = 18;
+    pub const MANUAL_ADJUSTED: usize = 19;
+    pub const MANUAL_VALID: usize = 20;
+    pub const T0_CONC: usize = 21;
+    pub const MEASUREMENT_R2: usize = 22;
+    pub const FLUX: usize = 23;
+    pub const R2: usize = 24;
+    pub const INTERCEPT: usize = 25;
+    pub const SLOPE: usize = 26;
+    pub const CALC_START: usize = 27;
+    pub const CALC_END: usize = 28;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -397,6 +60,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "instrument_model",
     "instrument_serial",
     "main_gas",
+    "gas",
     "project_id",
     "close_offset",
     "open_offset",
@@ -412,14 +76,40 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "is_valid",
     "manual_adjusted",
     "manual_valid",
-    "ch4_measurement_r2",
-    "ch4_t0_concentration",
-    "co2_measurement_r2",
-    "co2_t0_concentration",
-    "h2o_measurement_r2",
-    "h2o_t0_concentration",
-    "n2o_measurement_r2",
-    "n2o_t0_concentration",
+    "t0_concentration",
+    "measurement_r2",
+    "lin_flux",
+    "lin_r2",
+    "lin_adj_r2",
+    "lin_intercept",
+    "lin_slope",
+    "lin_sigma",
+    "lin_p_value",
+    "lin_aic",
+    "lin_rmse",
+    "lin_range_start",
+    "lin_range_end",
+    "poly_flux",
+    "poly_r2",
+    "poly_adj_r2",
+    "poly_sigma",
+    "poly_aic",
+    "poly_rmse",
+    "poly_a0",
+    "poly_a1",
+    "poly_a2",
+    "poly_range_start",
+    "poly_range_end",
+    "roblin_flux",
+    "roblin_r2",
+    "roblin_adj_r2",
+    "roblin_intercept",
+    "roblin_slope",
+    "roblin_sigma",
+    "roblin_aic",
+    "roblin_rmse",
+    "roblin_range_start",
+    "roblin_range_end",
 ];
 pub fn make_select_all_fluxes() -> String {
     format!(
@@ -470,9 +160,11 @@ pub fn make_update_fluxes() -> String {
 
     // Add WHERE clause for identifying row
     let where_clause = format!(
-        "instrument_serial = ?{} AND start_time = ?{}",
+        "instrument_serial = ?{} AND start_time = ?{} AND gas = ?{} AND project_id = ?{}",
         fluxes_col::INSTRUMENT_SERIAL + 1,
-        fluxes_col::START_TIME + 1
+        fluxes_col::START_TIME + 1,
+        fluxes_col::GAS + 1,
+        fluxes_col::PROJECT_ID + 1,
     );
 
     format!("UPDATE fluxes SET {} WHERE {}", set_clause.join(", "), where_clause)
@@ -486,46 +178,7 @@ pub fn make_insert_flux_results() -> String {
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
         .to_owned()
 }
-pub fn create_flux_table() -> String {
-    "CREATE TABLE IF NOT EXISTS fluxes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-    instrument_model TEXT NOT NULL,
-    instrument_serial TEXT NOT NULL,
-    chamber_id TEXT NOT NULL,
-    main_gas TEXT NOT NULL,
-    project_id TEXT NOT NULL,
-    start_time INTEGER NOT NULL,
-
-    close_offset INTEGER NOT NULL,
-    open_offset INTEGER NOT NULL,
-    end_offset INTEGER NOT NULL,
-    open_lag_s INTEGER NOT NULL,
-    close_lag_s INTEGER NOT NULL,
-    end_lag_s INTEGER NOT NULL,
-    start_lag_s INTEGER NOT NULL,
-
-    air_pressure FLOAT,
-    air_temperature FLOAT,
-    chamber_volume FLOAT,
-
-    error_code INTEGER,
-    is_valid BOOL,
-    manual_adjusted BOOL NOT NULL,
-    manual_valid BOOL NOT NULL,
-
-    ch4_measurement_r2 FLOAT,
-    ch4_t0_concentration FLOAT,
-    co2_measurement_r2 FLOAT,
-    co2_t0_concentration FLOAT,
-    n2o_measurement_r2 FLOAT,
-    n2o_t0_concentration FLOAT,
-    h2o_measurement_r2 FLOAT,
-    h2o_t0_concentration FLOAT,
-    UNIQUE (instrument_serial, start_time, project_id)
-);"
-    .to_owned()
-}
 pub fn create_flux_results_table() -> String {
     "CREATE TABLE flux_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -545,14 +198,15 @@ pub fn create_flux_results_table() -> String {
 );"
     .to_owned()
 }
-pub fn _create_flux_table() -> String {
+pub fn create_flux_table() -> String {
     "CREATE TABLE IF NOT EXISTS fluxes (
+            start_time INTEGER NOT NULL,
+            chamber_id TEXT NOT NULL,
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
-            chamber_id TEXT NOT NULL,
-            main_gas TEXT NOT NULL,
+            main_gas INTEGER NOT NULL,
+            gas INTEGER NOT NULL,
             project_id TEXT NOT NULL,
-            start_time INTEGER NOT NULL,
 
             close_offset INTEGER NOT NULL,
             open_offset INTEGER NOT NULL,
@@ -563,64 +217,63 @@ pub fn _create_flux_table() -> String {
             start_lag_s INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
+            chamber_volume FLOAT,
 
             error_code INTEGER,
             is_valid BOOL,
-            main_gas_r2 FLOAT,
-
-            ch4_flux FLOAT,
-            ch4_r2 FLOAT,
-            ch4_measurement_r2 FLOAT,
-            ch4_intercept FLOAT,
-            ch4_slope FLOAT,
-            ch4_calc_range_start FLOAT,
-            ch4_calc_range_end FLOAT,
-            ch4_t0_concentration FLOAT,
-
-            co2_flux FLOAT,
-            co2_r2 FLOAT,
-            co2_measurement_r2 FLOAT,
-            co2_intercept FLOAT,
-            co2_slope FLOAT,
-            co2_calc_range_start FLOAT,
-            co2_calc_range_end FLOAT,
-            co2_t0_concentration FLOAT,
-
-            h2o_flux FLOAT,
-            h2o_r2 FLOAT,
-            h2o_measurement_r2 FLOAT,
-            h2o_intercept FLOAT,
-            h2o_slope FLOAT,
-            h2o_calc_range_start FLOAT,
-            h2o_calc_range_end FLOAT,
-            h2o_t0_concentration FLOAT,
-
-            n2o_flux FLOAT,
-            n2o_r2 FLOAT,
-            n2o_measurement_r2 FLOAT,
-            n2o_intercept FLOAT,
-            n2o_slope FLOAT,
-            n2o_calc_range_start FLOAT,
-            n2o_calc_range_end FLOAT,
-            n2o_t0_concentration FLOAT,
-
             manual_adjusted BOOL NOT NULL,
             manual_valid bool NOT NULL,
-            chamber_volume FLOAT,
-            PRIMARY KEY (instrument_serial, start_time, project_id)
+            t0_concentration FLOAT,
+            measurement_r2 FLOAT,
+
+            lin_flux FLOAT,
+            lin_r2 FLOAT,
+            lin_adj_r2 FLOAT,
+            lin_intercept FLOAT,
+            lin_slope FLOAT,
+            lin_sigma FLOAT,
+            lin_p_value FLOAT,
+            lin_aic FLOAT,
+            lin_rmse FLOAT,
+            lin_range_start FLOAT,
+            lin_range_end FLOAT,
+
+            poly_flux FLOAT,
+            poly_r2 FLOAT,
+            poly_adj_r2 FLOAT,
+            poly_sigma FLOAT,
+            poly_aic FLOAT,
+            poly_rmse FLOAT,
+            poly_a0 FLOAT,
+            poly_a1 FLOAT,
+            poly_a2 FLOAT,
+            poly_range_start FLOAT,
+            poly_range_end FLOAT,
+
+            roblin_flux FLOAT,
+            roblin_r2 FLOAT,
+            roblin_adj_r2 FLOAT,
+            roblin_intercept FLOAT,
+            roblin_slope FLOAT,
+            roblin_sigma FLOAT,
+            roblin_aic FLOAT,
+            roblin_rmse FLOAT,
+            roblin_range_start FLOAT,
+            roblin_range_end FLOAT,
+            PRIMARY KEY (instrument_serial, start_time, project_id, gas)
         )"
     .to_owned()
 }
 
 pub fn create_flux_history_table() -> String {
     "CREATE TABLE IF NOT EXISTS flux_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-
             archived_at TEXT NOT NULL,
+
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
             chamber_id TEXT NOT NULL,
-            main_gas TEXT NOT NULL,
+            main_gas INTEGER NOT NULL,
+            gas INTEGER NOT NULL,
             project_id TEXT NOT NULL,
             start_time INTEGER NOT NULL,
 
@@ -633,50 +286,49 @@ pub fn create_flux_history_table() -> String {
             start_lag_s INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
+            chamber_volume FLOAT,
 
             error_code INTEGER,
             is_valid BOOL,
-            main_gas_r2 FLOAT,
-
-            ch4_flux FLOAT,
-            ch4_r2 FLOAT,
-            ch4_measurement_r2 FLOAT,
-            ch4_intercept FLOAT,
-            ch4_slope FLOAT,
-            ch4_calc_range_start FLOAT,
-            ch4_calc_range_end FLOAT,
-            ch4_t0_concentration FLOAT,
-
-            co2_flux FLOAT,
-            co2_r2 FLOAT,
-            co2_measurement_r2 FLOAT,
-            co2_intercept FLOAT,
-            co2_slope FLOAT,
-            co2_calc_range_start FLOAT,
-            co2_calc_range_end FLOAT,
-            co2_t0_concentration FLOAT,
-
-            h2o_flux FLOAT,
-            h2o_r2 FLOAT,
-            h2o_measurement_r2 FLOAT,
-            h2o_intercept FLOAT,
-            h2o_slope FLOAT,
-            h2o_calc_range_start FLOAT,
-            h2o_calc_range_end FLOAT,
-            h2o_t0_concentration FLOAT,
-
-            n2o_flux FLOAT,
-            n2o_r2 FLOAT,
-            n2o_measurement_r2 FLOAT,
-            n2o_intercept FLOAT,
-            n2o_slope FLOAT,
-            n2o_calc_range_start FLOAT,
-            n2o_calc_range_end FLOAT,
-            n2o_t0_concentration FLOAT,
-
             manual_adjusted BOOL NOT NULL,
             manual_valid bool NOT NULL,
-            chamber_volume FLOAT
+            t0_concentration FLOAT,
+            measurement_r2 FLOAT,
+
+            lin_flux FLOAT,
+            lin_r2 FLOAT,
+            lin_adj_r2 FLOAT,
+            lin_intercept FLOAT,
+            lin_slope FLOAT,
+            lin_sigma FLOAT,
+            lin_p_value FLOAT,
+            lin_aic FLOAT,
+            lin_rmse FLOAT,
+            lin_range_start FLOAT,
+            lin_range_end FLOAT,
+
+            poly_flux FLOAT,
+            poly_r2 FLOAT,
+            poly_adj_r2 FLOAT,
+            poly_sigma FLOAT,
+            poly_aic FLOAT,
+            poly_rmse FLOAT,
+            poly_a0 FLOAT,
+            poly_a1 FLOAT,
+            poly_a2 FLOAT,
+            poly_range_start FLOAT,
+            poly_range_end FLOAT,
+
+            roblin_flux FLOAT,
+            roblin_r2 FLOAT,
+            roblin_adj_r2 FLOAT,
+            roblin_intercept FLOAT,
+            roblin_slope FLOAT,
+            roblin_sigma FLOAT,
+            roblin_aic FLOAT,
+            roblin_rmse FLOAT,
+            roblin_range_start FLOAT,
+            roblin_range_end FLOAT
         )"
     .to_owned()
 }
