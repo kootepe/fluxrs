@@ -55,6 +55,23 @@ impl GasType {
             GasType::N2O => "N2O",
         }
     }
+    pub fn integer_repr(&self) -> u8 {
+        match self {
+            GasType::CO2 => 1,
+            GasType::CH4 => 2,
+            GasType::H2O => 3,
+            GasType::N2O => 4,
+        }
+    }
+    pub fn from_int(i: u8) -> Option<GasType> {
+        match i {
+            1 => Some(GasType::CO2),
+            2 => Some(GasType::CH4),
+            3 => Some(GasType::H2O),
+            4 => Some(GasType::N2O),
+            _ => None,
+        }
+    }
 
     pub fn flux_col(&self) -> String {
         format!("{}_flux", self.column_name().to_lowercase())
