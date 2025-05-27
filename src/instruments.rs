@@ -11,7 +11,7 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum GasType {
     CH4,
     CO2,
