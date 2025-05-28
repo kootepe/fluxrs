@@ -1,3 +1,5 @@
+use crate::keybinds::Action;
+use crate::validation_app::keybind_triggered;
 use crate::validation_app::MainApp;
 use egui::FontFamily;
 
@@ -23,6 +25,18 @@ impl eframe::App for MyApp {
                 use egui::special_emojis::GITHUB;
                 egui::widgets::global_theme_preference_buttons(ui);
                 ui.add_space(16.0);
+
+                ui.input(|i| {
+                    for event in &i.raw.events {
+                        if keybind_triggered(
+                            event,
+                            &self.main_app.validation_panel.keybinds,
+                            Action::ToggleShowSettings,
+                        ) {
+                            self.show_settings = !self.show_settings;
+                        }
+                    }
+                });
                 if self.show_settings {
                     ui.toggle_value(&mut self.show_settings, "Hide settings");
                 } else {

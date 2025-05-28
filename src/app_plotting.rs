@@ -7,6 +7,7 @@ use crate::validation_app::ValidationApp;
 use crate::validation_app::{create_polygon, create_vline, handle_drag_polygon, is_inside_polygon};
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use ecolor::Hsva;
+use egui::widgets::Label;
 use egui::{Align2, Rgba};
 use std::collections::HashMap;
 
@@ -1134,9 +1135,18 @@ impl ValidationApp {
         gas_type: &GasType,
         selector: F,
         plot_name: &str,
+        symbol: Option<MarkerShape>,
     ) where
         F: Fn(&Cycle, &GasType) -> f64, // Selector function for extracting data
     {
+        let mut marker = MarkerShape::Circle;
+        if symbol.is_some() {
+            marker = symbol.unwrap();
+        }
+        let mut marker_size = 3.;
+        if marker == MarkerShape::Circle {
+            marker_size = 2.;
+        }
         let (valid_traces, invalid_traces) = self.create_traces(gas_type, selector);
         let mut hovered_point: Option<[f64; 2]> = None;
 
@@ -1158,8 +1168,8 @@ impl ValidationApp {
                 plot_ui.points(
                     Points::new("valid_pts", plot_points)
                         .name(format!("{} {}", plot_name, chamber_id))
-                        .shape(MarkerShape::Circle)
-                        .radius(2.)
+                        .shape(marker)
+                        .radius(marker_size)
                         .color(*color), // Normal color for valid points
                 );
             }
@@ -1172,7 +1182,7 @@ impl ValidationApp {
                     Points::new("invalid_pts", plot_points)
                     .name(format!("{} {} (Invalid)", plot_name, chamber_id))
                     .shape(MarkerShape::Cross) // Different shape for invalid points
-                    .radius(3.)
+                    .radius(marker_size)
                     .color(*color), // Highlight invalid points in red
                 );
             }
@@ -1557,7 +1567,8 @@ impl ValidationApp {
     }
 
     pub fn render_legend(&mut self, ui: &mut Ui, _traces: &HashMap<String, Color32>) {
-        let legend_width = 150.0;
+        // let legend_width = 75.0;
+        let legend_width = ui.available_width();
         let color_box_size = Vec2::new(16.0, 16.0);
 
         let mut sorted_traces: Vec<String> = self.all_traces.iter().cloned().collect();
@@ -1578,7 +1589,7 @@ impl ValidationApp {
             Vec2::new(legend_width, ui.available_height()),
             Layout::top_down(egui::Align::LEFT),
             |ui| {
-                ui.label("Legend");
+                ui.add(Label::new("Legend").selectable(false));
 
                 if self.visible_traces.is_empty() {
                     self.visible_traces =
@@ -1612,6 +1623,14 @@ impl ValidationApp {
                         ui.painter().rect_filled(rect, 2.0, color);
                         ui.label(chamber_id);
                     });
+                }
+
+                // Add the 'Show All' button
+                if ui.button("Select All").clicked() {
+                    for key in &sorted_traces {
+                        self.visible_traces.insert(key.clone(), true);
+                    }
+                    self.update_plots(); // Refresh after update
                 }
             },
         );

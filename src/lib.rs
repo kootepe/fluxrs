@@ -34,6 +34,7 @@ mod get_paths;
 mod html_report;
 mod index;
 mod instruments;
+mod keybinds;
 pub mod meteodata;
 pub mod myapp;
 pub mod processevent;

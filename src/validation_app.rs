@@ -16,6 +16,7 @@ use crate::gasdata::query_gas_async;
 use crate::gasdata::{insert_measurements, GasData};
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
+use crate::keybinds::{Action, KeyBindings};
 use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::timedata::{query_cycles_async, TimeData};
@@ -30,7 +31,7 @@ use eframe::egui::{
     Color32, Context, Id, Key, Separator, Stroke, Ui, Vec2, WidgetInfo, WidgetType,
 };
 use egui_file::FileDialog;
-use egui_plot::{Legend, LineStyle, PlotPoints, PlotUi, Polygon, VLine};
+use egui_plot::{Legend, LineStyle, MarkerShape, PlotPoints, PlotUi, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use csv::Writer;
@@ -81,6 +82,11 @@ pub struct MainApp {
 impl MainApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.apply_font_size(ctx, self.validation_panel.font_size);
+        if self.validation_panel.selected_project.is_none() {
+            self.validation_panel.load_projects_from_db().unwrap();
+            self.validation_panel.keybinds =
+                KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
+        }
 
         // println!("{:?}", self.validation_panel.selected_project);
         for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
@@ -137,9 +143,6 @@ impl MainApp {
             });
         });
         ui.separator();
-        if self.validation_panel.selected_project.is_none() {
-            self.validation_panel.load_projects_from_db().unwrap();
-        }
 
         match self.live_panel {
             Panel::Validation => {
@@ -174,7 +177,7 @@ impl MainApp {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         self.validation_panel.render_measurement_plots(ui);
-                        self.validation_panel.select_residuals_plots(ui);
+                        self.validation_panel.enable_floaters(ui);
                     });
                     self.validation_panel.render_lin_plot_selection(ui);
 
@@ -187,6 +190,7 @@ impl MainApp {
             ui.group(|ui| {
                 ui.label("Adjust hiding thresholds");
                 ui.label("Will not mark measurements as invalid, but allows hiding measurements in current view.");
+                ui.label("Double click to reset");
                 egui::Grid::new("thresholds_grid").min_col_width(100.).show(ui,|ui| {
                 ui.label("RMSE");
                 let rmse_adjuster = ui.add(
@@ -249,7 +253,91 @@ impl MainApp {
             });
                         ui.end_row();
         });
+            ui.separator();
+            self.keybinding_settings_ui(ui);
                 });
+    }
+
+    fn keybinding_settings_ui(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label("Keybinds");
+            ui.label("Press rebind and hit key to set keybind");
+            ui.label("Esc to cancel");
+            egui::Grid::new("keybinds").show(ui, |ui| {
+                for action in [
+                    Action::NextCycle,
+                    Action::PreviousCycle,
+                    Action::ZoomToMeasurement,
+                    Action::ResetCycle,
+                    Action::SearchLag,
+                    Action::IncrementLag,
+                    Action::DecrementLag,
+                    Action::ToggleValidity,
+                    Action::ToggleBad,
+                    Action::ToggleShowValids,
+                    Action::ToggleShowInvalids,
+                    Action::ToggleShowBad,
+                    Action::ToggleShowSettings,
+                    Action::ToggleShowLegend,
+                    Action::ToggleShowDetails,
+                    Action::TogglePlotWidthsWindow,
+                    Action::ToggleShowResiduals,
+                    Action::ToggleShowStandResiduals,
+                    Action::ToggleShowStandResiduals,
+                ] {
+                    let mut rebind_text = "Rebind";
+                    if let Some(pending) = self.validation_panel.awaiting_rebind {
+                        if pending == action {
+                            rebind_text = "Press key to rebind";
+                        }
+                    }
+                    ui.label(format!("{}:", action));
+                    if let Some(key) = self.validation_panel.keybinds.key_for(action) {
+                        ui.label(format!("{:?}", key));
+                    } else {
+                        ui.label("Unbound");
+                    }
+
+                    if ui.button(rebind_text).clicked() {
+                        self.validation_panel.awaiting_rebind = Some(action);
+                    }
+                    if self.validation_panel.keybinds.key_for(action).is_some()
+                        && ui.button("Unbind").clicked()
+                    {
+                        self.validation_panel.keybinds.remove(&action);
+                        self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
+                        self.validation_panel.awaiting_rebind = None;
+                    }
+                    ui.end_row();
+                }
+            });
+        });
+        if let Some(action) = self.validation_panel.awaiting_rebind {
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.validation_panel.awaiting_rebind = None; // cancel
+            } else {
+                // Accept the first key press (excluding Esc)
+                if let Some(key_event) = ui.input(|i| {
+                    i.raw.events.iter().find_map(|event| {
+                        if let egui::Event::Key { key, pressed: true, .. } = event {
+                            // Filter out Escape (already handled)
+                            if *key != egui::Key::Escape {
+                                Some(*key)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                }) {
+                    self.validation_panel.keybinds.set(action, key_event);
+                    self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
+                    self.validation_panel.awaiting_rebind = None;
+                    return;
+                }
+            }
+        }
     }
     fn apply_font_size(&self, ctx: &egui::Context, font_size: f32) {
         use egui::{FontId, TextStyle};
@@ -310,10 +398,6 @@ pub struct ValidationApp {
     pub enabled_measurement_rs: BTreeSet<GasType>, // Stores which gases are enabled for plotting
     pub enabled_conc_t0: BTreeSet<GasType>,        // Stores which gases are enabled for plotting
 
-    pub enable_residuals_standardized: bool,
-    pub enable_residuals_bars: bool,
-    pub enable_cycle_details: bool,
-
     pub p_val_thresh: f32,
     pub rmse_thresh: f32,
     pub r2_thresh: f32,
@@ -368,6 +452,13 @@ pub struct ValidationApp {
     pub calc_area_adjust_color: Color32,
     pub calc_area_stroke_color: Color32,
     pub selected_model: FluxKind,
+    pub keybinds: KeyBindings,
+    pub awaiting_rebind: Option<Action>,
+    pub show_cycle_details: bool,
+    pub show_residuals: bool,
+    pub show_standardized_residuals: bool,
+    pub show_legend: bool,
+    pub show_plot_widths: bool,
 }
 
 impl Default for ValidationApp {
@@ -414,9 +505,6 @@ impl Default for ValidationApp {
             rmse_thresh: 25.,
             r2_thresh: 0.98,
             t0_thresh: 50000.,
-            enable_residuals_standardized: true,
-            enable_residuals_bars: true,
-            enable_cycle_details: true,
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
             archive_record: None,
@@ -473,6 +561,13 @@ impl Default for ValidationApp {
             calc_area_adjust_color: Color32::BLACK,
             calc_area_stroke_color: Color32::BLACK,
             selected_model: FluxKind::Linear,
+            keybinds: KeyBindings::default(),
+            awaiting_rebind: None,
+            show_cycle_details: false,
+            show_residuals: false,
+            show_standardized_residuals: false,
+            show_legend: true,
+            show_plot_widths: true,
         }
     }
 }
@@ -489,66 +584,36 @@ impl ValidationApp {
         }
         // self.print_stats();
 
-        egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
-            self.render_legend(ui, &self.chamber_colors.clone());
-        });
-        egui::Window::new("Adjust plot widths").show(ctx, |ui| {
+        // egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
+        if self.show_legend {
+            egui::Window::new("Legend").title_bar(false).resizable(false).show(ctx, |ui| {
+                self.render_legend(ui, &self.chamber_colors.clone());
+            });
+        }
+        if self.show_plot_widths {
+            egui::Window::new("Adjust plot widths").show(ctx, |ui| {
             ui.label("Drag boxes right/left or down/up to adjust plot sizes.");
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.lag_plot_w)
-                            .speed(1.)
-                            .range(150.0..=1920.0)
-                            .prefix("Lag plot width: "),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.lag_plot_h)
-                            .speed(1.)
-                            .range(150.0..=1920.0)
-                            .prefix("Lag plot height: "),
-                    );
-                });
-                ui.vertical(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.flux_plot_w)
-                            .speed(1.)
-                            .range(150.0..=1920.0)
-                            .prefix("Flux plot width: "),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.flux_plot_h)
-                            .speed(1.)
-                            .range(150.0..=1920.0)
-                            .prefix("Flux plot height: "),
-                    );
-                });
-                ui.vertical(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.gas_plot_w)
-                            .speed(1.)
-                            .range(150.0..=1920.0)
-                            .prefix("Gas plot width: "),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.gas_plot_h)
-                            .speed(1.)
-                            .range(150.0..=1920.0)
-                            .prefix("Gas plot height: "),
-                    );
-                });
+            ui.label("Unfinished, flux plot dimensions also adjust all plots that are not gas or lag plot");
+            egui::Grid::new("plots").show(ui, |ui| {
+                ui.label("Lag plot width: ");
+                ui.add(egui::DragValue::new(&mut self.lag_plot_w).speed(1.).range(150.0..=1920.0));
+                ui.label("Flux plot width:");
+                ui.add(egui::DragValue::new(&mut self.flux_plot_w).speed(1.).range(150.0..=1920.0));
+                ui.label("Gas plot width:");
+                ui.add(egui::DragValue::new(&mut self.gas_plot_w).speed(1.).range(150.0..=1920.0));
+                ui.end_row();
+                ui.label("Lag plot height:");
+                ui.add(egui::DragValue::new(&mut self.lag_plot_h).speed(1.).range(150.0..=1920.0));
+                ui.label("Flux plot height:");
+                ui.add(egui::DragValue::new(&mut self.flux_plot_h).speed(1.).range(150.0..=1920.0));
+                ui.label("Gas plot height:");
+                ui.add(egui::DragValue::new(&mut self.gas_plot_h).speed(1.).range(150.0..=1920.0));
             });
         });
+        }
         let longest_label = "Measurement r plots";
-        let galley = ui.fonts(|f| {
-            f.layout_no_wrap(
-                longest_label.to_string(),
-                egui::FontId::monospace(self.font_size),
-                egui::Color32::WHITE,
-            )
-        });
 
-        if self.enable_cycle_details {
+        if self.show_cycle_details {
             egui::Window::new("Current Cycle details").show(ctx, |ui| {
                 if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
                     let errors = ErrorCode::from_mask(cycle.error_code.0);
@@ -658,7 +723,7 @@ impl ValidationApp {
                             |ui| {
                                 ui.label("Gas");
                                 ui.label("Flux");
-                                ui.label("R²");
+                                ui.label("Adj R²");
                                 ui.label("p-value");
                                 ui.label("Sigma");
                                 ui.label("RMSE");
@@ -795,46 +860,82 @@ impl ValidationApp {
             reload_gas = ui.add(egui::Button::new("Reload gas data")).clicked();
         });
 
-        ui.input(|i| {
-            for event in &i.raw.events {
-                if let egui::Event::Key { key: Key::H, pressed, .. } = event {
-                    if *pressed {
+        if !ui.ctx().wants_keyboard_input() {
+            ui.input(|i| {
+                for event in &i.raw.events {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowInvalids) {
                         self.show_invalids = !self.show_invalids;
                         show_invalids_clicked = true;
                     }
-                }
-                if let egui::Event::Key { key: Key::I, pressed, .. } = event {
-                    if *pressed {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowValids) {
+                        self.show_valids = !self.show_valids;
+                        show_valids_clicked = true;
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowBad) {
+                        self.show_bad = !self.show_bad;
+                        show_bad = true;
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowLegend) {
+                        self.show_legend = !self.show_legend;
+                    }
+
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleValidity) {
                         toggle_valid = true;
                     }
-                }
-                if let egui::Event::Key { key: Key::ArrowLeft, pressed, .. } = event {
-                    if *pressed {
-                        prev_clicked = true;
-                    }
-                }
-                if let egui::Event::Key { key: Key::ArrowRight, pressed, .. } = event {
-                    if *pressed {
+                    if keybind_triggered(event, &self.keybinds, Action::NextCycle) {
                         next_clicked = true;
                     }
-                }
-                if let egui::Event::Key { key: Key::Z, pressed, .. } = event {
-                    if *pressed {
+                    if keybind_triggered(event, &self.keybinds, Action::PreviousCycle) {
+                        prev_clicked = true;
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleBad) {
+                        mark_bad = true;
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::TogglePlotWidthsWindow) {
+                        self.show_plot_widths = !self.show_plot_widths;
+                    }
+
+                    if keybind_triggered(event, &self.keybinds, Action::ZoomToMeasurement) {
                         if self.zoom_to_measurement == 2 {
                             self.zoom_to_measurement = 0
                         } else {
                             self.zoom_to_measurement += 1;
                         }
                     }
-                }
-                if let egui::Event::Key { key: Key::R, pressed, .. } = event {
-                    if *pressed {
+                    if keybind_triggered(event, &self.keybinds, Action::ResetCycle) {
                         reset_cycle = true;
                     }
-                }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowDetails) {
+                        self.show_cycle_details = !self.show_cycle_details
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowResiduals) {
+                        self.show_residuals = !self.show_residuals
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowStandResiduals) {
+                        self.show_standardized_residuals = !self.show_standardized_residuals
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::DecrementLag) {
+                        self.mark_dirty();
+                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
+                            self.increment_open_lag(-1.);
+                        }
+                        if self.zoom_to_measurement == 2 {
+                            self.increment_close_lag(-1.);
+                        }
+                        self.update_plots();
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::IncrementLag) {
+                        self.mark_dirty();
+                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
+                            self.increment_open_lag(1.);
+                        }
+                        if self.zoom_to_measurement == 2 {
+                            self.increment_close_lag(1.);
+                        }
+                        self.update_plots();
+                    }
 
-                if let egui::Event::Key { key: Key::S, pressed, .. } = event {
-                    if *pressed {
+                    if keybind_triggered(event, &self.keybinds, Action::SearchLag) {
                         if let Some(current_visible_idx) = self.cycle_nav.current_index() {
                             if current_visible_idx > 0 {
                                 // First copy chamber_id (clone!) to a new local String
@@ -871,33 +972,8 @@ impl ValidationApp {
                         }
                     }
                 }
-
-                if let egui::Event::Key { key: Key::ArrowDown, pressed, .. } = event {
-                    if *pressed {
-                        self.mark_dirty();
-                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
-                            self.increment_open_lag(-1.);
-                        }
-                        if self.zoom_to_measurement == 2 {
-                            self.increment_close_lag(-1.);
-                        }
-                        self.update_plots();
-                    }
-                }
-                if let egui::Event::Key { key: Key::ArrowUp, pressed, .. } = event {
-                    if *pressed {
-                        self.mark_dirty();
-                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
-                            self.increment_open_lag(1.);
-                        }
-                        if self.zoom_to_measurement == 2 {
-                            self.increment_close_lag(1.);
-                        }
-                        self.update_plots();
-                    }
-                }
-            }
-        });
+            });
+        }
         ui.add_space(10.);
 
         if show_invalids_clicked {
@@ -1077,6 +1153,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", selected_model.label()),
+                                    Some(MarkerShape::Circle),
                                 );
                             });
                             if response.response.hovered() {
@@ -1109,6 +1186,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Poly.label()),
+                                    Some(MarkerShape::Square),
                                 );
                             });
                             if response.response.hovered() {
@@ -1141,6 +1219,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    Some(MarkerShape::Diamond),
                                 );
                             });
                             if response.response.hovered() {
@@ -1173,6 +1252,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Linear.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1201,6 +1281,7 @@ impl ValidationApp {
                                         *cycle.measurement_r2.get(gas_type).unwrap_or(&0.0)
                                     },
                                     "Measurement r",
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1233,6 +1314,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", selected_model.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1260,6 +1342,7 @@ impl ValidationApp {
                                         *cycle.t0_concentration.get(gas_type).unwrap_or(&0.0)
                                     },
                                     "Conc t0",
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1289,6 +1372,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Linear.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1318,6 +1402,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Linear.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1347,6 +1432,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Linear.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1376,6 +1462,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Linear.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1405,6 +1492,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Poly.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1434,6 +1522,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Poly.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1463,6 +1552,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Poly.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1492,6 +1582,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Poly.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1521,6 +1612,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1550,6 +1642,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1579,6 +1672,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1608,6 +1702,7 @@ impl ValidationApp {
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1643,6 +1738,7 @@ impl ValidationApp {
                                                 .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::Poly.label()),
+                                    None,
                                 );
                             });
                             if response.response.hovered() {
@@ -1678,7 +1774,7 @@ impl ValidationApp {
                 }
             });
         });
-        if self.enable_residuals_bars {
+        if self.show_residuals {
             egui::Window::new("Residual bar plots").show(ctx, |ui| {
                 ui.vertical(|ui| {
                     for model in FluxKind::all() {
@@ -1698,7 +1794,7 @@ impl ValidationApp {
             });
         }
 
-        if self.enable_residuals_standardized {
+        if self.show_standardized_residuals {
             egui::Window::new("Standardized Residuals").show(ctx, |ui| {
                 ui.vertical(|ui| {
                     for model in &[FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin] {
@@ -2751,16 +2847,15 @@ impl ValidationApp {
         }
         None
     }
-    pub fn select_residuals_plots(&mut self, ui: &mut egui::Ui) {
+    pub fn enable_floaters(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.vertical(|ui| {
-                ui.label("Residual plots");
-                ui.checkbox(
-                    &mut self.enable_residuals_standardized,
-                    "Enable standardized residuals",
-                );
-                ui.checkbox(&mut self.enable_residuals_bars, "Enable residuals distribution");
-                ui.checkbox(&mut self.enable_cycle_details, "Enable cycle details");
+                ui.label("Floating windows");
+                ui.checkbox(&mut self.show_legend, "Show legend");
+                ui.checkbox(&mut self.show_cycle_details, "Show cycle details");
+                ui.checkbox(&mut self.show_plot_widths, "Show plot with adjustment");
+                ui.checkbox(&mut self.show_residuals, "Show residuals distribution");
+                ui.checkbox(&mut self.show_standardized_residuals, "Show standardized residuals");
             });
         });
     }
@@ -3968,4 +4063,10 @@ fn upload_volume_data_async(
         },
     }
     log_msgs.push_front("Uploading meteo data...".to_string());
+}
+pub fn keybind_triggered(event: &egui::Event, keybinds: &KeyBindings, action: Action) -> bool {
+    matches!(event,
+        egui::Event::Key { key, pressed: true, .. }
+        if Some(*key) == keybinds.key_for(action)
+    )
 }

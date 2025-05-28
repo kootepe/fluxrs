@@ -212,7 +212,7 @@ fn is_cycle_visible(
 
     let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
     let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
-    let valid_ok = show_valids || !cycle.is_valid && !stats_valid;
+    let valid_ok = show_valids || !cycle.is_valid || !stats_valid;
     let invalid_ok = show_invalids || cycle.is_valid && stats_valid;
     trace_visible && valid_ok && invalid_ok && bad_ok
 }
