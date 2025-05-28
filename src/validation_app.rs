@@ -274,6 +274,10 @@ impl MainApp {
                     Action::IncrementLag,
                     Action::DecrementLag,
                     Action::ToggleValidity,
+                    Action::ToggleCH4Validity,
+                    Action::ToggleCO2Validity,
+                    Action::ToggleH2OValidity,
+                    Action::ToggleN2OValidity,
                     Action::ToggleBad,
                     Action::ToggleShowValids,
                     Action::ToggleShowInvalids,
@@ -459,6 +463,7 @@ pub struct ValidationApp {
     pub show_standardized_residuals: bool,
     pub show_legend: bool,
     pub show_plot_widths: bool,
+    pub toggled_gas: Option<GasType>,
 }
 
 impl Default for ValidationApp {
@@ -568,6 +573,7 @@ impl Default for ValidationApp {
             show_legend: true,
             show_cycle_details: true,
             show_plot_widths: true,
+            toggled_gas: None,
         }
     }
 }
@@ -808,7 +814,6 @@ impl ValidationApp {
                 show_roblin_model =
                     ui.checkbox(&mut self.show_roblinfit, "Show robust linear model").clicked();
             });
-            let mut toggled_gas: Option<GasType> = None;
 
             ui.vertical(|ui| {
                 if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
@@ -826,14 +831,14 @@ impl ValidationApp {
                         };
 
                         if ui.button(label).clicked() {
-                            toggled_gas = Some(gas_type);
+                            self.toggled_gas = Some(gas_type);
                         }
                     }
                 }
             });
 
             // Toggle validity for all models of the selected gas type
-            if let Some(gas_type) = toggled_gas {
+            if let Some(gas_type) = self.toggled_gas {
                 if let Some(current_cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                     for ((g, _), record) in current_cycle.fluxes.iter_mut() {
                         if *g == gas_type {
@@ -909,6 +914,55 @@ impl ValidationApp {
                     }
                     if keybind_triggered(event, &self.keybinds, Action::ToggleShowStandResiduals) {
                         self.show_standardized_residuals = !self.show_standardized_residuals
+                    }
+
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleCH4Validity) {
+                        if let Some(current_cycle) =
+                            self.cycle_nav.current_cycle_mut(&mut self.cycles)
+                        {
+                            for ((g, _), record) in current_cycle.fluxes.iter_mut() {
+                                if *g == GasType::CH4 {
+                                    record.is_valid = !record.is_valid;
+                                }
+                            }
+                            self.mark_dirty();
+                        }
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleCO2Validity) {
+                        if let Some(current_cycle) =
+                            self.cycle_nav.current_cycle_mut(&mut self.cycles)
+                        {
+                            for ((g, _), record) in current_cycle.fluxes.iter_mut() {
+                                if *g == GasType::CO2 {
+                                    record.is_valid = !record.is_valid;
+                                }
+                            }
+                            self.mark_dirty();
+                        }
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleH2OValidity) {
+                        if let Some(current_cycle) =
+                            self.cycle_nav.current_cycle_mut(&mut self.cycles)
+                        {
+                            for ((g, _), record) in current_cycle.fluxes.iter_mut() {
+                                if *g == GasType::H2O {
+                                    record.is_valid = !record.is_valid;
+                                }
+                            }
+                            self.mark_dirty();
+                        }
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleN2OValidity) {
+                        if let Some(current_cycle) =
+                            self.cycle_nav.current_cycle_mut(&mut self.cycles)
+                        {
+                            for ((g, _), record) in current_cycle.fluxes.iter_mut() {
+                                if *g == GasType::N2O {
+                                    record.is_valid = !record.is_valid;
+                                }
+                            }
+                            self.mark_dirty();
+                        }
                     }
                     if keybind_triggered(event, &self.keybinds, Action::DecrementLag) {
                         self.mark_dirty();

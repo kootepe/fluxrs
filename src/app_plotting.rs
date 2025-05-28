@@ -474,12 +474,7 @@ impl ValidationApp {
                     gas_invalid = true
                 }
             }
-            if cycle.is_valid {
-                plot_ui.polygon(main_polygon);
-                plot_ui.polygon(left_polygon);
-                plot_ui.polygon(right_polygon);
-            }
-            if gas_invalid || !cycle.is_valid {
+            if !cycle.is_valid || gas_invalid {
                 let error_polygon = create_polygon(
                     cycle.get_start(),
                     cycle.get_end(),
@@ -510,6 +505,10 @@ impl ValidationApp {
                     .anchor(Align2::LEFT_TOP)
                     .color(Color32::from_rgba_unmultiplied(250, 128, 128, 255)),
                 );
+            } else if cycle.is_valid {
+                plot_ui.polygon(main_polygon);
+                plot_ui.polygon(left_polygon);
+                plot_ui.polygon(right_polygon);
             }
             if let Some(data) = cycle.gas_v.get(&gas_type) {
                 let dt_v = cycle.dt_v_as_float();
