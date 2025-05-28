@@ -161,11 +161,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let dt_v = cycle.get_measurement_dt_v();
-            let actual = match cycle.measurement_gas_v.get(&gas_type) {
-                Some(v) => v,
-                None => return,
-            };
+            let dt_v = cycle.get_calc_dt(gas_type);
+            let actual = cycle.get_calc_gas_v(gas_type);
 
             let x0 = dt_v.get(0).copied().unwrap_or(0.0);
 
@@ -175,11 +172,8 @@ impl ValidationApp {
 
             let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
             // Compute residuals
-            let residuals: Vec<f64> = actual
-                .iter()
-                .zip(&y_pred)
-                .filter_map(|(&y_opt, &y_hat)| y_opt.map(|y| y - y_hat))
-                .collect();
+            let residuals: Vec<f64> =
+                actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
             let num_bins = 20;
             // let min = residuals.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -229,20 +223,10 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_measurement_dt_v()[..300].to_vec();
-            // let actual = match cycle.measurement_gas_v.get(&gas_type) {
-            //     Some(v) => v[..300].to_vec(),
-            //     None => return,
-            // };
-            let dt_v = cycle.get_measurement_dt_v();
-            let actual = match cycle.measurement_gas_v.get(&gas_type) {
-                Some(v) => v,
-                None => return,
-            };
+            let dt_v = cycle.get_calc_dt(gas_type);
+            let actual = cycle.get_calc_gas_v(gas_type);
 
-            // let gas_nopt = actual.iter().map(|m| m.unwrap_or(0.0));
-
-            let gas_nopt: Vec<f64> = actual.iter().map(|x| x.unwrap_or(0.0)).collect();
+            // let gas_nopt: Vec<f64> = actual.iter().map(|x| x.unwrap_or(0.0)).collect();
             // let x0 = dt_v.get(0).copied().unwrap_or(0.0);
             let x0 = dt_v.first().unwrap();
 
@@ -263,11 +247,8 @@ impl ValidationApp {
             };
 
             // Compute residuals
-            let residuals: Vec<f64> = actual
-                .iter()
-                .zip(&y_pred)
-                .filter_map(|(&y_opt, &y_hat)| y_opt.map(|y| y - y_hat))
-                .collect();
+            let residuals: Vec<f64> =
+                actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
             // In your egui `ui` code:
             // Standardize residuals
@@ -326,10 +307,6 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let dt_v = cycle.get_calc_dt(gas_type);
             let actual = cycle.get_calc_gas_v(gas_type);
-            // let actual = match cycle.get_calc_gas_v(gas_type) {
-            //     Some(v) => v,
-            //     None => return,
-            // };
 
             // Prepare predictions from the selected model
             let Some(model) = self.get_model(gas_type, kind) else { return };
