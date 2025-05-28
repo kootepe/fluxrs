@@ -324,11 +324,12 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let dt_v = cycle.get_measurement_dt_v();
-            let actual = match cycle.measurement_gas_v.get(&gas_type) {
-                Some(v) => v,
-                None => return,
-            };
+            let dt_v = cycle.get_calc_dt(gas_type);
+            let actual = cycle.get_calc_gas_v(gas_type);
+            // let actual = match cycle.get_calc_gas_v(gas_type) {
+            //     Some(v) => v,
+            //     None => return,
+            // };
 
             // Prepare predictions from the selected model
             let Some(model) = self.get_model(gas_type, kind) else { return };
@@ -336,11 +337,8 @@ impl ValidationApp {
             let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
 
             // Compute residuals
-            let residuals: Vec<f64> = actual
-                .iter()
-                .zip(&y_pred)
-                .filter_map(|(&y_opt, &y_hat)| y_opt.map(|y| y - y_hat))
-                .collect();
+            let residuals: Vec<f64> =
+                actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
             // Standardize residuals
             let mean = residuals.iter().copied().sum::<f64>() / residuals.len() as f64;
