@@ -364,7 +364,13 @@ impl ValidationApp {
                         (xmin.min(x), xmax.max(x))
                     });
 
-                let padding = (x_max - x_min) * 0.05;
+                let x_padding = (x_max - x_min) * 0.05;
+                let y_padding = (y_max - y_min) * 0.05;
+
+                plot_ui.set_plot_bounds(PlotBounds::from_min_max(
+                    [x_min - x_padding, y_min - y_padding],
+                    [x_max + x_padding, y_max + y_padding],
+                ));
 
                 plot_ui.points(
                     Points::new(
@@ -376,11 +382,6 @@ impl ValidationApp {
                     .color(gas_type.color())
                     .radius(2.0),
                 );
-
-                plot_ui.set_plot_bounds(PlotBounds::from_min_max(
-                    [x_min - padding, y_min],
-                    [x_max + padding, y_max],
-                ));
             }
 
             // Optional: Add a horizontal zero-line
