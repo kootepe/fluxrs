@@ -563,10 +563,10 @@ impl Default for ValidationApp {
             selected_model: FluxKind::Linear,
             keybinds: KeyBindings::default(),
             awaiting_rebind: None,
-            show_cycle_details: false,
             show_residuals: false,
             show_standardized_residuals: false,
             show_legend: true,
+            show_cycle_details: true,
             show_plot_widths: true,
         }
     }
