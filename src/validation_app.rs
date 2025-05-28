@@ -590,27 +590,7 @@ impl ValidationApp {
                 self.render_legend(ui, &self.chamber_colors.clone());
             });
         }
-        if self.show_plot_widths {
-            egui::Window::new("Adjust plot widths").show(ctx, |ui| {
-            ui.label("Drag boxes right/left or down/up to adjust plot sizes.");
-            ui.label("Unfinished, flux plot dimensions also adjust all plots that are not gas or lag plot");
-            egui::Grid::new("plots").show(ui, |ui| {
-                ui.label("Lag plot width: ");
-                ui.add(egui::DragValue::new(&mut self.lag_plot_w).speed(1.).range(150.0..=1920.0));
-                ui.label("Flux plot width:");
-                ui.add(egui::DragValue::new(&mut self.flux_plot_w).speed(1.).range(150.0..=1920.0));
-                ui.label("Gas plot width:");
-                ui.add(egui::DragValue::new(&mut self.gas_plot_w).speed(1.).range(150.0..=1920.0));
-                ui.end_row();
-                ui.label("Lag plot height:");
-                ui.add(egui::DragValue::new(&mut self.lag_plot_h).speed(1.).range(150.0..=1920.0));
-                ui.label("Flux plot height:");
-                ui.add(egui::DragValue::new(&mut self.flux_plot_h).speed(1.).range(150.0..=1920.0));
-                ui.label("Gas plot height:");
-                ui.add(egui::DragValue::new(&mut self.gas_plot_h).speed(1.).range(150.0..=1920.0));
-            });
-        });
-        }
+
         let longest_label = "Measurement r plots";
 
         if self.show_cycle_details {
@@ -764,50 +744,31 @@ impl ValidationApp {
 
                         ui.separator();
                     }
-                    // Optional: Grid for enabled gases
-                    // egui::Grid::new("gas_values_grid").striped(true).show(ui, |ui| {
-                    //     ui.label("Gas");
-                    //     ui.label("Flux");
-                    //     ui.label("calc_r2");
-                    //     ui.label("p-value");
-                    //     ui.label("sigma");
-                    //     ui.label("rmse");
-                    //     ui.end_row();
-                    //
-                    //     for gas in &self.enabled_gases {
-                    //         let flux = match cycle.get_lin_flux(*gas) {
-                    //             Some(r) => format!("{:.6}", r),
-                    //             None => "N/A".to_string(),
-                    //         };
-                    //         let r2 = match cycle.get_lin_r2(*gas) {
-                    //             Some(r) => format!("{:.6}", r),
-                    //             None => "N/A".to_string(),
-                    //         };
-                    //         let p_val = match cycle.get_lin_p_value(*gas) {
-                    //             Some(r) => format!("{:.6}", r),
-                    //             None => "N/A".to_string(),
-                    //         };
-                    //         let sigma = match cycle.get_lin_sigma(*gas) {
-                    //             Some(r) => format!("{:.6}", r),
-                    //             None => "N/A".to_string(),
-                    //         };
-                    //         let rmse = match cycle.get_lin_rmse(*gas) {
-                    //             Some(r) => format!("{:.6}", r),
-                    //             None => "N/A".to_string(),
-                    //         };
-                    //         ui.label(format!("{}", gas));
-                    //         ui.label(flux);
-                    //         ui.label(r2);
-                    //         ui.label(p_val);
-                    //         ui.label(sigma);
-                    //         ui.label(rmse);
-                    //         ui.end_row();
-                    //     }
-                    // });
                 } else {
                     ui.label("No cycle selected.");
                 }
             });
+        }
+        if self.show_plot_widths {
+            egui::Window::new("Adjust plot widths").show(ctx, |ui| {
+            ui.label("Drag boxes right/left or down/up to adjust plot sizes.");
+            ui.label("Unfinished, flux plot dimensions also adjust all plots that are not gas or lag plot");
+            egui::Grid::new("plots").show(ui, |ui| {
+                ui.label("Lag plot width: ");
+                ui.add(egui::DragValue::new(&mut self.lag_plot_w).speed(1.).range(150.0..=1920.0));
+                ui.label("Flux plot width:");
+                ui.add(egui::DragValue::new(&mut self.flux_plot_w).speed(1.).range(150.0..=1920.0));
+                ui.label("Gas plot width:");
+                ui.add(egui::DragValue::new(&mut self.gas_plot_w).speed(1.).range(150.0..=1920.0));
+                ui.end_row();
+                ui.label("Lag plot height:");
+                ui.add(egui::DragValue::new(&mut self.lag_plot_h).speed(1.).range(150.0..=1920.0));
+                ui.label("Flux plot height:");
+                ui.add(egui::DragValue::new(&mut self.flux_plot_h).speed(1.).range(150.0..=1920.0));
+                ui.label("Gas plot height:");
+                ui.add(egui::DragValue::new(&mut self.gas_plot_h).speed(1.).range(150.0..=1920.0));
+            });
+        });
         }
         let mut prev_clicked = false;
         let mut next_clicked = false;
@@ -2258,79 +2219,6 @@ impl ValidationApp {
             }
         }
     }
-    // pub fn handle_progress_messages(&mut self) {
-    //     if let Some(receiver) = &mut self.progress_receiver {
-    //         while let Ok(msg) = receiver.try_recv() {
-    //             match msg {
-    //                 ProcessEvent::QueryComplete => {
-    //                     self.query_in_progress = false;
-    //                     self.log_messages.push_front("Finished queries.".to_owned());
-    //                 },
-    //                 ProcessEvent::Progress(c) => {
-    //                     self.cycles_state = Some(c);
-    //                     let (current, _) = c;
-    //                     self.cycles_progress += current;
-    //                 },
-    //                 ProcessEvent::Error(e) => {
-    //                     self.log_messages.push_front(format!("Error: {}", e));
-    //                 },
-    //                 ProcessEvent::NoGasError(e) => {
-    //                     self.log_messages.push_front(format!("Error: {}", e));
-    //                 },
-    //                 ProcessEvent::InitStarted => {
-    //                     self.init_in_progress = true;
-    //                     // self.log_messages.push_front(format!("Error: {}", e));
-    //                 },
-    //                 ProcessEvent::InitEnded => {
-    //                     self.init_in_progress = false;
-    //                     // self.log_messages.push_front(format!("Error: {}", e));
-    //                 },
-    //                 ProcessEvent::Done => {
-    //                     self.log_messages.push_front("All processing finished.".to_string());
-    //                     self.cycles_progress = 0;
-    //                 },
-    //                 ProcessEvent::DoneFail => {
-    //                     self.log_messages.push_front("All processing finished.".to_string());
-    //                     self.cycles_progress = 0;
-    //                     self.init_enabled = true;
-    //                     self.init_in_progress = false;
-    //                     self.query_in_progress = false;
-    //                 },
-    //                 ProcessEvent::NoGasData(start_time) => {
-    //                     self.log_messages
-    //                         .push_front(format!("No gas data found for cycle at {}", start_time));
-    //                 },
-    //                 ProcessEvent::ReadFile(filename) => {
-    //                     self.log_messages.push_front(format!("Read file: {}", filename));
-    //                 },
-    //                 ProcessEvent::ReadFileRows(filename, rows) => {
-    //                     self.log_messages
-    //                         .push_front(format!("Read file: {} with {} rows", filename, rows));
-    //                 },
-    //                 ProcessEvent::ReadFileFail(filename, e) => {
-    //                     self.log_messages
-    //                         .push_front(format!("Failed to read file {}, error: {}", filename, e));
-    //                 },
-    //                 ProcessEvent::InsertOk(rows) => {
-    //                     self.log_messages.push_front(format!("Inserted {} rows", rows));
-    //                 },
-    //                 ProcessEvent::InsertOkSkip(rows, duplicates) => {
-    //                     self.log_messages.push_front(format!(
-    //                         "Inserted {} rows, skipped {} duplicates.",
-    //                         rows, duplicates
-    //                     ));
-    //                 },
-    //                 ProcessEvent::InsertFail(e) => {
-    //                     self.log_messages.push_front(format!("Failed to insert rows: {}", e));
-    //                 },
-    //                 ProcessEvent::ProgressDay(date) => {
-    //                     self.log_messages.push_front(format!("Loaded cycles from {}", date));
-    //                 },
-    //                 _ => self.log_messages.push_front("Unformatted Processing Message".to_owned()),
-    //             }
-    //         }
-    //     }
-    // }
     fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
         self.log_messages.push_front("Uploading cycle data...".to_string());
 
