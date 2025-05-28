@@ -468,11 +468,18 @@ impl ValidationApp {
             let open_line = create_vline(x_open, dark_green, dashed, "Unadjusted open");
             let close_line = create_vline(x_close, red, dashed, "Unadjusted close");
 
+            let mut gas_invalid = false;
+            for ((g, _), record) in cycle.fluxes.iter() {
+                if *g == gas_type && !record.is_valid {
+                    gas_invalid = true
+                }
+            }
             if cycle.is_valid {
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
-            } else {
+            }
+            if gas_invalid || !cycle.is_valid {
                 let error_polygon = create_polygon(
                     cycle.get_start(),
                     cycle.get_end(),
@@ -485,9 +492,12 @@ impl ValidationApp {
                 );
                 plot_ui.polygon(error_polygon);
                 let errors = ErrorCode::from_mask(cycle.error_code.0);
-                let error_messages: Vec<String> =
+                let mut error_messages: Vec<String> =
                     errors.iter().map(|error| error.to_string()).collect();
 
+                if gas_invalid {
+                    error_messages.push("Gas marked as invalid".to_owned());
+                }
                 let msg = error_messages.join("\n");
                 let has_errors = format!("haserrors{}", gas_type);
                 plot_ui.text(
@@ -946,6 +956,14 @@ impl ValidationApp {
     where
         F: Fn(&Cycle, &GasType) -> f64,
     {
+        // BUG: actual marking of invalid traces happens in cyclenavigator. Here we use those same
+        // values for marking invalids for each separate gas even though they are meant to be only
+        // used on the main gas, causing there to be invalid marks on the plots that dont get
+        // hidden
+        // eg. for main_gas best model is poly with RMSE 0.5, For CO2 best model is
+        // roblin and the RMSE is 1.1. RMSE threshold is 1.
+        // we look at the best model of the main gas and hide points based on that, but draw points
+        //
         let mut valid_traces: HashMap<String, Vec<(FluxKind, [f64; 2])>> = HashMap::new();
         let mut invalid_traces: HashMap<String, Vec<(FluxKind, [f64; 2])>> = HashMap::new();
 
@@ -954,13 +972,14 @@ impl ValidationApp {
                 let chamber_id = cycle.chamber_id.clone();
                 let start_time = cycle.start_time.timestamp() as f64;
                 let is_valid = cycle.is_valid;
+                let main_gas = cycle.main_gas;
 
                 // Get best model kind (lowest AIC among available models)
                 let best_model = FluxKind::all()
                     .iter()
                     .filter_map(|kind| {
                         cycle
-                            .get_model(*gas_type, *kind)
+                            .get_model(main_gas, *kind)
                             .and_then(|m| m.aic().map(|aic| (*kind, aic)))
                     })
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));

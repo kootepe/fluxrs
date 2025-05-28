@@ -11,6 +11,7 @@ pub struct FluxRecord {
     pub model: Box<dyn FluxModel>,
     pub is_valid: bool,
 }
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FluxKind {
     Linear,

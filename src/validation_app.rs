@@ -189,6 +189,7 @@ impl MainApp {
             });
             ui.group(|ui| {
                 ui.label("Adjust hiding thresholds");
+                ui.label("These are based on the main gas.");
                 ui.label("Will not mark measurements as invalid, but allows hiding measurements in current view.");
                 ui.label("Double click to reset");
                 egui::Grid::new("thresholds_grid").min_col_width(100.).show(ui,|ui| {
@@ -282,7 +283,6 @@ impl MainApp {
                     Action::ToggleShowDetails,
                     Action::TogglePlotWidthsWindow,
                     Action::ToggleShowResiduals,
-                    Action::ToggleShowStandResiduals,
                     Action::ToggleShowStandResiduals,
                 ] {
                     let mut rebind_text = "Rebind";
@@ -808,6 +808,41 @@ impl ValidationApp {
                 show_roblin_model =
                     ui.checkbox(&mut self.show_roblinfit, "Show robust linear model").clicked();
             });
+            let mut toggled_gas: Option<GasType> = None;
+
+            ui.vertical(|ui| {
+                if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+                    for gas_type in current_cycle.instrument_model.available_gases() {
+                        // Check if any model for this gas is valid (to toggle meaningfully)
+                        let any_valid = current_cycle
+                            .fluxes
+                            .iter()
+                            .any(|(&(g, _), record)| g == gas_type && record.is_valid);
+
+                        let label = if any_valid {
+                            format!("Invalidate {} measurement", gas_type)
+                        } else {
+                            format!("Revalidate {} measurement", gas_type)
+                        };
+
+                        if ui.button(label).clicked() {
+                            toggled_gas = Some(gas_type);
+                        }
+                    }
+                }
+            });
+
+            // Toggle validity for all models of the selected gas type
+            if let Some(gas_type) = toggled_gas {
+                if let Some(current_cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                    for ((g, _), record) in current_cycle.fluxes.iter_mut() {
+                        if *g == gas_type {
+                            record.is_valid = !record.is_valid;
+                        }
+                    }
+                }
+                self.mark_dirty();
+            }
         });
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             highest_r = ui.add(egui::Button::new("Find highest r")).clicked();
@@ -1716,22 +1751,27 @@ impl ValidationApp {
                 let response = lag_plot.show(ui, |plot_ui| {
                     self.render_lag_plot(plot_ui);
                 });
-                let flux_plot = init_attribute_plot(
-                    "Best flux".to_owned(),
-                    &main_gas,
-                    self.flux_plot_w,
-                    self.flux_plot_h,
-                );
-                flux_plot.show(ui, |plot_ui| {
-                    self.render_best_flux_plot(
-                        plot_ui,
-                        &main_gas,
-                        |cycle, gas| cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN),
-                        "Best Flux (AIC)",
+                for gas_type in self.enabled_gases.clone() {
+                    let flux_plot = init_attribute_plot(
+                        "Best flux".to_owned(),
+                        &gas_type,
+                        self.flux_plot_w,
+                        self.flux_plot_h,
                     );
-                });
-                if response.response.hovered() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                    let response2 = flux_plot.show(ui, |plot_ui| {
+                        self.render_best_flux_plot(
+                            plot_ui,
+                            &gas_type,
+                            |cycle, gas| cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN),
+                            "Best Flux (AIC)",
+                        );
+                    });
+                    if response.response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                    }
+                    if response2.response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                    }
                 }
             });
         });

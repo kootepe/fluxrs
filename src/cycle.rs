@@ -1939,11 +1939,13 @@ fn execute_history_insert(
 ) -> Result<()> {
     for gas_type in cycle.instrument_model.available_gases() {
         let linear = cycle.fluxes.get(&(gas_type, FluxKind::Linear));
-        let poly = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
-        let roblin = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
+        let polynomial = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
+        let robustlinear = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
-        let poly = poly.map(|m| m.model.as_ref());
-        let roblin = roblin.map(|m| m.model.as_ref());
+        let poly = polynomial.map(|m| m.model.as_ref());
+        let roblin = robustlinear.map(|m| m.model.as_ref());
+        // NOTE: for a specific
+        let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
@@ -1972,6 +1974,7 @@ fn execute_history_insert(
             cycle.chamber_volume,
             cycle.error_code.0,
             cycle.is_valid,
+            lin_valid,
             cycle.manual_adjusted,
             cycle.manual_valid,
             cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
@@ -2026,11 +2029,13 @@ fn execute_history_insert(
 fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
     for gas_type in cycle.instrument_model.available_gases() {
         let linear = cycle.fluxes.get(&(gas_type, FluxKind::Linear));
-        let poly = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
-        let roblin = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
+        let polynomial = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
+        let robustlinear = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
-        let poly = poly.map(|m| m.model.as_ref());
-        let roblin = roblin.map(|m| m.model.as_ref());
+        let poly = polynomial.map(|m| m.model.as_ref());
+        let roblin = robustlinear.map(|m| m.model.as_ref());
+        // NOTE: for a specific
+        let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
@@ -2058,6 +2063,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.chamber_volume,
             cycle.error_code.0,
             cycle.is_valid,
+            lin_valid,
             cycle.manual_adjusted,
             cycle.manual_valid,
             cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
@@ -2111,11 +2117,12 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
 fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
     for gas_type in cycle.instrument_model.available_gases() {
         let linear = cycle.fluxes.get(&(gas_type, FluxKind::Linear));
-        let poly = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
-        let roblin = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
+        let polynomial = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
+        let robustlinear = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
-        let poly = poly.map(|m| m.model.as_ref());
-        let roblin = roblin.map(|m| m.model.as_ref());
+        let poly = polynomial.map(|m| m.model.as_ref());
+        let roblin = robustlinear.map(|m| m.model.as_ref());
+        let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
@@ -2143,6 +2150,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.chamber_volume,
             cycle.error_code.0,
             cycle.is_valid,
+            lin_valid,
             cycle.manual_adjusted,
             cycle.manual_valid,
             cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
@@ -2581,7 +2589,8 @@ pub fn load_cycles(
 
         let error_code_u16: u16 = row.get(*column_index.get("error_code").unwrap())?;
         let error_code = ErrorMask::from_u16(error_code_u16);
-        let is_valid: bool = row.get(*column_index.get("is_valid").unwrap())?;
+        let is_valid: bool = row.get(*column_index.get("measurement_is_valid").unwrap())?;
+        let gas_is_valid: bool = row.get(*column_index.get("gas_is_valid").unwrap())?;
         let project_name = row.get(*column_index.get("project_id").unwrap())?;
         let manual_adjusted = row.get(*column_index.get("manual_adjusted").unwrap())?;
         let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
@@ -2759,7 +2768,7 @@ pub fn load_cycles(
             };
             cycle.fluxes.insert(
                 (gas_type, FluxKind::Linear),
-                FluxRecord { model: Box::new(lin), is_valid: true },
+                FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
             );
         }
         if let (
@@ -2806,7 +2815,7 @@ pub fn load_cycles(
             };
             cycle.fluxes.insert(
                 (gas_type, FluxKind::RobLin),
-                FluxRecord { model: Box::new(lin), is_valid: true },
+                FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
             );
         }
         if let (
@@ -2856,7 +2865,7 @@ pub fn load_cycles(
             };
             cycle.fluxes.insert(
                 (gas_type, FluxKind::Poly),
-                FluxRecord { model: Box::new(lin), is_valid: true },
+                FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
             );
         }
 
