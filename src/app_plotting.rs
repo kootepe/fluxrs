@@ -161,8 +161,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let dt_v = cycle.get_calc_dt(gas_type);
-            let actual = cycle.get_calc_gas_v(gas_type);
+            let dt_v = cycle.get_calc_dt2(gas_type);
+            let actual = cycle.get_calc_gas_v2(gas_type);
 
             let x0 = dt_v.get(0).copied().unwrap_or(0.0);
 
@@ -223,8 +223,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let dt_v = cycle.get_calc_dt(gas_type);
-            let actual = cycle.get_calc_gas_v(gas_type);
+            let dt_v = cycle.get_calc_dt2(gas_type);
+            let actual = cycle.get_calc_gas_v2(gas_type);
 
             // let gas_nopt: Vec<f64> = actual.iter().map(|x| x.unwrap_or(0.0)).collect();
             // let x0 = dt_v.get(0).copied().unwrap_or(0.0);
@@ -305,8 +305,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let dt_v = cycle.get_calc_dt(gas_type);
-            let actual = cycle.get_calc_gas_v(gas_type);
+            let dt_v = cycle.get_calc_dt2(gas_type);
+            let actual = cycle.get_calc_gas_v2(gas_type);
 
             // Prepare predictions from the selected model
             let Some(model) = self.get_model(gas_type, kind) else { return };
@@ -348,7 +348,6 @@ impl ValidationApp {
                     [x_min - x_padding, y_min - y_padding],
                     [x_max + x_padding, y_max + y_padding],
                 ));
-
                 plot_ui.points(
                     Points::new(
                         format!("{} {} standardized residuals", kind.as_str(), gas_type),
@@ -360,21 +359,6 @@ impl ValidationApp {
                     .radius(2.0),
                 );
             }
-
-            // Optional: Add a horizontal zero-line
-            // if let Some(&x_min) = y_pred.first() {
-            //     if let Some(&x_max) = y_pred.last() {
-            //         plot_ui.line(
-            //             Line::new(
-            //                 format!("residual_zero{}", gas_type),
-            //                 PlotPoints::from(vec![[x_min, 0.0], [x_max, 0.0]]),
-            //             )
-            //             .color(egui::Color32::GRAY)
-            //             .style(egui_plot::LineStyle::dashed_loose())
-            //             .stroke(Stroke::new(1.0, egui::Color32::GRAY)),
-            //         );
-            //     }
-            // }
         } else {
             plot_ui.text(Text::new(
                 "no cycle",
@@ -431,6 +415,16 @@ impl ValidationApp {
                 "Move",
                 main_id,
             );
+            let deadband = create_polygon(
+                cycle.get_adjusted_close(),
+                cycle.get_adjusted_close() + cycle.deadband,
+                min_y,
+                max_y,
+                Color32::from_rgba_unmultiplied(255, 0, 0, 30),
+                Color32::BLACK,
+                "deadband",
+                main_id,
+            );
 
             let dashed = LineStyle::Dashed { length: 10.0 };
             let solid = LineStyle::Solid;
@@ -439,10 +433,10 @@ impl ValidationApp {
             let x_open = cycle.get_open();
             let x_close = cycle.get_close();
 
-            let adj_open_line = create_vline(adj_x_open, dark_green, solid, "Lagtime");
-            let adj_close_line = create_vline(adj_x_close, red, solid, "Close time");
-            let open_line = create_vline(x_open, dark_green, dashed, "Unadjusted open");
-            let close_line = create_vline(x_close, red, dashed, "Unadjusted close");
+            let adj_open_line = create_vline(adj_x_open, red, solid, "Lagtime");
+            let adj_close_line = create_vline(adj_x_close, dark_green, solid, "Close time");
+            let open_line = create_vline(x_open, red, dashed, "Unadjusted open");
+            let close_line = create_vline(x_close, dark_green, dashed, "Unadjusted close");
 
             let mut gas_invalid = false;
             for ((g, _), record) in cycle.fluxes.iter() {
@@ -485,9 +479,10 @@ impl ValidationApp {
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
+                plot_ui.polygon(deadband);
             }
             if let Some(data) = cycle.gas_v.get(&gas_type) {
-                let dt_v = cycle.dt_v_as_float();
+                let dt_v = &cycle.dt_v;
                 let diag_values = &cycle.diag_v;
 
                 let mut normal_points = Vec::new();
@@ -764,11 +759,11 @@ impl ValidationApp {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
-    pub fn get_measurement_datas(&mut self) {
-        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.get_measurement_datas();
-        }
-    }
+    // pub fn get_measurement_datas(&mut self) {
+    //     if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+    //         cycle.get_measurement_datas();
+    //     }
+    // }
     pub fn get_is_valid(&self) -> bool {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             cycle.get_is_valid()
@@ -827,6 +822,13 @@ impl ValidationApp {
             0.0
         }
     }
+    pub fn get_deadband(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.deadband
+        } else {
+            0.0
+        }
+    }
 
     pub fn get_model(&self, gas_type: GasType, kind: FluxKind) -> Option<&dyn FluxModel> {
         self.cycle_nav.current_cycle(&self.cycles).and_then(|cycle| cycle.get_model(gas_type, kind))
@@ -873,7 +875,7 @@ impl ValidationApp {
                     .map(|v| v.iter().filter_map(|&x| x).sum::<f64>())
                     .unwrap_or(0.0)
             );
-            println!("ts {}", cycle.dt_v.iter().map(|v| v.timestamp()).sum::<i64>());
+            println!("ts {:?}", cycle.dt_v);
             println!("###");
         }
     }
@@ -1503,7 +1505,7 @@ impl ValidationApp {
             if dragging_main {
                 let calc_start = self.get_calc_start(gas_type);
                 let calc_end = self.get_calc_end(gas_type);
-                let measurement_start = self.get_measurement_start();
+                let measurement_start = self.get_measurement_start() + self.get_deadband();
                 let measurement_end = self.get_measurement_end();
 
                 let mut clamped_dx = dx;
@@ -1524,12 +1526,11 @@ impl ValidationApp {
                 }
             }
 
-            let predx = dx;
             if dragging_open_lag {
                 let transform = plot_ui.transform();
                 if self.zoom_to_measurement == 1 {
                     println!("Transforming to zoom");
-                    dx = dx * transform.dpos_dvalue_x();
+                    dx *= transform.dpos_dvalue_x();
                 }
                 self.increment_open_lag(dx);
             }
@@ -1537,7 +1538,7 @@ impl ValidationApp {
                 let transform = plot_ui.transform();
                 if self.zoom_to_measurement == 2 {
                     println!("Transforming to zoom");
-                    dx = dx * transform.dpos_dvalue_x();
+                    dx *= transform.dpos_dvalue_x();
                 }
                 self.increment_close_lag(dx);
             }
@@ -1799,35 +1800,6 @@ impl ValidationApp {
                     .style(egui_plot::LineStyle::Solid)
                     .stroke(Stroke::new(2.0, egui::Color32::BLUE)),
             );
-            // if self.show_polyfit {
-            //                     let x_min = self.get_measurement_start();
-            //                     let x_max = self.get_measurement_end();
-            //                     let num_points = 100; // Higher = smoother curve
-            //
-            //                     if let Some(model) = self
-            //                         .get_model(gas_type, FluxKind::Poly)
-            //                         .and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
-            //                     {
-            //                         let model = &model.model;
-            //
-            //                         let line_points: PlotPoints = (0..=num_points)
-            //                             .map(|i| {
-            //                                 let t = i as f64 / num_points as f64;
-            //                                 let x_real = x_min + t * (x_max - x_min);
-            //                                 let x_model = x_real - x_min;
-            //                                 let y = model.calculate(x_model);
-            //                                 [x_real, y]
-            //                             })
-            //                             .collect();
-            //
-            //                         plot_ui.line(
-            //                             Line::new("polyfit", line_points)
-            //                                 .name("Polynomial Fit")
-            //                                 .color(egui::Color32::BLUE)
-            //                                 .stroke(Stroke::new(2.0, egui::Color32::BLUE)),
-            //                         );
-            //                     }
-            //                 }
         }
     }
 }
@@ -1847,12 +1819,6 @@ pub fn init_attribute_plot(
                     .checked_add_signed(Duration::seconds(timestamp))
                     .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
                     .unwrap_or_else(|| format!("{:.1}", value.x));
-                // let datetime = DateTime::from_timestamp(timestamp, 0)
-                //     .map(|dt| {
-                //         // DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
-                //         Utc::from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string()
-                //     })
-                //     .unwrap_or_else(|| format!("{:.1}", value.x));
 
                 format!("Time: {}\n{} {}: {:.5}", datetime, gas_type, attrib, value.y)
             }),

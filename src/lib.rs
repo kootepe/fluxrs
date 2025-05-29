@@ -493,7 +493,7 @@ fn process_cycles(
             cur_data.datetime.iter().enumerate().for_each(|(i, t)| {
                 // println!("{}", t);
                 if t >= &cycle.start_time && t <= &end_time {
-                    cycle.dt_v.push(*t);
+                    cycle.dt_v.push(t.timestamp() as f64);
                     for (gas_type, gas_values) in &cur_data.gas {
                         if let Some(value) = gas_values.get(i) {
                             cycle.gas_v.entry(*gas_type).or_insert_with(Vec::new).push(*value);
@@ -515,7 +515,6 @@ fn process_cycles(
             cycle.gases = gases.clone();
             cycle.instrument_model = InstrumentType::from_str(&cur_data.instrument_model.clone());
             cycle.instrument_serial = cur_data.instrument_serial.clone();
-            // cycle.project_name = cur_data.project_name.clone();
 
             let target =
                 (cycle.start_time + chrono::TimeDelta::seconds(cycle.close_offset)).timestamp();

@@ -248,7 +248,7 @@ impl MainApp {
                     self.validation_panel.update_plots()
                 }
                 if t0_adjuster.double_clicked() {
-                    self.validation_panel.t0_thresh= 0.05;
+                    self.validation_panel.t0_thresh= 30000.;
                     self.validation_panel.update_plots();
                 }
             });
@@ -3272,7 +3272,7 @@ pub fn handle_drag_polygon(
     let calc_end = app.get_calc_end(*gas_type);
     let calc_range = calc_end - calc_start;
 
-    let close_time = app.get_measurement_start();
+    let close_time = app.get_measurement_start() + app.get_deadband();
     let open_time = app.get_measurement_end();
     let at_min_range = calc_range <= app.min_calc_area_range;
 
