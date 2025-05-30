@@ -453,6 +453,7 @@ fn process_cycles(
     meteo_data: &MeteoData,
     volume_data: &VolumeData,
     project: String,
+    project_deadband: f64,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn Error + Send + Sync>> {
     // println!("Processing cycles");
@@ -532,6 +533,10 @@ fn process_cycles(
             let volume =
                 volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
             cycle.chamber_volume = volume;
+            for gas in gases {
+                cycle.deadbands.insert(gas, project_deadband);
+            }
+            // cycle.deadbands = project_deadband;
             cycle.reset();
             if cycle.dt_v.is_empty() {
                 let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(format!(

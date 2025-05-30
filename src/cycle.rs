@@ -67,7 +67,7 @@ pub struct Cycle {
     pub linfit: HashMap<GasType, LinReg>,
     pub measurement_range_start: f64,
     pub measurement_range_end: f64,
-    pub deadband: f64,
+    pub deadbands: HashMap<GasType, f64>,
 
     pub fluxes: HashMap<(GasType, FluxKind), FluxRecord>,
     pub measurement_r2: HashMap<GasType, f64>,
@@ -273,13 +273,14 @@ impl Cycle {
     //     self.dt_v.iter().map(|x| x.timestamp() as f64).collect()
     // }
     pub fn set_calc_start(&mut self, gas_type: GasType, value: f64) {
-        let range_min = self.get_adjusted_close();
+        let range_min = self.get_adjusted_close() + self.deadbands.get(&gas_type).unwrap_or(&0.0);
         // the calc area cant go beyond the measurement area
         if range_min > value {
             self.calc_range_start.insert(gas_type, range_min);
         } else {
             self.calc_range_start.insert(gas_type, value);
         }
+        // self.adjust_calc_ranges_for_all_gases();
     }
     pub fn set_calc_end(&mut self, gas_type: GasType, value: f64) {
         let range_max = self.get_adjusted_open();
@@ -289,54 +290,7 @@ impl Cycle {
         } else {
             self.calc_range_end.insert(gas_type, value);
         }
-    }
-
-    pub fn set_close_lag(&mut self, new_lag: f64) {
-        self.close_lag_s = new_lag;
-
-        let range_min = self.get_adjusted_close() + self.deadband;
-        let range_max = self.get_adjusted_open();
-        let min_range = self.min_calc_range;
-
-        for gas_type in self.gases.iter().copied() {
-            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
-            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
-
-            // Clamp to bounds
-            if start < range_min {
-                start = range_min;
-            }
-            if end > range_max {
-                end = range_max;
-            }
-
-            // Ensure min range
-            let current_range = end - start;
-            if current_range < min_range {
-                let needed = min_range - current_range;
-                let half = needed / 2.0;
-
-                let new_start = (start - half).max(range_min);
-                let new_end = (end + half).min(range_max);
-
-                if new_end - new_start >= min_range {
-                    start = new_start;
-                    end = new_end;
-                } else {
-                    end = start + min_range;
-                    if end > range_max {
-                        start = range_max - min_range;
-                        end = range_max;
-                    }
-                }
-            }
-
-            self.calc_range_start.insert(gas_type, start);
-            self.calc_range_end.insert(gas_type, end);
-        }
-        self.check_errors();
-        self.calculate_measurement_rs();
-        self.compute_all_fluxes();
+        self.adjust_calc_range_all();
     }
 
     pub fn set_start_lag_s(&mut self, new_lag: f64) {
@@ -372,17 +326,63 @@ impl Cycle {
         self.reload_gas_data();
     }
 
+    pub fn get_deadband(&self, gas_type: GasType) -> f64 {
+        *self.deadbands.get(&gas_type).unwrap_or(&0.0)
+    }
+    pub fn calc_area_can_move(&self, gas_type: GasType) -> bool {
+        let s = self.get_calc_start(gas_type);
+        let e = self.get_calc_end(gas_type);
+        let ms = self.get_adjusted_close() + self.get_deadband(gas_type);
+        let me = self.get_adjusted_open();
+        let cs_at_ms = s <= ms;
+        let ce_at_me = e >= me;
+
+        let calc_at_bounds = cs_at_ms && ce_at_me;
+        let at_min_range = self.min_calc_range >= self.get_calc_range(gas_type);
+        let check = calc_at_bounds && at_min_range;
+
+        !check
+    }
+    pub fn set_deadband(&mut self, gas_type: GasType, deadband: f64) {
+        self.deadbands.insert(gas_type, deadband);
+        self.adjust_calc_range_all_deadband();
+
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
+    pub fn set_close_lag(&mut self, new_lag: f64) {
+        self.close_lag_s = new_lag;
+
+        self.adjust_calc_range_all();
+
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
     pub fn set_open_lag(&mut self, new_lag: f64) {
         self.open_lag_s = new_lag;
 
-        let range_min = self.get_adjusted_close() + self.deadband;
+        self.adjust_calc_range_all();
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
+    fn get_available_range(&self, gas_type: GasType) -> f64 {
+        let range_min = self.get_adjusted_close() + self.deadbands.get(&gas_type).unwrap();
         let range_max = self.get_adjusted_open();
-        let min_range = self.min_calc_range;
-
+        range_max - range_min
+    }
+    fn adjust_calc_range_all_deadband(&mut self) {
         for gas_type in self.gases.iter().copied() {
+            let mut deadband = self.get_deadband(gas_type);
+            let range_min = self.get_adjusted_close() + deadband;
+            let range_max = self.get_adjusted_open();
+            let min_range = self.min_calc_range;
             let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
             let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
 
+            let available_range = range_max - range_min;
             // Clamp to bounds
             if start < range_min {
                 start = range_min;
@@ -391,8 +391,20 @@ impl Cycle {
                 end = range_max;
             }
 
+            // this seems it should also work
+            // if available_range < min_range && range_max == end {
+            //     self.close_lag_s += available_range - min_range
+            // }
+
+            // setting close_lag_s before this loop causes it go over bounds at times, the
+            // available range should never be smaller than the minimum range of the measurement
+            if available_range < min_range {
+                deadband += available_range - min_range;
+                self.deadbands.insert(gas_type, deadband);
+            }
             // Ensure min range
             let current_range = end - start;
+            // if available_range > current_range
             if current_range < min_range {
                 let needed = min_range - current_range;
                 let half = needed / 2.0;
@@ -415,11 +427,60 @@ impl Cycle {
             self.calc_range_start.insert(gas_type, start);
             self.calc_range_end.insert(gas_type, end);
         }
-        self.check_errors();
-        self.calculate_measurement_rs();
-        self.compute_all_fluxes();
     }
+    fn adjust_calc_range_all(&mut self) {
+        for gas_type in self.gases.iter().copied() {
+            let range_min = self.get_adjusted_close() + self.deadbands.get(&gas_type).unwrap();
+            let range_max = self.get_adjusted_open();
+            let min_range = self.min_calc_range;
+            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
+            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
 
+            let available_range = range_max - range_min;
+            // Clamp to bounds
+            if start < range_min {
+                start = range_min;
+            }
+            if end > range_max {
+                end = range_max;
+            }
+
+            // this seems it should also work
+            // if available_range < min_range && range_max == end {
+            //     self.close_lag_s += available_range - min_range
+            // }
+
+            // setting close_lag_s before this loop causes it go over bounds at times, the
+            // available range should never be smaller than the minimum range of the measurement
+            if available_range < min_range {
+                self.close_lag_s += available_range - min_range
+            }
+            // Ensure min range
+            let current_range = end - start;
+            // if available_range > current_range
+            if current_range < min_range {
+                let needed = min_range - current_range;
+                let half = needed / 2.0;
+
+                let new_start = (start - half).max(range_min);
+                let new_end = (end + half).min(range_max);
+
+                if new_end - new_start >= min_range {
+                    start = new_start;
+                    end = new_end;
+                } else {
+                    end = start + min_range;
+                    if end > range_max {
+                        start = range_max - min_range;
+                        end = range_max;
+                    }
+                }
+            }
+
+            self.calc_range_start.insert(gas_type, start);
+            self.calc_range_end.insert(gas_type, end);
+        }
+    }
     pub fn set_measurement_start(&mut self, value: f64) {
         self.measurement_range_start = value;
     }
@@ -432,18 +493,21 @@ impl Cycle {
     pub fn get_calc_end(&self, gas_type: GasType) -> f64 {
         *self.calc_range_end.get(&gas_type).unwrap_or(&0.0)
     }
+
+    pub fn get_calc_range(&self, gas_type: GasType) -> f64 {
+        let start = self.get_calc_start(gas_type);
+        let end = self.get_calc_end(gas_type);
+        end - start
+    }
     pub fn get_measurement_start(&self) -> f64 {
         self.start_time.timestamp() as f64
             + self.close_offset as f64
             + self.open_lag_s
             + self.close_lag_s
-            + self.deadband
     }
     pub fn get_measurement_end(&self) -> f64 {
-        self.start_time.timestamp() as f64
-            + self.open_offset as f64
-            // + self.open_lag_s
-            + self.close_lag_s
+        self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
+        // + self.close_lag_s
     }
     pub fn set_automatic_valid(&mut self, valid: bool) {
         if self.override_valid.is_none() {
@@ -817,10 +881,16 @@ impl Cycle {
             self.is_valid = true
         }
     }
+    pub fn reset_deadbands(&mut self) {
+        for gas in &self.gases {
+            self.deadbands.insert(*gas, 30.);
+        }
+    }
     pub fn reset(&mut self) {
         self.manual_adjusted = false;
         self.close_lag_s = 0.;
         self.open_lag_s = 0.;
+        self.reset_deadbands();
         if self.end_lag_s != 0. || self.start_lag_s != 0. {
             self.end_lag_s = 0.;
             self.start_lag_s = 0.;
@@ -849,7 +919,9 @@ impl Cycle {
 
     pub fn set_calc_ranges(&mut self) {
         for gas_type in self.gases.clone() {
-            let start = self.get_measurement_start();
+            println!("{}", self.deadbands.get(&gas_type).unwrap_or(&0.0));
+            let start =
+                self.get_measurement_start() + self.deadbands.get(&gas_type).unwrap_or(&0.0);
             let end = start + self.min_calc_range;
             self.set_calc_start(gas_type, start);
             self.set_calc_end(gas_type, end);
@@ -895,7 +967,8 @@ impl Cycle {
         }
     }
     pub fn get_measurement_gas_v2(&self, gas_type: GasType) -> Vec<f64> {
-        let s = (self.get_adjusted_close() - self.start_time.timestamp() as f64) as usize;
+        let s = ((self.get_adjusted_close() + self.get_deadband(gas_type))
+            - self.start_time.timestamp() as f64) as usize;
         let e = (self.get_adjusted_open() - self.start_time.timestamp() as f64) as usize;
         let ret: Vec<f64> = self
             .gas_v
@@ -1371,7 +1444,7 @@ impl CycleBuilder {
             close_lag_s: 0.,
             end_lag_s: 0.,
             start_lag_s: 0.,
-            deadband: 30.,
+            deadbands: HashMap::new(),
             max_idx: 0.,
             flux: HashMap::new(),
             fluxes: HashMap::new(),
@@ -1433,7 +1506,7 @@ impl CycleBuilder {
             close_lag_s: 0.,
             end_lag_s: 0.,
             start_lag_s: 0.,
-            deadband: 30.,
+            deadbands: HashMap::new(),
             max_idx: 0.,
             flux: HashMap::new(),
             fluxes: HashMap::new(),
@@ -1677,6 +1750,7 @@ fn execute_history_insert(
         let roblin = robustlinear.map(|m| m.model.as_ref());
         // NOTE: for a specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
+        let deadband = cycle.deadbands.get(&gas_type);
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
@@ -1708,6 +1782,7 @@ fn execute_history_insert(
             lin_valid,
             cycle.manual_adjusted,
             cycle.manual_valid,
+            deadband,
             cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
             cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
             // Linear fields
@@ -1767,6 +1842,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         let roblin = robustlinear.map(|m| m.model.as_ref());
         // NOTE: for a specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
+        let deadband = cycle.deadbands.get(&gas_type);
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
@@ -1797,6 +1873,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             lin_valid,
             cycle.manual_adjusted,
             cycle.manual_valid,
+            deadband,
             cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
             cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
             // Linear fields
@@ -1854,7 +1931,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         let poly = polynomial.map(|m| m.model.as_ref());
         let roblin = robustlinear.map(|m| m.model.as_ref());
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
-
+        let deadband = cycle.deadbands.get(&gas_type);
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
             eprintln!("Skipping gas {:?}: no models available", gas_type);
@@ -1884,6 +1961,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             lin_valid,
             cycle.manual_adjusted,
             cycle.manual_valid,
+            deadband,
             cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
             cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
             // Linear fields
@@ -1958,7 +2036,7 @@ pub fn load_cycles(
     let mut rows = stmt.query(params![project, start, end])?;
 
     while let Some(row) = rows.next()? {
-        let deadband = 30.;
+        let deadband = row.get(*column_index.get("deadband").unwrap())?;
         let start_time: i64 = row.get(*column_index.get("start_time").unwrap())?;
         let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
         let project_id: String = row.get(*column_index.get("project_id").unwrap())?;
@@ -1969,9 +2047,6 @@ pub fn load_cycles(
             project_id: project_id.clone(),
             chamber_id: chamber_id.clone(),
         };
-        // let start_timestamp: i64 = row.get(*column_index.get("start_time").unwrap())?;
-        // let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
-        // let id: i64 = row.get(*column_index.get("id").unwrap())?;
         let model_string: String = row.get(*column_index.get("instrument_model").unwrap())?;
         let instrument_model = InstrumentType::from_str(&model_string);
         let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
@@ -2011,6 +2086,7 @@ pub fn load_cycles(
         let project_name = row.get(*column_index.get("project_id").unwrap())?;
         let manual_adjusted = row.get(*column_index.get("manual_adjusted").unwrap())?;
         let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
+        let m_r2: f64 = row.get(*column_index.get("measurement_r2").unwrap())?;
 
         let mut override_valid = None;
         if manual_valid {
@@ -2025,6 +2101,7 @@ pub fn load_cycles(
         let mut measurement_gas_v = HashMap::new();
         let mut min_y = HashMap::new();
         let mut max_y = HashMap::new();
+        let mut deadbands = HashMap::new();
         let mut t0_concentration = HashMap::new();
         let mut measurement_r2 = HashMap::new();
         let measurement_range_start =
@@ -2054,7 +2131,8 @@ pub fn load_cycles(
                     gas_v.insert(*gas, meas_vals.clone());
                     max_y.insert(*gas, calculate_max_y_from_vec(&meas_vals));
                     min_y.insert(*gas, calculate_min_y_from_vec(&meas_vals));
-                    let target = close_offset + close_lag_s as i64 + open_lag_s as i64;
+                    let target =
+                        close_offset + close_lag_s as i64 + open_lag_s as i64 + deadband as i64;
                     let end_target = open_offset + close_lag_s as i64 + open_lag_s as i64;
 
                     let s = target as usize;
@@ -2062,6 +2140,7 @@ pub fn load_cycles(
                     if e > dt_v.len() {
                         e = dt_v.len()
                     }
+                    deadbands.insert(*gas, deadband);
 
                     let y: Vec<f64> = dt_v[s..e].to_vec();
                     let x: Vec<f64> = meas_vals[s..e].iter().map(|g| g.unwrap()).collect();
@@ -2069,7 +2148,7 @@ pub fn load_cycles(
                     let r2 = stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2);
                     let t0 = meas_vals[target as usize].unwrap();
                     t0_concentration.insert(*gas, t0);
-                    measurement_r2.insert(*gas, r2);
+                    measurement_r2.insert(*gas, m_r2);
                 }
                 if i == 0 {
                     let (_, diag_vals) = filter_diag_data(
@@ -2105,7 +2184,7 @@ pub fn load_cycles(
             end_offset,
             open_lag_s,
             close_lag_s,
-            deadband,
+            deadbands,
             end_lag_s,
             start_lag_s,
             max_idx: 0.0,

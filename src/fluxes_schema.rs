@@ -77,6 +77,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "gas_is_valid",
     "manual_adjusted",
     "manual_valid",
+    "deadband",
     "t0_concentration",
     "measurement_r2",
     "lin_flux",
@@ -225,6 +226,7 @@ pub fn create_flux_table() -> String {
             gas_is_valid BOOL,
             manual_adjusted BOOL NOT NULL,
             manual_valid bool NOT NULL,
+            deadband FLOAT,
             t0_concentration FLOAT,
             measurement_r2 FLOAT,
 
@@ -295,6 +297,7 @@ pub fn create_flux_history_table() -> String {
             gas_is_valid BOOL,
             manual_adjusted BOOL NOT NULL,
             manual_valid bool NOT NULL,
+            deadband FLOAT,
             t0_concentration FLOAT,
             measurement_r2 FLOAT,
 

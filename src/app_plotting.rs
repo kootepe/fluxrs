@@ -4,7 +4,7 @@ use crate::errorcode::ErrorCode;
 use crate::flux::{self, FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
 pub use crate::instruments::GasType;
 use crate::validation_app::ValidationApp;
-use crate::validation_app::{create_polygon, create_vline, handle_drag_polygon, is_inside_polygon};
+use crate::validation_app::{create_polygon, create_vline, is_inside_polygon};
 use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use ecolor::Hsva;
 use egui::widgets::Label;
@@ -16,7 +16,7 @@ use std::ops::RangeInclusive;
 use eframe::egui::{Color32, Id, Layout, PointerButton, Pos2, RichText, Stroke, Ui, Vec2};
 use egui_plot::{
     Bar, BarChart, CoordinatesFormatter, Corner, GridInput, GridMark, Legend, Line, LineStyle,
-    MarkerShape, Plot, PlotBounds, PlotPoint, PlotPoints, PlotTransform, Points, Text,
+    MarkerShape, Plot, PlotBounds, PlotPoint, PlotPoints, PlotTransform, PlotUi, Points, Text,
 };
 
 type DataTrace = (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>);
@@ -379,10 +379,23 @@ impl ValidationApp {
         let error_color = Color32::from_rgba_unmultiplied(255, 50, 50, 55);
 
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            let dead_s = self.get_deadband(gas_type);
             let calc_start = cycle.get_calc_start(gas_type);
             let calc_end = cycle.get_calc_end(gas_type);
             let min_y = self.get_min_y(&gas_type);
             let max_y = self.get_max_y(&gas_type);
+
+            let deadband = create_polygon(
+                cycle.get_adjusted_close(),
+                cycle.get_adjusted_close() + dead_s,
+                min_y,
+                max_y,
+                Color32::from_rgba_unmultiplied(255, 0, 0, 30),
+                Color32::BLACK,
+                "deadband",
+                main_id,
+            );
+
             let left_polygon = create_polygon(
                 calc_start,
                 calc_start + dpw,
@@ -413,16 +426,6 @@ impl ValidationApp {
                 self.calc_area_color,
                 self.calc_area_stroke_color,
                 "Move",
-                main_id,
-            );
-            let deadband = create_polygon(
-                cycle.get_adjusted_close(),
-                cycle.get_adjusted_close() + cycle.deadband,
-                min_y,
-                max_y,
-                Color32::from_rgba_unmultiplied(255, 0, 0, 30),
-                Color32::BLACK,
-                "deadband",
                 main_id,
             );
 
@@ -822,11 +825,18 @@ impl ValidationApp {
             0.0
         }
     }
-    pub fn get_deadband(&self) -> f64 {
+    pub fn get_deadband(&self, gas_type: GasType) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.deadband
+            *cycle.deadbands.get(&gas_type).unwrap_or(&0.0)
         } else {
             0.0
+        }
+    }
+    pub fn calc_area_can_move(&self, gas_type: GasType) -> bool {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.calc_area_can_move(gas_type)
+        } else {
+            false
         }
     }
 
@@ -913,6 +923,22 @@ impl ValidationApp {
             cycle.set_calc_end(gas_type, new_value);
         }
     }
+    pub fn increment_deadband_gas(&mut self, gas_type: GasType, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            let deadband = cycle.deadbands.get(&gas_type).unwrap_or(&0.0);
+            cycle.set_deadband(gas_type, deadband + x);
+        }
+    }
+    pub fn increment_deadband(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            for gas in cycle.gases.clone() {
+                let deadband = cycle.deadbands.get(&gas).unwrap_or(&0.0);
+                cycle.set_deadband(gas, deadband + x);
+            }
+        }
+    }
     pub fn increment_open_lag(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
@@ -923,6 +949,13 @@ impl ValidationApp {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.set_close_lag(cycle.close_lag_s + x);
+        }
+    }
+    pub fn get_calc_range(&self, gas_type: GasType) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_calc_range(gas_type)
+        } else {
+            0.0
         }
     }
     pub fn create_traces_fluxkind<F>(
@@ -1492,20 +1525,20 @@ impl ValidationApp {
             let moving_right = dx > 0.;
             let moving_left = dx < 0.;
 
-            // --- First: mutate `self` only ---
             if dragging_left {
                 println!("Dragging left");
-                handle_drag_polygon(plot_ui, self, true, &gas_type);
+                self.handle_drag_polygon(plot_ui, true, &gas_type);
             }
             if dragging_right {
                 println!("Dragging right");
-                handle_drag_polygon(plot_ui, self, false, &gas_type);
+                self.handle_drag_polygon(plot_ui, false, &gas_type);
             }
 
             if dragging_main {
+                println!("Dragging main");
                 let calc_start = self.get_calc_start(gas_type);
                 let calc_end = self.get_calc_end(gas_type);
-                let measurement_start = self.get_measurement_start() + self.get_deadband();
+                let measurement_start = self.get_measurement_start() + self.get_deadband(gas_type);
                 let measurement_end = self.get_measurement_end();
 
                 let mut clamped_dx = dx;
@@ -1526,7 +1559,9 @@ impl ValidationApp {
                 }
             }
 
+            println!("{}", self.get_calc_range(GasType::CH4));
             if dragging_open_lag {
+                println!("Dragging open_lag");
                 let transform = plot_ui.transform();
                 if self.zoom_to_measurement == 1 {
                     println!("Transforming to zoom");
@@ -1535,12 +1570,17 @@ impl ValidationApp {
                 self.increment_open_lag(dx);
             }
             if dragging_close_lag {
+                println!("Dragging close_lag");
                 let transform = plot_ui.transform();
                 if self.zoom_to_measurement == 2 {
                     println!("Transforming to zoom");
                     dx *= transform.dpos_dvalue_x();
                 }
-                self.increment_close_lag(dx);
+                if self.calc_area_can_move(gas_type)
+                    || (!self.calc_area_can_move(gas_type) && dx < 0.)
+                {
+                    self.increment_close_lag(dx);
+                }
             }
 
             // --- Then: mutate the cycle safely ---
@@ -1560,7 +1600,33 @@ impl ValidationApp {
             self.control_zoom(plot_ui, gas_type);
         }
     }
+    pub fn handle_drag_polygon(&mut self, plot_ui: &mut PlotUi, is_left: bool, gas_type: &GasType) {
+        let mut dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
 
+        let calc_start = self.get_calc_start(*gas_type);
+        let calc_end = self.get_calc_end(*gas_type);
+        let calc_range = calc_end - calc_start;
+
+        let close_time = self.get_measurement_start();
+        let open_time = self.get_measurement_end();
+        let at_min_range = calc_range <= self.min_calc_area_range;
+
+        if is_left {
+            let can_move_left = calc_start >= close_time;
+            let not_shrinking = !at_min_range || dx < 0.0;
+
+            if can_move_left && not_shrinking {
+                self.increment_calc_start(*gas_type, dx);
+            }
+        } else {
+            let can_move_right = calc_end <= open_time;
+            let not_shrinking = !at_min_range || dx > 0.0;
+
+            if can_move_right && not_shrinking {
+                self.increment_calc_end(*gas_type, dx);
+            }
+        }
+    }
     pub fn render_legend(&mut self, ui: &mut Ui, _traces: &HashMap<String, Color32>) {
         // let legend_width = 75.0;
         let legend_width = ui.available_width();
@@ -1810,15 +1876,14 @@ pub fn init_attribute_plot(
     h: f32,
 ) -> egui_plot::Plot {
     let attrib = attribute.clone();
-    Plot::new(format!("{}{}", gas_type, attribute.clone()))
+    Plot::new(format!("{}{}", gas_type, attrib))
         .coordinates_formatter(
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                let datetime = NaiveDateTime::UNIX_EPOCH
-                    .checked_add_signed(Duration::seconds(timestamp))
-                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| format!("{:.1}", value.x));
+                let datetime = DateTime::from_timestamp(timestamp, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                    .unwrap_or_else(|| format!("{:.1}", timestamp));
 
                 format!("Time: {}\n{} {}: {:.5}", datetime, gas_type, attrib, value.y)
             }),
@@ -1914,16 +1979,9 @@ pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                let datetime = NaiveDateTime::UNIX_EPOCH
-                    .checked_add_signed(Duration::seconds(timestamp))
-                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| format!("{:.1}", value.x));
-                // let datetime = DateTime::from_timestamp(timestamp, 0)
-                //     .map(|dt| {
-                //         // DateTime::<Utc>::from_utc(dt, Utc).format("%Y-%m-%d %H:%M:%S").to_string()
-                //         Utc::from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string()
-                //     })
-                //     .unwrap_or_else(|| format!("{:.1}", value.x));
+                let datetime = DateTime::from_timestamp(timestamp, 0)
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                    .unwrap_or_else(|| format!("{:.1}", timestamp));
 
                 format!("Time: {}\n{} r2: {:.5}", datetime, gas_type, value.y)
             }),
@@ -1942,17 +2000,12 @@ pub fn init_lag_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
             Corner::LeftBottom,
             CoordinatesFormatter::new(move |value, _| {
                 let timestamp = value.x as i64;
-                // let datetime = NaiveDateTime::from_timestamp_opt(timestamp, 0)
-                //     .map(|dt| {
-                //         DateTime::<Utc>::from_utc(dt, Utc)
-                //             .format("%Y-%m-%d %H:%M:%S")
-                //             .to_string()
-                //     })
-                //     .unwrap_or_else(|| format!("{:.1}", value.x));
-                let datetime = NaiveDateTime::UNIX_EPOCH
-                    .checked_add_signed(Duration::seconds(timestamp))
-                    .map(|dt| Utc.from_utc_datetime(&dt).format("%Y-%m-%d %H:%M:%S").to_string())
+                let datetime = DateTime::from_timestamp(timestamp, 0)
+                    .map(|dt| {
+                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                    })
                     .unwrap_or_else(|| format!("{:.1}", value.x));
+
 
                 format!("Time: {}\n{} lag: {:.0} sec", datetime, gas_type, value.y)
             }),

@@ -273,6 +273,12 @@ impl MainApp {
                     Action::SearchLag,
                     Action::IncrementLag,
                     Action::DecrementLag,
+                    Action::IncrementDeadband,
+                    Action::DecrementDeadband,
+                    Action::IncrementCH4Deadband,
+                    Action::DecrementCH4Deadband,
+                    Action::IncrementCO2Deadband,
+                    Action::DecrementCO2Deadband,
                     Action::ToggleValidity,
                     Action::ToggleCH4Validity,
                     Action::ToggleCO2Validity,
@@ -443,6 +449,7 @@ pub struct ValidationApp {
     pub show_invalids: bool,
     pub show_bad: bool,
     pub project_name: String,
+    pub project_deadband: f64,
     pub main_gas: Option<GasType>,
     pub instrument: InstrumentType,
     pub projects: Vec<String>,
@@ -554,6 +561,7 @@ impl Default for ValidationApp {
             show_valids: true,
             show_bad: false,
             project_name: String::new(),
+            project_deadband: 30.,
             main_gas: None,
             instrument: InstrumentType::Li7810,
             projects: Vec::new(),
@@ -963,6 +971,36 @@ impl ValidationApp {
                             }
                             self.mark_dirty();
                         }
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::IncrementDeadband) {
+                        self.mark_dirty();
+                        self.increment_deadband(1.);
+                        self.update_plots();
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::DecrementDeadband) {
+                        self.mark_dirty();
+                        self.increment_deadband(-1.);
+                        self.update_plots();
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::IncrementCH4Deadband) {
+                        self.mark_dirty();
+                        self.increment_deadband_gas(GasType::CH4, 1.);
+                        self.update_plots();
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::DecrementCH4Deadband) {
+                        self.mark_dirty();
+                        self.increment_deadband_gas(GasType::CH4, -1.);
+                        self.update_plots();
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::IncrementCO2Deadband) {
+                        self.mark_dirty();
+                        self.increment_deadband_gas(GasType::CO2, 1.);
+                        self.update_plots();
+                    }
+                    if keybind_triggered(event, &self.keybinds, Action::DecrementCO2Deadband) {
+                        self.mark_dirty();
+                        self.increment_deadband_gas(GasType::CO2, -1.);
+                        self.update_plots();
                     }
                     if keybind_triggered(event, &self.keybinds, Action::DecrementLag) {
                         self.mark_dirty();
@@ -2080,6 +2118,7 @@ impl ValidationApp {
                     let start_date = self.start_date;
                     let end_date = self.end_date;
                     let project = self.selected_project.as_ref().unwrap().clone();
+                    let project_deadband = self.project_deadband.clone();
                     let instrument_serial = self.instrument_serial.clone();
 
                     let conn = match Connection::open("fluxrs.db") {
@@ -2136,6 +2175,7 @@ impl ValidationApp {
                                         meteo_data,
                                         volume_data,
                                         project,
+                                        project_deadband,
                                         arc_conn.clone(),
                                         progress_sender,
                                     )
@@ -2723,6 +2763,9 @@ impl ValidationApp {
             ui.label("No gases available for this instrument.");
         }
 
+        ui.label("Deadband in seconds");
+        // ui.text_edit_singleline(&mut self.project_deadband);
+        ui.add(egui::DragValue::new(&mut self.project_deadband).speed(1.).range(0.0..=300.));
         ui.add_space(10.);
 
         if ui.button("Add Project").clicked() {
@@ -3258,39 +3301,6 @@ pub fn is_inside_polygon(
     point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
 }
 
-pub fn handle_drag_polygon(
-    plot_ui: &mut PlotUi,
-    app: &mut ValidationApp,
-    is_left: bool,
-    gas_type: &GasType,
-) {
-    let mut dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
-
-    let calc_start = app.get_calc_start(*gas_type);
-    let calc_end = app.get_calc_end(*gas_type);
-    let calc_range = calc_end - calc_start;
-
-    let close_time = app.get_measurement_start() + app.get_deadband();
-    let open_time = app.get_measurement_end();
-    let at_min_range = calc_range <= app.min_calc_area_range;
-
-    if is_left {
-        let can_move_left = calc_start >= close_time;
-        let not_shrinking = !at_min_range || dx < 0.0;
-
-        if can_move_left && not_shrinking {
-            app.increment_calc_start(*gas_type, dx);
-        }
-    } else {
-        let can_move_right = calc_end <= open_time;
-        let not_shrinking = !at_min_range || dx > 0.0;
-
-        if can_move_right && not_shrinking {
-            app.increment_calc_end(*gas_type, dx);
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn create_polygon(
     start_x: f64,
@@ -3513,6 +3523,7 @@ pub async fn run_processing_dynamic(
     meteo_data: MeteoData,
     volume_data: VolumeData,
     project: String,
+    project_deadband: f64,
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
@@ -3554,6 +3565,7 @@ pub async fn run_processing_dynamic(
                     &meteo,
                     &volume,
                     project_clone,
+                    project_deadband,
                     progress_sender.clone(),
                 ) {
                     Ok(result) => {
@@ -3648,6 +3660,7 @@ async fn run_processing(
     meteo_data: MeteoData,
     volume_data: VolumeData,
     project: String,
+    project_deadband: f64,
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
@@ -3693,6 +3706,7 @@ async fn run_processing(
                 &meteo_clone,
                 &volume_clone,
                 project_clone,
+                project_deadband,
                 progress_sender.clone(),
             ) {
                 Ok(result) => {
