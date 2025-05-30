@@ -999,12 +999,10 @@ impl ValidationApp {
                                 if let Some(previous_cycle) =
                                     before.iter().rev().find(|cycle| cycle.chamber_id == chamber_id)
                                 {
-                                    current_cycle.set_open_lag(previous_cycle.open_lag_s);
-
                                     let target = current_cycle.start_time
                                         + chrono::TimeDelta::seconds(current_cycle.open_offset)
                                         + chrono::TimeDelta::seconds(
-                                            current_cycle.open_lag_s as i64,
+                                            previous_cycle.open_lag_s as i64,
                                         );
 
                                     let Some(main_gas) = self.main_gas else {
