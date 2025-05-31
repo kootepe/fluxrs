@@ -343,6 +343,65 @@ impl Cycle {
 
         !check
     }
+
+    fn _adjust_calc_range_all<F>(&mut self, mut adjust_shortfall: F)
+    where
+        F: FnMut(&mut Self, GasType, f64),
+    {
+        let mut shortfall_adjustments = Vec::new();
+        for gas_type in self.gases.iter().copied() {
+            let deadband = self.get_deadband(gas_type);
+            let range_min = self.get_adjusted_close() + deadband;
+            let range_max = self.get_adjusted_open();
+            let min_range = self.min_calc_range;
+
+            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
+            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
+
+            let available_range = range_max - range_min;
+
+            // If range is too short, adjust based on logic passed in
+            if available_range < min_range {
+                shortfall_adjustments.push((gas_type, available_range - min_range));
+                // adjust_shortfall(self, gas_type, available_range - min_range);
+            }
+
+            // Clamp to bounds
+            if start < range_min {
+                start = range_min;
+            }
+            if end > range_max {
+                end = range_max;
+            }
+
+            // Enforce minimum range
+            let current_range = end - start;
+            if current_range < min_range {
+                let needed = min_range - current_range;
+                let half = needed / 2.0;
+
+                let new_start = (start - half).max(range_min);
+                let new_end = (end + half).min(range_max);
+
+                if new_end - new_start >= min_range {
+                    start = new_start;
+                    end = new_end;
+                } else {
+                    end = start + min_range;
+                    if end > range_max {
+                        start = range_max - min_range;
+                        end = range_max;
+                    }
+                }
+            }
+
+            self.calc_range_start.insert(gas_type, start);
+            self.calc_range_end.insert(gas_type, end);
+        }
+        for (gas_type, shortfall) in shortfall_adjustments {
+            adjust_shortfall(self, gas_type, shortfall);
+        }
+    }
     pub fn set_deadband(&mut self, gas_type: GasType, deadband: f64) {
         self.deadbands.insert(gas_type, deadband);
         self.adjust_calc_range_all_deadband();

@@ -171,7 +171,6 @@ impl ValidationApp {
             let Some(model) = self.get_model(gas_type, kind) else { return };
 
             let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
-            // Compute residuals
             let residuals: Vec<f64> =
                 actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
@@ -1559,7 +1558,6 @@ impl ValidationApp {
                 }
             }
 
-            println!("{}", self.get_calc_range(GasType::CH4));
             if dragging_open_lag {
                 println!("Dragging open_lag");
                 let transform = plot_ui.transform();

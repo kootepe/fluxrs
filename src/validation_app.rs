@@ -605,8 +605,6 @@ impl ValidationApp {
             });
         }
 
-        let longest_label = "Measurement r plots";
-
         if self.show_cycle_details {
             egui::Window::new("Current Cycle details").show(ctx, |ui| {
                 if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
