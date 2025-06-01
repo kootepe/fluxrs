@@ -355,7 +355,6 @@ impl MainApp {
                     self.validation_panel.keybinds.set(action, key_event);
                     self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
                     self.validation_panel.awaiting_rebind = None;
-                    return;
                 }
             }
         }

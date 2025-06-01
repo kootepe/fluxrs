@@ -10,6 +10,7 @@ use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use ecolor::Hsva;
 use egui::widgets::Label;
 use egui::{Align2, Rgba};
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 
 use std::ops::RangeInclusive;
@@ -171,7 +172,8 @@ impl ValidationApp {
 
             let Some(model) = self.get_model(gas_type, kind) else { return };
 
-            let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
+            let y_pred: Vec<f64> =
+                dt_v.par_iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
             let residuals: Vec<f64> =
                 actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
@@ -986,7 +988,7 @@ impl ValidationApp {
 
                 // Get best model kind (lowest AIC among available models)
                 let best_model = FluxKind::all()
-                    .iter()
+                    .par_iter()
                     .filter_map(|kind| {
                         cycle
                             .get_model(main_gas, *kind)
@@ -1073,7 +1075,7 @@ impl ValidationApp {
             if let Some(points) = invalid_traces.get(chamber_id) {
                 // Use a special style for invalids (no need to group)
                 let plot_points =
-                    PlotPoints::from(points.iter().map(|(_, pt)| *pt).collect::<Vec<_>>());
+                    PlotPoints::from(points.par_iter().map(|(_, pt)| *pt).collect::<Vec<_>>());
 
                 plot_ui.points(
                     Points::new(format!("{} invalid", chamber_id), plot_points)
@@ -1528,86 +1530,91 @@ impl ValidationApp {
             if !dragged {
                 self.dragging = None
             }
-            if dragging_left && !self.dragging.is_some() {
-                self.dragging = Some(Adjuster::Left);
-            }
-            if dragging_right && !self.dragging.is_some() {
-                self.dragging = Some(Adjuster::Right);
-            }
 
-            if dragging_main && !self.dragging.is_some() {
-                self.dragging = Some(Adjuster::Main);
-            }
+            if dragged {
+                if dragging_left && !self.dragging.is_some() {
+                    self.dragging = Some(Adjuster::Left);
+                }
 
-            if dragging_open_lag && !self.dragging.is_some() {
-                self.dragging = Some(Adjuster::OpenLag);
-            }
-            if dragging_close_lag && !self.dragging.is_some() {
-                self.dragging = Some(Adjuster::CloseLag);
-            }
+                if dragging_right && !self.dragging.is_some() {
+                    self.dragging = Some(Adjuster::Right);
+                }
 
-            match self.dragging {
-                Some(Adjuster::Left) => {
-                    if inside_left {
-                        self.handle_drag_polygon(plot_ui, true, &gas_type)
-                    }
-                },
-                Some(Adjuster::Right) => {
-                    if inside_right {
-                        self.handle_drag_polygon(plot_ui, false, &gas_type)
-                    }
-                },
-                Some(Adjuster::Main) => {
-                    if inside_main {
-                        let calc_start = self.get_calc_start(gas_type);
-                        let calc_end = self.get_calc_end(gas_type);
-                        let measurement_start =
-                            self.get_measurement_start() + self.get_deadband(gas_type);
-                        let measurement_end = self.get_measurement_end();
+                if dragging_main && !self.dragging.is_some() {
+                    self.dragging = Some(Adjuster::Main);
+                }
 
-                        let mut clamped_dx = dx;
+                if dragging_open_lag && !self.dragging.is_some() {
+                    self.dragging = Some(Adjuster::OpenLag);
+                }
 
-                        // Prevent dragging past left bound
-                        if moving_left && calc_start + dx < measurement_start {
-                            clamped_dx = measurement_start - calc_start;
+                if dragging_close_lag && !self.dragging.is_some() {
+                    self.dragging = Some(Adjuster::CloseLag);
+                }
+
+                match self.dragging {
+                    Some(Adjuster::Left) => {
+                        if inside_left {
+                            self.handle_drag_polygon(plot_ui, true, &gas_type)
                         }
+                    },
+                    Some(Adjuster::Right) => {
+                        if inside_right {
+                            self.handle_drag_polygon(plot_ui, false, &gas_type)
+                        }
+                    },
+                    Some(Adjuster::Main) => {
+                        if inside_main {
+                            let calc_start = self.get_calc_start(gas_type);
+                            let calc_end = self.get_calc_end(gas_type);
+                            let measurement_start =
+                                self.get_measurement_start() + self.get_deadband(gas_type);
+                            let measurement_end = self.get_measurement_end();
 
-                        // Prevent dragging past right bound
-                        if moving_right && calc_end + dx > measurement_end {
-                            clamped_dx = measurement_end - calc_end;
-                        }
+                            let mut clamped_dx = dx;
 
-                        if clamped_dx.abs() > f64::EPSILON {
-                            self.increment_calc_start(gas_type, clamped_dx);
-                            self.increment_calc_end(gas_type, clamped_dx);
+                            // Prevent dragging past left bound
+                            if moving_left && calc_start + dx < measurement_start {
+                                clamped_dx = measurement_start - calc_start;
+                            }
+
+                            // Prevent dragging past right bound
+                            if moving_right && calc_end + dx > measurement_end {
+                                clamped_dx = measurement_end - calc_end;
+                            }
+
+                            if clamped_dx.abs() > f64::EPSILON {
+                                self.increment_calc_start(gas_type, clamped_dx);
+                                self.increment_calc_end(gas_type, clamped_dx);
+                            }
                         }
-                    }
-                },
-                Some(Adjuster::CloseLag) => {
-                    if inside_close_lag {
-                        let transform = plot_ui.transform();
-                        if self.zoom_to_measurement == 2 {
-                            println!("Transforming to zoom");
-                            dx *= transform.dpos_dvalue_x();
+                    },
+                    Some(Adjuster::CloseLag) => {
+                        if inside_close_lag {
+                            let transform = plot_ui.transform();
+                            if self.zoom_to_measurement == 2 {
+                                println!("Transforming to zoom");
+                                dx *= transform.dpos_dvalue_x();
+                            }
+                            if self.calc_area_can_move(gas_type)
+                                || (!self.calc_area_can_move(gas_type) && dx < 0.)
+                            {
+                                self.increment_close_lag(dx);
+                            }
                         }
-                        if self.calc_area_can_move(gas_type)
-                            || (!self.calc_area_can_move(gas_type) && dx < 0.)
-                        {
-                            self.increment_close_lag(dx);
+                    },
+                    Some(Adjuster::OpenLag) => {
+                        if inside_open_lag {
+                            let transform = plot_ui.transform();
+                            if self.zoom_to_measurement == 1 {
+                                println!("Transforming to zoom");
+                                dx *= transform.dpos_dvalue_x();
+                            }
+                            self.increment_open_lag(dx);
                         }
-                    }
-                },
-                Some(Adjuster::OpenLag) => {
-                    if inside_open_lag {
-                        let transform = plot_ui.transform();
-                        if self.zoom_to_measurement == 1 {
-                            println!("Transforming to zoom");
-                            dx *= transform.dpos_dvalue_x();
-                        }
-                        self.increment_open_lag(dx);
-                    }
-                },
-                None => println!("asd"),
+                    },
+                    None => {},
+                }
             }
 
             // --- Then: mutate the cycle safely ---
@@ -1659,7 +1666,7 @@ impl ValidationApp {
         let legend_width = ui.available_width();
         let color_box_size = Vec2::new(16.0, 16.0);
 
-        let mut sorted_traces: Vec<String> = self.all_traces.iter().cloned().collect();
+        let mut sorted_traces: Vec<String> = self.all_traces.par_iter().cloned().collect();
 
         // Sort numerically
         sorted_traces.sort_by(|a, b| {
@@ -1904,17 +1911,17 @@ pub fn init_attribute_plot(
 ) -> egui_plot::Plot {
     let attrib = attribute.clone();
     Plot::new(format!("{}{}", gas_type, attrib))
-        .coordinates_formatter(
-            Corner::LeftBottom,
-            CoordinatesFormatter::new(move |value, _| {
-                let timestamp = value.x as i64;
-                let datetime = DateTime::from_timestamp(timestamp, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
-                    .unwrap_or_else(|| format!("{:.1}", timestamp));
-
-                format!("Time: {}\n{} {}: {:.5}", datetime, gas_type, attrib, value.y)
-            }),
-        )
+        // .coordinates_formatter(
+        //     Corner::LeftBottom,
+        //     CoordinatesFormatter::new(move |value, _| {
+        //         let timestamp = value.x as i64;
+        //         let datetime = DateTime::from_timestamp(timestamp, 0)
+        //             .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        //             .unwrap_or_else(|| format!("{:.1}", timestamp));
+        //
+        //         format!("Time: {}\n{} {}: {:.5}", datetime, gas_type, attrib, value.y)
+        //     }),
+        // )
         .label_formatter(|_, _| String::new())
         .allow_drag(false)
         .width(w)
@@ -2023,20 +2030,20 @@ pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
 
 pub fn init_lag_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}lag_plot", gas_type))
-        .coordinates_formatter(
-            Corner::LeftBottom,
-            CoordinatesFormatter::new(move |value, _| {
-                let timestamp = value.x as i64;
-                let datetime = DateTime::from_timestamp(timestamp, 0)
-                    .map(|dt| {
-                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
-                    })
-                    .unwrap_or_else(|| format!("{:.1}", value.x));
-
-
-                format!("Time: {}\n{} lag: {:.0} sec", datetime, gas_type, value.y)
-            }),
-        )
+        // .coordinates_formatter(
+        //     Corner::LeftBottom,
+        //     CoordinatesFormatter::new(move |value, _| {
+        //         let timestamp = value.x as i64;
+        //         let datetime = DateTime::from_timestamp(timestamp, 0)
+        //             .map(|dt| {
+        //                 dt.format("%Y-%m-%d %H:%M:%S").to_string()
+        //             })
+        //             .unwrap_or_else(|| format!("{:.1}", value.x));
+        //
+        //
+        //         format!("Time: {}\n{} lag: {:.0} sec", datetime, gas_type, value.y)
+        //     }),
+        // )
         .label_formatter(|_, _| String::new())
         // .label_formatter(|_, value| {
         //     let timestamp = value.x as i64;

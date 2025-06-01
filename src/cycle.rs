@@ -681,7 +681,7 @@ impl Cycle {
     }
     pub fn check_diag(&mut self) {
         let total_count = self.diag_v.len();
-        let nonzero_count = self.diag_v.iter().filter(|&&x| x != 0).count();
+        let nonzero_count = self.diag_v.par_iter().filter(|&&x| x != 0).count();
 
         // Check if more than 50% of the values are nonzero
         let check = nonzero_count as f64 / total_count as f64 > 0.5;
@@ -1134,7 +1134,7 @@ impl Cycle {
         let ret: Vec<f64> = self
             .gas_v
             .get(&gas_type)
-            .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
+            .map(|vec| vec.par_iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default();
         if s > ret.len() {
             return ret;
@@ -1147,7 +1147,7 @@ impl Cycle {
     pub fn get_measurement_gas_v(&self, gas_type: GasType) -> Vec<f64> {
         self.measurement_gas_v
             .get(&gas_type)
-            .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
+            .map(|vec| vec.par_iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default()
     }
 
@@ -1292,7 +1292,7 @@ impl Cycle {
         let mut converted: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
         for gas_type in self.gases.clone() {
             if let Some(values) = self.gas_v.get(&gas_type) {
-                let new_vals = values.iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
+                let new_vals = values.par_iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
                 converted.insert(gas_type, new_vals);
             }
             // if let Some(values) = self.gas_v.get_mut(&gas_type) {
@@ -1345,7 +1345,7 @@ impl Cycle {
         ) {
             Ok(gasdata) => {
                 self.gas_v = gasdata.gas;
-                self.dt_v = gasdata.datetime.iter().map(|t| t.timestamp() as f64).collect();
+                self.dt_v = gasdata.datetime.par_iter().map(|t| t.timestamp() as f64).collect();
                 self.diag_v = gasdata.diag;
             },
             Err(e) => {
@@ -1361,7 +1361,7 @@ impl Cycle {
         let candidates = FluxKind::all();
 
         candidates
-            .iter()
+            .par_iter()
             .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
             .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.flux())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
@@ -1371,7 +1371,7 @@ impl Cycle {
         let candidates = FluxKind::all();
 
         candidates
-            .iter()
+            .par_iter()
             .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
             .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.fit_id())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
@@ -2088,7 +2088,7 @@ pub fn load_cycles(
     )?;
     let mut cycle_map: HashMap<CycleKey, Cycle> = HashMap::new();
 
-    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let column_names: Vec<String> = stmt.column_names().par_iter().map(|s| s.to_string()).collect();
     let column_index: HashMap<String, usize> =
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
 
@@ -2202,7 +2202,7 @@ pub fn load_cycles(
                     deadbands.insert(*gas, deadband);
 
                     let y: Vec<f64> = dt_v[s..e].to_vec();
-                    let x: Vec<f64> = meas_vals[s..e].iter().map(|g| g.unwrap()).collect();
+                    let x: Vec<f64> = meas_vals[s..e].par_iter().map(|g| g.unwrap()).collect();
 
                     let r2 = stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2);
                     let t0 = meas_vals[target as usize].unwrap();

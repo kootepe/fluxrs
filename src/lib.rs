@@ -243,7 +243,6 @@ fn _query_and_group_gas_data(
          ORDER BY datetime",
     )?;
 
-    println!("asd");
     let mut grouped_data: HashMap<String, GasData> = HashMap::new();
 
     let rows = stmt.query_map(params![start_timestamp, end_timestamp], |row| {
