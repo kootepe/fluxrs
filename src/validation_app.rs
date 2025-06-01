@@ -65,6 +65,14 @@ pub enum Panel {
     Empty,
 }
 
+pub enum Adjuster {
+    Left,
+    Main,
+    Right,
+    OpenLag,
+    CloseLag,
+}
+
 impl Default for Panel {
     fn default() -> Self {
         Self::Empty
@@ -474,6 +482,7 @@ pub struct ValidationApp {
     pub show_legend: bool,
     pub show_plot_widths: bool,
     pub toggled_gas: Option<GasType>,
+    pub dragging: Option<Adjuster>,
 }
 
 impl Default for ValidationApp {
@@ -585,6 +594,7 @@ impl Default for ValidationApp {
             show_cycle_details: true,
             show_plot_widths: true,
             toggled_gas: None,
+            dragging: None,
         }
     }
 }
