@@ -10,3 +10,4 @@ images/
 *.csv
 *.db
 *.bak
+*.json
