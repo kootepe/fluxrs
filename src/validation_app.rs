@@ -24,7 +24,7 @@ use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, Vo
 use crate::Cycle;
 use crate::EqualLen;
 use crate::{insert_cycles, process_cycles};
-use egui::FontFamily;
+use egui::{FontFamily, ScrollArea};
 use tokio::sync::mpsc;
 
 use eframe::egui::{
@@ -173,6 +173,8 @@ impl MainApp {
     }
     pub fn settings_ui(&mut self, ctx: &egui::Context) {
         egui::SidePanel::right("Settings panel").show(ctx, |ui| {
+        ScrollArea::vertical().show(ui, |ui| {
+
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
@@ -257,6 +259,7 @@ impl MainApp {
             ui.separator();
             self.keybinding_settings_ui(ui);
                 });
+        });
     }
 
     fn keybinding_settings_ui(&mut self, ui: &mut egui::Ui) {
