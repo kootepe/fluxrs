@@ -1036,16 +1036,16 @@ impl ValidationApp {
                     if keybind_triggered(event, &self.keybinds, Action::SearchLag) {
                         if let Some(current_visible_idx) = self.cycle_nav.current_index() {
                             if current_visible_idx > 0 {
-                                // First copy chamber_id (clone!) to a new local String
                                 let chamber_id =
                                     self.cycles[current_visible_idx].chamber_id.clone();
-
-                                // Now safe to mutate!
                                 let (before, after) = self.cycles.split_at_mut(current_visible_idx);
                                 let current_cycle = &mut after[0];
 
-                                if let Some(previous_cycle) =
-                                    before.iter().rev().find(|cycle| cycle.chamber_id == chamber_id)
+                                // find previous cycle which is valid and has the same chamber id
+                                if let Some(previous_cycle) = before
+                                    .iter()
+                                    .rev()
+                                    .find(|cycle| cycle.chamber_id == chamber_id && cycle.is_valid)
                                 {
                                     let target = current_cycle.start_time
                                         + chrono::TimeDelta::seconds(current_cycle.open_offset)
