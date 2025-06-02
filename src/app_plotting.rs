@@ -988,7 +988,7 @@ impl ValidationApp {
 
                 // Get best model kind (lowest AIC among available models)
                 let best_model = FluxKind::all()
-                    .par_iter()
+                    .iter()
                     .filter_map(|kind| {
                         cycle
                             .get_model(main_gas, *kind)

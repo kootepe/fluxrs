@@ -681,7 +681,7 @@ impl Cycle {
     }
     pub fn check_diag(&mut self) {
         let total_count = self.diag_v.len();
-        let nonzero_count = self.diag_v.par_iter().filter(|&&x| x != 0).count();
+        let nonzero_count = self.diag_v.iter().filter(|&&x| x != 0).count();
 
         // Check if more than 50% of the values are nonzero
         let check = nonzero_count as f64 / total_count as f64 > 0.5;
@@ -1134,7 +1134,7 @@ impl Cycle {
         let ret: Vec<f64> = self
             .gas_v
             .get(&gas_type)
-            .map(|vec| vec.par_iter().map(|s| s.unwrap_or(0.0)).collect())
+            .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default();
         if s > ret.len() {
             return ret;
@@ -1361,7 +1361,7 @@ impl Cycle {
         let candidates = FluxKind::all();
 
         candidates
-            .par_iter()
+            .iter()
             .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
             .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.flux())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
@@ -1371,7 +1371,7 @@ impl Cycle {
         let candidates = FluxKind::all();
 
         candidates
-            .par_iter()
+            .iter()
             .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
             .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.fit_id())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
