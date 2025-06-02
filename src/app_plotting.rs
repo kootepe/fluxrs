@@ -1531,90 +1531,89 @@ impl ValidationApp {
                 self.dragging = None
             }
 
-            if dragged {
-                if dragging_left && !self.dragging.is_some() {
+            if self.dragging.is_none() {
+                if dragging_left {
                     self.dragging = Some(Adjuster::Left);
                 }
 
-                if dragging_right && !self.dragging.is_some() {
+                if dragging_right {
                     self.dragging = Some(Adjuster::Right);
                 }
 
-                if dragging_main && !self.dragging.is_some() {
+                if dragging_main {
                     self.dragging = Some(Adjuster::Main);
                 }
 
-                if dragging_open_lag && !self.dragging.is_some() {
+                if dragging_open_lag {
                     self.dragging = Some(Adjuster::OpenLag);
                 }
 
-                if dragging_close_lag && !self.dragging.is_some() {
+                if dragging_close_lag {
                     self.dragging = Some(Adjuster::CloseLag);
                 }
+            }
+            match self.dragging {
+                Some(Adjuster::Left) => {
+                    if inside_left {
+                        self.handle_drag_polygon(plot_ui, true, &gas_type)
+                    }
+                },
+                Some(Adjuster::Right) => {
+                    if inside_right {
+                        self.handle_drag_polygon(plot_ui, false, &gas_type)
+                    }
+                },
+                Some(Adjuster::Main) => {
+                    if inside_main {
+                        let calc_start = self.get_calc_start(gas_type);
+                        let calc_end = self.get_calc_end(gas_type);
+                        let measurement_start =
+                            self.get_measurement_start() + self.get_deadband(gas_type);
+                        let measurement_end = self.get_measurement_end();
 
-                match self.dragging {
-                    Some(Adjuster::Left) => {
-                        if inside_left {
-                            self.handle_drag_polygon(plot_ui, true, &gas_type)
-                        }
-                    },
-                    Some(Adjuster::Right) => {
-                        if inside_right {
-                            self.handle_drag_polygon(plot_ui, false, &gas_type)
-                        }
-                    },
-                    Some(Adjuster::Main) => {
-                        if inside_main {
-                            let calc_start = self.get_calc_start(gas_type);
-                            let calc_end = self.get_calc_end(gas_type);
-                            let measurement_start =
-                                self.get_measurement_start() + self.get_deadband(gas_type);
-                            let measurement_end = self.get_measurement_end();
+                        let mut clamped_dx = dx;
 
-                            let mut clamped_dx = dx;
-
-                            // Prevent dragging past left bound
-                            if moving_left && calc_start + dx < measurement_start {
-                                clamped_dx = measurement_start - calc_start;
-                            }
-
-                            // Prevent dragging past right bound
-                            if moving_right && calc_end + dx > measurement_end {
-                                clamped_dx = measurement_end - calc_end;
-                            }
-
-                            if clamped_dx.abs() > f64::EPSILON {
-                                self.increment_calc_start(gas_type, clamped_dx);
-                                self.increment_calc_end(gas_type, clamped_dx);
-                            }
+                        // Prevent dragging past left bound
+                        if moving_left && calc_start + dx < measurement_start {
+                            clamped_dx = measurement_start - calc_start;
                         }
-                    },
-                    Some(Adjuster::CloseLag) => {
-                        if inside_close_lag {
-                            let transform = plot_ui.transform();
-                            if self.zoom_to_measurement == 2 {
-                                println!("Transforming to zoom");
-                                dx *= transform.dpos_dvalue_x();
-                            }
-                            if self.calc_area_can_move(gas_type)
-                                || (!self.calc_area_can_move(gas_type) && dx < 0.)
-                            {
-                                self.increment_close_lag(dx);
-                            }
+
+                        // Prevent dragging past right bound
+                        if moving_right && calc_end + dx > measurement_end {
+                            clamped_dx = measurement_end - calc_end;
                         }
-                    },
-                    Some(Adjuster::OpenLag) => {
-                        if inside_open_lag {
-                            let transform = plot_ui.transform();
-                            if self.zoom_to_measurement == 1 {
-                                println!("Transforming to zoom");
-                                dx *= transform.dpos_dvalue_x();
-                            }
-                            self.increment_open_lag(dx);
+
+                        if clamped_dx.abs() > f64::EPSILON {
+                            self.increment_calc_start(gas_type, clamped_dx);
+                            self.increment_calc_end(gas_type, clamped_dx);
                         }
-                    },
-                    None => {},
-                }
+                    }
+                },
+                Some(Adjuster::CloseLag) => {
+                    if inside_close_lag {
+                        let transform = plot_ui.transform();
+                        if self.zoom_to_measurement == 2 {
+                            println!("Transforming to zoom");
+                            dx *= transform.dpos_dvalue_x();
+                        }
+                        if self.calc_area_can_move(gas_type)
+                            || (!self.calc_area_can_move(gas_type) && dx < 0.)
+                        {
+                            self.increment_close_lag(dx);
+                        }
+                    }
+                },
+                Some(Adjuster::OpenLag) => {
+                    if inside_open_lag {
+                        let transform = plot_ui.transform();
+                        if self.zoom_to_measurement == 1 {
+                            println!("Transforming to zoom");
+                            dx *= transform.dpos_dvalue_x();
+                        }
+                        self.increment_open_lag(dx);
+                    }
+                },
+                None => {},
             }
 
             // --- Then: mutate the cycle safely ---
