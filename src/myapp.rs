@@ -66,7 +66,8 @@ impl eframe::App for MyApp {
                         .validation_panel
                         .selected_project
                         .as_ref()
-                        .unwrap_or(&"None".to_owned())
+                        .map(|p| &p.name)
+                        .unwrap_or(&"None selected".to_owned())
                 ));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                     ui.hyperlink_to(

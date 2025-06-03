@@ -9,6 +9,7 @@ use crate::gasdata::{query_gas, query_gas2, query_gas_all};
 use crate::instruments::GasType;
 use crate::instruments::{get_instrument_by_model, InstrumentType};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::project_app::Project;
 use crate::stats::{self, LinReg, PolyReg, RobReg};
 use chrono::{DateTime, TimeDelta, Utc};
 use eframe::glow::MIN;
@@ -1758,14 +1759,14 @@ pub fn insert_flux_results(
 pub fn update_fluxes(
     conn: &mut Connection,
     cycles: &[Cycle],
-    project: String,
+    project: Project,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tx = conn.transaction()?; // Start transaction for consistency
     {
         let mut update_stmt = tx.prepare(&make_update_fluxes())?;
 
         for cycle in cycles {
-            match execute_update(&mut update_stmt, cycle, &project) {
+            match execute_update(&mut update_stmt, cycle, &project.name) {
                 Ok(_) => println!("Fluxes updated successfully!"),
                 Err(e) => eprintln!("Error updating fluxes: {}", e),
             }
@@ -1777,7 +1778,7 @@ pub fn update_fluxes(
 pub fn insert_flux_history(
     conn: &mut Connection,
     cycles: &[Cycle],
-    project: String,
+    project: &Project,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let archived_at = Utc::now().to_rfc3339();
     let tx = conn.transaction()?; // Start transaction for consistency
@@ -1785,7 +1786,7 @@ pub fn insert_flux_history(
         let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
 
         for cycle in cycles {
-            match execute_history_insert(&mut insert_stmt, &archived_at, cycle, &project) {
+            match execute_history_insert(&mut insert_stmt, &archived_at, cycle, &project.name) {
                 Ok(_) => println!("Archived cycle successfully."),
                 Err(e) => eprintln!("Error archiving fluxes: {}", e),
             }
@@ -2071,7 +2072,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
 }
 pub fn load_cycles(
     conn: &Connection,
-    project: &str,
+    project: &Project,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
@@ -2080,7 +2081,7 @@ pub fn load_cycles(
     let mut date: Option<String> = None;
     let start = start.timestamp();
     let end = end.timestamp();
-    let gas_data = query_gas2(conn, start, end, project.to_owned())?;
+    let gas_data = query_gas2(conn, start, end, project.name.to_owned())?;
     let mut stmt = conn.prepare(
         "SELECT * FROM fluxes
          WHERE project_id = ?1 AND start_time BETWEEN ?2 AND ?3
@@ -2092,7 +2093,7 @@ pub fn load_cycles(
     let column_index: HashMap<String, usize> =
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
 
-    let mut rows = stmt.query(params![project, start, end])?;
+    let mut rows = stmt.query(params![project.name, start, end])?;
 
     while let Some(row) = rows.next()? {
         let deadband = row.get(*column_index.get("deadband").unwrap())?;

@@ -145,7 +145,7 @@ impl KeyBindings {
     }
 
     pub fn to_runtime(&self) -> HashMap<Action, egui::Key> {
-        self.bindings.iter().map(|(a, k)| (*a, (*k).into())).collect()
+        self.bindings.iter().map(|(a, k)| (*a, *k)).collect()
     }
 }
 

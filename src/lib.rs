@@ -38,6 +38,7 @@ mod keybinds;
 pub mod meteodata;
 pub mod myapp;
 pub mod processevent;
+pub mod project_app;
 pub mod query;
 mod stats;
 pub mod timedata;

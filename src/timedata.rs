@@ -1,3 +1,4 @@
+use crate::project_app::Project;
 use crate::EqualLen;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rusqlite::{params, Connection, Result};
@@ -139,14 +140,14 @@ pub async fn query_cycles_async(
     conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    project: String,
+    project: Project,
 ) -> Result<TimeData> {
     // let start_ts = start.timestamp();
     // let end_ts = end.timestamp();
 
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_cycles(&conn, start, end, project)
+        query_cycles(&conn, start, end, project.name)
     })
     .await;
     match result {

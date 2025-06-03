@@ -1,4 +1,5 @@
 use crate::constants::{ERROR_FLOAT, ERROR_INT};
+use crate::project_app::Project;
 use crate::EqualLen;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, Utc};
@@ -128,7 +129,7 @@ pub async fn query_gas_async(
     conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    project: String,
+    project: Project,
     instrument_serial: String,
 ) -> Result<HashMap<String, GasData>> {
     // let start_ts = start.timestamp();
@@ -136,7 +137,7 @@ pub async fn query_gas_async(
 
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_gas(&conn, start, end, project, instrument_serial)
+        query_gas(&conn, start, end, project.name, instrument_serial)
     })
     .await;
     match result {

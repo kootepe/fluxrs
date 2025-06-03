@@ -1,3 +1,4 @@
+use crate::project_app::Project;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result};
 use std::sync::{Arc, Mutex};
@@ -134,14 +135,14 @@ pub async fn query_volume_async(
     conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    project: String,
+    project: Project,
 ) -> Result<VolumeData> {
     // let start_ts = start.timestamp();
     // let end_ts = end.timestamp();
 
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_volume(&conn, start, end, project)
+        query_volume(&conn, start, end, project.name)
     })
     .await;
     match result {

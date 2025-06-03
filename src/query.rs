@@ -128,7 +128,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS projects (
             project_id TEXT PRIMARY KEY,
-            main_gas TEXT NOT NULL,
+            main_gas INTEGER NOT NULL,
+            mode INTEGER NOT NULL,
+            deadband FLOAT NOT NULL,
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
             current INTEGER NOT NULL

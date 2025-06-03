@@ -19,6 +19,8 @@ use crate::instruments::{GasType, Li7810};
 use crate::keybinds::{Action, KeyBindings};
 use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::project_app::Project;
+use crate::project_app::ProjectApp;
 use crate::timedata::{query_cycles_async, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
@@ -64,7 +66,12 @@ pub enum Panel {
     DownloadData,
     Empty,
 }
-
+impl Default for Panel {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
+// logs which item on the plot is being dragged
 pub enum Adjuster {
     Left,
     Main,
@@ -73,9 +80,41 @@ pub enum Adjuster {
     CloseLag,
 }
 
-impl Default for Panel {
+// how to find the flux calculation area
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum Mode {
+    AfterDeadband,
+    BestPearsonsR,
+}
+
+impl Default for Mode {
     fn default() -> Self {
-        Self::Empty
+        Self::BestPearsonsR
+    }
+}
+
+impl Mode {
+    pub fn integer_repr(&self) -> u8 {
+        match self {
+            Mode::AfterDeadband => 1,
+            Mode::BestPearsonsR => 2,
+        }
+    }
+    pub fn from_int(i: u8) -> Option<Mode> {
+        match i {
+            1 => Some(Mode::AfterDeadband),
+            2 => Some(Mode::BestPearsonsR),
+            _ => None,
+        }
+    }
+}
+// Display trait for nicer labels in the ComboBox
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::AfterDeadband => write!(f, "After Deadband"),
+            Mode::BestPearsonsR => write!(f, "Best Pearson's R"),
+        }
     }
 }
 
@@ -85,13 +124,15 @@ pub struct MainApp {
     live_panel: Panel,
     pub validation_panel: ValidationApp,
     table_panel: TableApp,
+    proj_panel: ProjectApp,
     empty_panel: EmptyPanel,
 }
 impl MainApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.apply_font_size(ctx, self.validation_panel.font_size);
         if self.validation_panel.selected_project.is_none() {
-            self.validation_panel.load_projects_from_db().unwrap();
+            self.proj_panel.load_projects_from_db().unwrap();
+            self.validation_panel.selected_project = self.proj_panel.project.clone();
             self.validation_panel.keybinds =
                 KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
         }
@@ -172,7 +213,7 @@ impl MainApp {
                 self.validation_panel.dl_ui(ui, ctx);
             },
             Panel::ProjInit => {
-                self.validation_panel.proj_ui(ui);
+                self.proj_panel.proj_ui(ui);
             },
             Panel::Empty => {
                 self.empty_panel.ui(ui);
@@ -390,7 +431,6 @@ pub struct ValidationApp {
     progress_receiver: Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
-    pub instrument_serial: String,
     pub enabled_gases: BTreeSet<GasType>, // Stores which gases are enabled for plotting
     pub enabled_calc_r: BTreeSet<GasType>, // Stores which r values are enabled for plotting
 
@@ -424,7 +464,6 @@ pub struct ValidationApp {
     pub t0_thresh: f32,
     pub cycles: Vec<Cycle>,
     pub cycle_nav: CycleNavigator,
-    archive_record: Option<(usize, ArchiveRecord)>,
     pub lag_plot_w: f32,
     pub lag_plot_h: f32,
     pub gas_plot_w: f32,
@@ -458,14 +497,10 @@ pub struct ValidationApp {
     pub show_valids: bool,
     pub show_invalids: bool,
     pub show_bad: bool,
-    pub project_name: String,
-    pub project_deadband: f64,
-    pub main_gas: Option<GasType>,
     pub instrument: InstrumentType,
-    pub projects: Vec<String>,
+    pub projects: Vec<Project>,
     pub initiated: bool,
-    pub selected_project: Option<String>,
-    pub proj_serial: String,
+    pub selected_project: Option<Project>,
     pub show_linfit: bool,
     pub show_polyfit: bool,
     pub show_roblinfit: bool,
@@ -482,6 +517,7 @@ pub struct ValidationApp {
     pub show_plot_widths: bool,
     pub toggled_gas: Option<GasType>,
     pub dragging: Option<Adjuster>,
+    pub mode: Mode,
 }
 
 impl Default for ValidationApp {
@@ -499,8 +535,6 @@ impl Default for ValidationApp {
             init_enabled: true,
             init_in_progress: false,
             load_result: Arc::new(Mutex::new(None)),
-            instrument_serial: String::new(),
-            proj_serial: String::new(),
             enabled_gases: BTreeSet::new(),
             enabled_lin_fluxes: BTreeSet::new(),
             enabled_lin_p_val: BTreeSet::new(),
@@ -530,7 +564,6 @@ impl Default for ValidationApp {
             t0_thresh: 50000.,
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
-            archive_record: None,
             font_size: 14.,
             lag_plot_w: 600.,
             lag_plot_h: 350.,
@@ -571,9 +604,6 @@ impl Default for ValidationApp {
             show_invalids: true,
             show_valids: true,
             show_bad: false,
-            project_name: String::new(),
-            project_deadband: 30.,
-            main_gas: None,
             instrument: InstrumentType::Li7810,
             projects: Vec::new(),
             initiated: false,
@@ -594,6 +624,7 @@ impl Default for ValidationApp {
             show_plot_widths: true,
             toggled_gas: None,
             dragging: None,
+            mode: Mode::default(),
         }
     }
 }
@@ -624,7 +655,7 @@ impl ValidationApp {
                     let error_messages: Vec<String> =
                         errors.iter().map(|error| error.to_string()).collect();
 
-                    let main_gas = if let Some(gas) = self.main_gas {
+                    let main_gas = if let Some(gas) = self.get_project().main_gas {
                         gas
                     } else {
                         eprintln!("No main gas selected!");
@@ -1053,7 +1084,9 @@ impl ValidationApp {
                                             previous_cycle.open_lag_s as i64,
                                         );
 
-                                    let Some(main_gas) = self.main_gas else {
+                                    let Some(main_gas) =
+                                        self.selected_project.as_ref().unwrap().main_gas
+                                    else {
                                         eprintln!("No main gas selected!");
                                         return;
                                     };
@@ -2044,8 +2077,7 @@ impl ValidationApp {
                 let result_slot = self.load_result.clone();
                 let start_date = self.start_date;
                 let end_date = self.end_date;
-                let project = self.selected_project.as_ref().unwrap().clone();
-                let serial = self.instrument_serial.clone();
+                let project = self.get_project().clone();
                 let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
                 self.progress_receiver = Some(progress_receiver);
 
@@ -2054,8 +2086,8 @@ impl ValidationApp {
 
                 self.runtime.spawn(async move {
                     let result = match Connection::open("fluxrs.db") {
-                        Ok(mut conn) => {
-                            load_cycles(&mut conn, &project, start_date, end_date, progress_sender)
+                        Ok(conn) => {
+                            load_cycles(&conn, &project, start_date, end_date, progress_sender)
                         },
                         Err(e) => Err(e),
                     };
@@ -2127,9 +2159,9 @@ impl ValidationApp {
 
                     let start_date = self.start_date;
                     let end_date = self.end_date;
-                    let project = self.selected_project.as_ref().unwrap().clone();
-                    let project_deadband = self.project_deadband.clone();
-                    let instrument_serial = self.instrument_serial.clone();
+                    let project = self.get_project().clone();
+                    let project_deadband = self.get_project().deadband;
+                    let instrument_serial = self.get_project().instrument_serial.clone();
 
                     let conn = match Connection::open("fluxrs.db") {
                         Ok(conn) => conn,
@@ -2184,7 +2216,7 @@ impl ValidationApp {
                                         gas_data,
                                         meteo_data,
                                         volume_data,
-                                        project,
+                                        project.clone(),
                                         project_deadband,
                                         arc_conn.clone(),
                                         progress_sender,
@@ -2215,8 +2247,7 @@ impl ValidationApp {
                 &self.runtime,
                 self.start_date,
                 self.end_date,
-                self.project_name.clone(),
-                self.instrument_serial.clone(),
+                self.get_project().clone(),
                 &mut self.log_messages,
             );
         });
@@ -2361,6 +2392,10 @@ impl ValidationApp {
             }
         }
     }
+
+    pub fn get_project(&self) -> &Project {
+        self.selected_project.as_ref().unwrap()
+    }
     fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
         self.log_messages.push_front("Uploading cycle data...".to_string());
 
@@ -2388,7 +2423,7 @@ impl ValidationApp {
                 },
             }
         }
-        match insert_cycles(conn, &all_times, self.selected_project.as_ref().unwrap().clone()) {
+        match insert_cycles(conn, &all_times, self.get_project().name.clone()) {
             Ok((row_count, duplicates)) => {
                 self.log_messages.push_front(format!(
                     "Successfully inserted {} rows into DB. Skipped {}.",
@@ -2416,7 +2451,7 @@ impl ValidationApp {
                 },
             }
         }
-        match insert_meteo_data(conn, &self.selected_project.as_ref().unwrap().clone(), &meteos) {
+        match insert_meteo_data(conn, &self.get_project().name.clone(), &meteos) {
             Ok(row_count) => {
                 self.log_messages
                     .push_front(format!("Successfully inserted {} rows into DB.", row_count));
@@ -2443,7 +2478,7 @@ impl ValidationApp {
                 },
             }
         }
-        match insert_volume_data(conn, &self.selected_project.as_ref().unwrap().clone(), &volumes) {
+        match insert_volume_data(conn, &self.get_project().name.clone(), &volumes) {
             Ok(row_count) => {
                 self.log_messages
                     .push_front(format!("Successfully inserted {} rows into DB.", row_count));
@@ -2488,7 +2523,7 @@ impl ValidationApp {
                         self.process_files_async(
                             selected_paths,
                             self.selected_data_type.clone(),
-                            self.selected_project.as_ref().unwrap().clone(),
+                            self.get_project().name.clone(),
                             arc_msgs,
                             progress_sender.clone(),
                             &self.runtime,
@@ -2535,7 +2570,7 @@ impl ValidationApp {
                 },
             }
         }
-        match insert_measurements(conn, &all_gas, self.selected_project.as_ref().unwrap().clone()) {
+        match insert_measurements(conn, &all_gas, self.get_project().name.clone()) {
             Ok((row_count, duplicates)) => {
                 self.log_messages.push_front(format!(
                     "Successfully inserted {} rows into DB. Skipped {} rows.",
@@ -2629,166 +2664,116 @@ impl ValidationApp {
         }
     }
 
-    fn load_projects_from_db(&mut self) -> Result<()> {
-        println!("loading project");
-        let conn = Connection::open("fluxrs.db")?;
-
-        let mut stmt = conn.prepare("SELECT project_id FROM projects")?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        self.projects = rows.collect::<Result<Vec<String>, _>>()?;
-
-        let result: Result<(String, String, String), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, main_gas FROM projects WHERE current = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        );
-
-        match result {
-            Ok((project_id, instrument_serial, main_gas)) => {
-                self.selected_project = Some(project_id);
-                self.instrument_serial = instrument_serial;
-                self.main_gas = main_gas.parse::<GasType>().ok();
-            },
-            Err(_) => {
-                self.selected_project = None;
-                self.instrument_serial = "".to_owned();
-            },
-        }
-
-        Ok(())
-    }
-    fn save_project_to_db(&mut self) -> Result<()> {
-        let mut conn = Connection::open("fluxrs.db")?;
-
-        let main_gas = self.main_gas.map_or("Unknown".to_string(), |g| g.to_string());
-        let instrument_model = self.instrument.to_string();
-
-        let tx = conn.transaction()?; //   Use transaction for consistency
-
-        tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
-
-        tx.execute(
-            "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, current)
-             VALUES (?1, ?2, ?3, ?4, 1)",
-            [&self.project_name, &main_gas, &instrument_model, &self.proj_serial],
-        )?;
-
-        tx.commit()?; //   Commit the transaction
-
-        println!(
-            "Project set as current: {}, {}, {}",
-            self.project_name, main_gas, instrument_model
-        );
-
-        self.load_projects_from_db()?;
-
-        Ok(())
-    }
-
-    fn set_current_project(&mut self, project_name: &str) -> Result<()> {
-        let mut conn = Connection::open("fluxrs.db")?;
-        let tx = conn.transaction()?;
-        tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
-        tx.execute("UPDATE projects SET current = 1 WHERE project_id = ?1", [project_name])?;
-        tx.commit()?;
-        println!("Current project set: {}", project_name);
-        self.selected_project = Some(project_name.to_string());
-        Ok(())
-    }
-
-    pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Project Management");
-
-        ui.separator();
-        ui.heading("Change current project");
-        ui.add_space(10.);
-        if self.selected_project.is_none() {
-            self.load_projects_from_db().unwrap();
-        }
-
-        if !self.projects.is_empty() {
-            egui::ComboBox::from_label("Current project")
-                .selected_text(
-                    self.selected_project.clone().unwrap_or_else(|| "Select Project".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    for project in &self.projects.clone() {
-                        if ui
-                            .selectable_label(
-                                Some(project) == self.selected_project.as_ref(),
-                                project,
-                            )
-                            .clicked()
-                        {
-                            if let Err(err) = self.set_current_project(project) {
-                                eprintln!("Failed to set project as current: {}", err);
-                            }
-                        }
-                    }
-                });
-        } else {
-            ui.label("No projects found.");
-        }
-        ui.separator();
-        ui.collapsing("Instructions", |ui| {
-            ui.label("Project name:");
-            ui.label("Instrument");
-            ui.label("Main gas");
-        });
-
-        ui.heading("New project");
-        ui.label("Project name");
-        ui.text_edit_singleline(&mut self.project_name);
-
-        ui.label("Select instrument");
-        egui::ComboBox::from_label("Instrument")
-            .selected_text(self.instrument.to_string())
-            .show_ui(ui, |ui| {
-                for instrument in InstrumentType::available_instruments() {
-                    ui.selectable_value(&mut self.instrument, instrument, instrument.to_string());
-                }
-            });
-
-        ui.label("Instrument serial");
-        ui.text_edit_singleline(&mut self.proj_serial);
-
-        let available_gases = self.instrument.available_gases();
-        if !available_gases.is_empty() {
-            ui.label("Select Gas:");
-
-            egui::ComboBox::from_label("Gas Type")
-                .selected_text(
-                    self.main_gas.map_or_else(|| "Select Gas".to_string(), |g| g.to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    for gas in available_gases {
-                        ui.selectable_value(&mut self.main_gas, Some(gas), gas.to_string());
-                    }
-                });
-
-            if let Some(gas) = self.main_gas {
-                ui.label(format!("Selected Gas: {}", gas));
-            }
-        } else {
-            ui.label("No gases available for this instrument.");
-        }
-
-        ui.label("Deadband in seconds");
-        // ui.text_edit_singleline(&mut self.project_deadband);
-        ui.add(egui::DragValue::new(&mut self.project_deadband).speed(1.).range(0.0..=300.));
-        ui.add_space(10.);
-
-        if ui.button("Add Project").clicked() {
-            if let Some(gas) = self.main_gas {
-                if let Err(err) = self.save_project_to_db() {
-                    eprintln!("Failed to save project: {}", err);
-                }
-            } else {
-                self.log_messages.push_front("No main gas selected.".to_string());
-            }
-        }
-        self.log_display(ui);
-    }
+    // pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
+    //     ui.heading("Project Management");
+    //
+    //     ui.separator();
+    //     ui.heading("Change current project");
+    //     ui.add_space(10.);
+    //     if self.selected_project.is_none() {
+    //         self.load_projects_from_db().unwrap();
+    //     }
+    //
+    //     if !self.projects.is_empty() {
+    //         egui::ComboBox::from_label("Current project")
+    //             .selected_text(
+    //                 self.selected_project.clone().unwrap_or_else(|| "Select Project".to_string()),
+    //             )
+    //             .show_ui(ui, |ui| {
+    //                 for project in &self.projects.clone() {
+    //                     if ui
+    //                         .selectable_label(
+    //                             Some(project) == self.selected_project.as_ref(),
+    //                             project,
+    //                         )
+    //                         .clicked()
+    //                     {
+    //                         if let Err(err) = self.set_current_project(project) {
+    //                             eprintln!("Failed to set project as current: {}", err);
+    //                         }
+    //                     }
+    //                 }
+    //             });
+    //     } else {
+    //         ui.label("No projects found.");
+    //     }
+    //     ui.separator();
+    //     ui.collapsing("Instructions", |ui| {
+    //         ui.label("Project name:");
+    //         ui.label("Instrument");
+    //         ui.label("Main gas");
+    //     });
+    //
+    //     ui.heading("New project");
+    //     ui.label("Project name");
+    //     ui.text_edit_singleline(&mut self.project_name);
+    //
+    //     ui.label("Select instrument");
+    //     egui::ComboBox::from_label("Instrument")
+    //         .selected_text(self.instrument.to_string())
+    //         .show_ui(ui, |ui| {
+    //             for instrument in InstrumentType::available_instruments() {
+    //                 ui.selectable_value(&mut self.instrument, instrument, instrument.to_string());
+    //             }
+    //         });
+    //
+    //     ui.label("Instrument serial");
+    //     ui.text_edit_singleline(&mut self.proj_serial);
+    //
+    //     let available_gases = self.instrument.available_gases();
+    //     if !available_gases.is_empty() {
+    //         ui.label("Select Gas:");
+    //
+    //         egui::ComboBox::from_label("Gas Type")
+    //             .selected_text(
+    //                 self.main_gas.map_or_else(|| "Select Gas".to_string(), |g| g.to_string()),
+    //             )
+    //             .show_ui(ui, |ui| {
+    //                 for gas in available_gases {
+    //                     ui.selectable_value(&mut self.main_gas, Some(gas), gas.to_string());
+    //                 }
+    //             });
+    //
+    //         if let Some(gas) = self.main_gas {
+    //             ui.label(format!("Selected Gas: {}", gas));
+    //         }
+    //     } else {
+    //         ui.label("No gases available for this instrument.");
+    //     }
+    //     ui.add_space(10.);
+    //
+    //     ui.label("Deadband in seconds");
+    //     // ui.text_edit_singleline(&mut self.project_deadband);
+    //     ui.add(egui::DragValue::new(&mut self.project_deadband).speed(1.).range(0.0..=300.));
+    //     ui.add_space(10.);
+    //     ui.label("Select flux finding mode");
+    //     egui::ComboBox::from_label("Mode").selected_text(format!("{}", self.mode)).show_ui(
+    //         ui,
+    //         |ui| {
+    //             ui.selectable_value(
+    //                 &mut self.mode,
+    //                 Mode::AfterDeadband,
+    //                 Mode::AfterDeadband.to_string(),
+    //             );
+    //             ui.selectable_value(
+    //                 &mut self.mode,
+    //                 Mode::BestPearsonsR,
+    //                 Mode::BestPearsonsR.to_string(),
+    //             );
+    //         },
+    //     );
+    //     ui.add_space(10.);
+    //     if ui.button("Add Project").clicked() {
+    //         if let Some(gas) = self.main_gas {
+    //             if let Err(err) = self.save_project_to_db() {
+    //                 eprintln!("Failed to save project: {}", err);
+    //             }
+    //         } else {
+    //             self.log_messages.push_front("No main gas selected.".to_string());
+    //         }
+    //     }
+    //     self.log_display(ui);
+    // }
 
     pub fn dl_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui.heading("Data downloader");
@@ -2797,11 +2782,7 @@ impl ValidationApp {
             return;
         }
         if ui.button("Download all calculated fluxes for current project.").clicked() {
-            match export_sqlite_to_csv(
-                "fluxrs.db",
-                "fluxrs.csv",
-                self.selected_project.clone().unwrap(),
-            ) {
+            match export_sqlite_to_csv("fluxrs.db", "fluxrs.csv", self.get_project().name.clone()) {
                 Ok(_) => println!("Succesfully downloaded csv."),
                 Err(e) => println!("Failed to download csv. Error: {}", e),
             }
@@ -2815,11 +2796,7 @@ impl ValidationApp {
             return;
         }
         if ui.button("Download all calculated fluxes for current project.").clicked() {
-            match export_sqlite_to_csv(
-                "fluxrs.db",
-                "fluxrs.csv",
-                self.selected_project.clone().unwrap(),
-            ) {
+            match export_sqlite_to_csv("fluxrs.db", "fluxrs.csv", self.get_project().name.clone()) {
                 Ok(_) => println!("Succesfully downloaded csv."),
                 Err(e) => println!("Failed to download csv. Error: {}", e),
             }
@@ -3340,6 +3317,7 @@ pub fn create_polygon(
 pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine {
     VLine::new(id, x).allow_hover(true).style(style).stroke(Stroke::new(2.0, color))
 }
+
 // TableApp struct
 #[derive(Default)]
 pub struct TableApp {
@@ -3532,7 +3510,7 @@ pub async fn run_processing_dynamic(
     gas_data: HashMap<String, GasData>,
     meteo_data: MeteoData,
     volume_data: VolumeData,
-    project: String,
+    project: Project,
     project_deadband: f64,
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
@@ -3565,7 +3543,7 @@ pub async fn run_processing_dynamic(
 
             let meteo = meteo_data.clone();
             let volume = volume_data.clone();
-            let project_clone = project.clone();
+            let project_clone = project.name.clone();
             let progress_sender = progress_sender.clone();
 
             let task = tokio::task::spawn_blocking(move || {
@@ -3605,7 +3583,8 @@ pub async fn run_processing_dynamic(
             Ok(Ok(cycles)) => {
                 if !cycles.is_empty() {
                     let mut conn = conn.lock().unwrap();
-                    match insert_fluxes_ignore_duplicates(&mut conn, &cycles, project.clone()) {
+                    match insert_fluxes_ignore_duplicates(&mut conn, &cycles, project.name.clone())
+                    {
                         Ok((_, _)) => {
                             for cycle_opt in cycles.into_iter().flatten() {
                                 // Lookup the inserted flux ID to associate flux results
@@ -3854,8 +3833,7 @@ fn render_recalculate_ui(
     runtime: &tokio::runtime::Runtime,
     start_date: DateTime<Utc>,
     end_date: DateTime<Utc>,
-    project: String,
-    instrument_serial: String,
+    project: Project,
     log_messages: &mut VecDeque<String>,
 ) {
     ui.vertical(|ui| {
@@ -3873,10 +3851,10 @@ fn render_recalculate_ui(
                 },
             };
 
-            let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+            let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
             match (
                 load_cycles(&mut conn, &project, start_date, end_date, progress_sender),
-                query_volume(&conn, start_date, end_date,project.clone()),
+                query_volume(&conn, start_date, end_date,project.name.clone()),
             ) {
                 (Ok(mut cycles), Ok(volumes)) => {
                     println!("{}", volumes.volume.len());

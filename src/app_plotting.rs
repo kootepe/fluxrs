@@ -602,7 +602,7 @@ impl ValidationApp {
                 if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], project.clone()) {
                     eprintln!("[error] Failed to update cycle: {e}");
                 }
-                if let Err(e) = insert_flux_history(&mut conn, &[cycle], project) {
+                if let Err(e) = insert_flux_history(&mut conn, &[cycle], &project) {
                     eprintln!("[error] Failed to insert history cycle: {e}");
                 }
             },
@@ -1317,7 +1317,7 @@ impl ValidationApp {
         merged_traces
     }
     pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi) {
-        let main_gas = self.main_gas.unwrap();
+        let main_gas = self.selected_project.as_ref().unwrap().main_gas.unwrap();
 
         let (valid_traces, invalid_traces) =
             self.create_traces(&main_gas, |cycle, _| cycle.open_lag_s);
