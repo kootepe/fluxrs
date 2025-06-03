@@ -18,6 +18,13 @@ pub enum GasType {
     H2O,
     N2O,
 }
+
+impl Default for GasType {
+    fn default() -> Self {
+        GasType::CO2 // or any sensible default
+    }
+}
+
 impl fmt::Display for GasType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
