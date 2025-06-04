@@ -2,8 +2,6 @@ use crate::app_plotting::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars, init_residual_plot,
     init_standardized_residuals_plot,
 };
-use crate::archiverecord::ArchiveRecord;
-use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::csv_parse;
 use crate::cycle::{
     insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, update_fluxes,
@@ -481,7 +479,6 @@ pub struct ValidationApp {
     pub zoom_to_measurement: u8,
     pub should_reset_bounds: bool,
     pub drag_panel_width: f64,
-    pub min_calc_area_range: f64,
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
@@ -580,7 +577,6 @@ impl Default for ValidationApp {
             zoom_to_measurement: 0,
             should_reset_bounds: false,
             drag_panel_width: 40.0, // Default width for UI panel
-            min_calc_area_range: MIN_CALC_AREA_RANGE,
             selected_point: None,
             dragged_point: None,
             chamber_colors: HashMap::new(),
@@ -2217,7 +2213,6 @@ impl ValidationApp {
                                         meteo_data,
                                         volume_data,
                                         project.clone(),
-                                        project_deadband,
                                         arc_conn.clone(),
                                         progress_sender,
                                     )
@@ -2395,6 +2390,12 @@ impl ValidationApp {
 
     pub fn get_project(&self) -> &Project {
         self.selected_project.as_ref().unwrap()
+    }
+    pub fn get_project_mode(&self) -> Mode {
+        self.selected_project.as_ref().unwrap().mode
+    }
+    pub fn mode_after_deadband(&self) -> bool {
+        self.selected_project.as_ref().unwrap().mode == Mode::AfterDeadband
     }
     fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
         self.log_messages.push_front("Uploading cycle data...".to_string());
@@ -3511,7 +3512,6 @@ pub async fn run_processing_dynamic(
     meteo_data: MeteoData,
     volume_data: VolumeData,
     project: Project,
-    project_deadband: f64,
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
@@ -3543,7 +3543,7 @@ pub async fn run_processing_dynamic(
 
             let meteo = meteo_data.clone();
             let volume = volume_data.clone();
-            let project_clone = project.name.clone();
+            let project_clone = project.clone();
             let progress_sender = progress_sender.clone();
 
             let task = tokio::task::spawn_blocking(move || {
@@ -3553,7 +3553,6 @@ pub async fn run_processing_dynamic(
                     &meteo,
                     &volume,
                     project_clone,
-                    project_deadband,
                     progress_sender.clone(),
                 ) {
                     Ok(result) => {
@@ -3648,8 +3647,7 @@ async fn run_processing(
     gas_data: HashMap<String, GasData>,
     meteo_data: MeteoData,
     volume_data: VolumeData,
-    project: String,
-    project_deadband: f64,
+    project: Project,
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
@@ -3695,7 +3693,6 @@ async fn run_processing(
                 &meteo_clone,
                 &volume_clone,
                 project_clone,
-                project_deadband,
                 progress_sender.clone(),
             ) {
                 Ok(result) => {
@@ -3730,7 +3727,8 @@ async fn run_processing(
     if all_cycles.is_empty() {
         println!("NO CYCLES WITH DATA FOUND");
     } else {
-        match insert_fluxes_ignore_duplicates(&mut conn.lock().unwrap(), &all_cycles, project) {
+        match insert_fluxes_ignore_duplicates(&mut conn.lock().unwrap(), &all_cycles, project.name)
+        {
             Ok((pushed, skipped)) => {
                 println!("{} Fluxes inserted successfully!", pushed);
                 println!("{} cycles skipped.", skipped);

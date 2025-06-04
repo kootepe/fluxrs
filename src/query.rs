@@ -131,6 +131,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             main_gas INTEGER NOT NULL,
             mode INTEGER NOT NULL,
             deadband FLOAT NOT NULL,
+            min_calc_len FLOAT NOT NULL,
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
             current INTEGER NOT NULL

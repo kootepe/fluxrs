@@ -1,10 +1,11 @@
+use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::validation_app::Mode;
 use crate::GasType;
 use crate::InstrumentType;
 
 use rusqlite;
 // use rusqlite::Connection;
-use rusqlite::{params, types::ValueRef, Connection, Result, Row};
+use rusqlite::{params, Connection, Result};
 
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
@@ -16,10 +17,10 @@ pub struct Project {
     pub instrument_serial: String,
     pub main_gas: Option<GasType>,
     pub deadband: f64,
+    pub min_calc_len: f64,
     pub mode: Mode,
 }
 
-#[derive(Default)]
 pub struct ProjectApp {
     pub project: Option<Project>,
     all_projects: Vec<Project>,
@@ -28,7 +29,24 @@ pub struct ProjectApp {
     selected_serial: String,
     main_gas: Option<GasType>,
     deadband: f64,
+    min_calc_len: f64,
     mode: Mode,
+}
+
+impl Default for ProjectApp {
+    fn default() -> Self {
+        Self {
+            project: None,
+            all_projects: Vec::new(),
+            project_name: String::new(),
+            selected_instrument: InstrumentType::default(),
+            selected_serial: String::new(),
+            main_gas: Some(GasType::default()),
+            min_calc_len: MIN_CALC_AREA_RANGE,
+            deadband: 30.,
+            mode: Mode::default(),
+        }
+    }
 }
 impl ProjectApp {
     pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
@@ -125,8 +143,12 @@ impl ProjectApp {
         }
 
         ui.add_space(10.0);
+        ui.label("Minimum calculation data length in seconds");
+        ui.label("Don't make this longer than your measurement.");
+        ui.add(egui::DragValue::new(&mut self.min_calc_len).speed(1.0).range(0.0..=3600.0));
+        ui.add_space(10.0);
         ui.label("Deadband in seconds:");
-        ui.add(egui::DragValue::new(&mut self.deadband).speed(1.0).clamp_range(0.0..=300.0));
+        ui.add(egui::DragValue::new(&mut self.deadband).speed(1.0).range(0.0..=3600.0));
 
         ui.add_space(10.0);
         ui.label("Select flux finding mode:");
@@ -162,13 +184,6 @@ impl ProjectApp {
                 ui.colored_label(egui::Color32::YELLOW, "Please fill out all required fields.");
             }
         }
-        // if ui.button("Add Project").clicked() {
-        //     if project.main_gas.is_none() {
-        //         ui.colored_label(egui::Color32::YELLOW, "Please select a main gas.");
-        //     } else if let Err(err) = self.save_project_to_db() {
-        //         ui.colored_label(egui::Color32::RED, format!("Failed to save project: {}", err));
-        //     }
-        // }
     }
 
     pub fn build_project_from_form(&self) -> Option<Project> {
@@ -179,261 +194,9 @@ impl ProjectApp {
             main_gas: self.main_gas,
             deadband: self.deadband,
             mode: self.mode,
+            min_calc_len: self.min_calc_len,
         })
     }
-    // pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
-    //     ui.heading("Project Management");
-    //     ui.separator();
-    //
-    //     // Ensure projects are loaded
-    //     if self.project.is_none() {
-    //         if let Err(err) = self.load_projects_from_db() {
-    //             ui.colored_label(egui::Color32::RED, format!("Failed to load projects: {}", err));
-    //         }
-    //     }
-    //
-    //     ui.heading("Change current project");
-    //     ui.add_space(10.);
-    //
-    //     if !self.all_projects.is_empty() {
-    //         egui::ComboBox::from_label("Current project")
-    //             .selected_text(
-    //                 self.project
-    //                     .as_ref()
-    //                     .map(|p| p.name.clone())
-    //                     .unwrap_or_else(|| "Select Project".to_string()),
-    //             )
-    //             .show_ui(ui, |ui| {
-    //                 for project in &self.all_projects {
-    //                     let is_selected =
-    //                         self.project.as_ref().map_or(false, |p| p.name == project.name);
-    //                     if ui.selectable_label(is_selected, &project.name).clicked() {
-    //                         if let Err(err) = self.set_current_project(&project.name) {
-    //                             eprintln!("Failed to set project as current: {}", err);
-    //                         }
-    //                         self.project = Some(project.clone());
-    //                     }
-    //                 }
-    //             });
-    //     } else {
-    //         ui.label("No projects found.");
-    //     }
-    //
-    //     ui.separator();
-    //     ui.collapsing("Instructions", |ui| {
-    //         ui.label("Project name");
-    //         ui.label("Instrument");
-    //         ui.label("Main gas");
-    //     });
-    //
-    //     // ---- New Project Section ----
-    //     ui.heading("New project");
-    //
-    //     if let Some(project) = &mut self.project {
-    //         ui.label("Project name:");
-    //         ui.text_edit_singleline(&mut project.name);
-    //
-    //         ui.label("Select instrument:");
-    //         egui::ComboBox::from_label("Instrument")
-    //             .selected_text(project.instrument.to_string())
-    //             .show_ui(ui, |ui| {
-    //                 for instrument in InstrumentType::available_instruments() {
-    //                     ui.selectable_value(
-    //                         &mut project.instrument,
-    //                         instrument,
-    //                         instrument.to_string(),
-    //                     );
-    //                 }
-    //             });
-    //
-    //         ui.label("Instrument serial:");
-    //         ui.text_edit_singleline(&mut project.instrument_serial);
-    //
-    //         let available_gases = project.instrument.available_gases();
-    //         if !available_gases.is_empty() {
-    //             ui.label("Select Gas:");
-    //             egui::ComboBox::from_label("Gas Type")
-    //                 .selected_text(
-    //                     project
-    //                         .main_gas
-    //                         .map(|g| g.to_string())
-    //                         .unwrap_or_else(|| "Select Gas".to_string()),
-    //                 )
-    //                 .show_ui(ui, |ui| {
-    //                     for gas in available_gases {
-    //                         ui.selectable_value(&mut project.main_gas, Some(gas), gas.to_string());
-    //                     }
-    //                 });
-    //
-    //             if let Some(gas) = project.main_gas {
-    //                 ui.label(format!("Selected Gas: {}", gas));
-    //             }
-    //         } else {
-    //             ui.label("No gases available for this instrument.");
-    //         }
-    //
-    //         ui.add_space(10.0);
-    //         ui.label("Deadband in seconds:");
-    //         ui.add(egui::DragValue::new(&mut project.deadband).speed(1.0).clamp_range(0.0..=300.0));
-    //
-    //         ui.add_space(10.0);
-    //         ui.label("Select flux finding mode:");
-    //         egui::ComboBox::from_label("Mode").selected_text(format!("{}", project.mode)).show_ui(
-    //             ui,
-    //             |ui| {
-    //                 ui.selectable_value(
-    //                     &mut project.mode,
-    //                     Mode::AfterDeadband,
-    //                     Mode::AfterDeadband.to_string(),
-    //                 );
-    //                 ui.selectable_value(
-    //                     &mut project.mode,
-    //                     Mode::BestPearsonsR,
-    //                     Mode::BestPearsonsR.to_string(),
-    //                 );
-    //             },
-    //         );
-    //
-    //         ui.add_space(10.0);
-    //         if ui.button("Add Project").clicked() {
-    //             if project.main_gas.is_none() {
-    //                 ui.colored_label(egui::Color32::YELLOW, "Please select a main gas.");
-    //             } else if let Err(err) = self.save_project_to_db() {
-    //                 ui.colored_label(
-    //                     egui::Color32::RED,
-    //                     format!("Failed to save project: {}", err),
-    //                 );
-    //             }
-    //         }
-    //     } else {
-    //         ui.label("No current project loaded.");
-    //     }
-    // }
-    // pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
-    //     ui.heading("Project Management");
-    //
-    //     ui.separator();
-    //     ui.heading("Change current project");
-    //     ui.add_space(10.);
-    //     if self.project.is_none() {
-    //         self.load_projects_from_db().unwrap();
-    //     }
-    //
-    //     if !self.all_projects.is_empty() {
-    //         egui::ComboBox::from_label("Current project")
-    //             .selected_text(
-    //                 self.project
-    //                     .as_ref()
-    //                     .map(|p| p.name.clone())
-    //                     .unwrap_or_else(|| "Select Project".to_string()),
-    //             )
-    //             .show_ui(ui, |ui| {
-    //                 for project in &self.all_projects.clone() {
-    //                     let is_selected =
-    //                         self.project.as_ref().map_or(false, |p| p.name == project.name);
-    //
-    //                     if ui.selectable_label(is_selected, &project.name).clicked() {
-    //                         if let Err(err) = self.set_current_project(&project.name) {
-    //                             eprintln!("Failed to set project as current: {}", err);
-    //                         }
-    //                     }
-    //                 }
-    //             });
-    //     } else {
-    //         ui.label("No projects found.");
-    //     }
-    //     ui.separator();
-    //     ui.collapsing("Instructions", |ui| {
-    //         ui.label("Project name:");
-    //         ui.label("Instrument");
-    //         ui.label("Main gas");
-    //     });
-    //
-    //     ui.heading("New project");
-    //     ui.label("Project name");
-    //     ui.text_edit_singleline(&mut self.project.clone().unwrap_or_default().name);
-    //
-    //     ui.label("Select instrument");
-    //     egui::ComboBox::from_label("Instrument")
-    //         .selected_text(self.project.as_ref().unwrap().instrument.to_string())
-    //         .show_ui(ui, |ui| {
-    //             for instrument in InstrumentType::available_instruments() {
-    //                 ui.selectable_value(
-    //                     &mut self.project.as_mut().unwrap().instrument,
-    //                     instrument,
-    //                     instrument.to_string(),
-    //                 );
-    //             }
-    //         });
-    //
-    //     ui.label("Instrument serial");
-    //     ui.text_edit_singleline(&mut self.project.as_mut().unwrap().instrument_serial);
-    //
-    //     let available_gases = self.project.as_mut().unwrap().instrument.available_gases();
-    //     if !available_gases.is_empty() {
-    //         ui.label("Select Gas:");
-    //
-    //         egui::ComboBox::from_label("Gas Type")
-    //             .selected_text(
-    //                 self.project
-    //                     .as_ref()
-    //                     .unwrap()
-    //                     .main_gas
-    //                     .map_or_else(|| "Select Gas".to_string(), |g| g.to_string()),
-    //             )
-    //             .show_ui(ui, |ui| {
-    //                 for gas in available_gases {
-    //                     ui.selectable_value(
-    //                         &mut self.project.as_mut().unwrap().main_gas,
-    //                         Some(gas),
-    //                         gas.to_string(),
-    //                     );
-    //                 }
-    //             });
-    //
-    //         if let Some(gas) = self.project.as_ref().unwrap().main_gas {
-    //             ui.label(format!("Selected Gas: {}", gas));
-    //         }
-    //     } else {
-    //         ui.label("No gases available for this instrument.");
-    //     }
-    //     ui.add_space(10.);
-    //
-    //     ui.label("Deadband in seconds");
-    //     // ui.text_edit_singleline(&mut self.project_deadband);
-    //     ui.add(
-    //         egui::DragValue::new(&mut self.project.as_mut().unwrap().deadband)
-    //             .speed(1.)
-    //             .range(0.0..=300.),
-    //     );
-    //     ui.add_space(10.);
-    //     ui.label("Select flux finding mode");
-    //     egui::ComboBox::from_label("Mode")
-    //         .selected_text(format!("{}", self.project.as_ref().unwrap().mode))
-    //         .show_ui(ui, |ui| {
-    //             ui.selectable_value(
-    //                 &mut self.project.as_mut().unwrap().mode,
-    //                 Mode::AfterDeadband,
-    //                 Mode::AfterDeadband.to_string(),
-    //             );
-    //             ui.selectable_value(
-    //                 &mut self.project.as_mut().unwrap().mode,
-    //                 Mode::BestPearsonsR,
-    //                 Mode::BestPearsonsR.to_string(),
-    //             );
-    //         });
-    //     ui.add_space(10.);
-    //     if ui.button("Add Project").clicked() {
-    //         if let Some(gas) = self.project.as_mut().unwrap().main_gas {
-    //             if let Err(err) = self.save_project_to_db() {
-    //                 eprintln!("Failed to save project: {}", err);
-    //             }
-    //         } else {
-    //             // self.log_messages.push_front("No main gas selected.".to_string());
-    //         }
-    //     }
-    //     // self.log_display(ui);
-    // }
 
     pub fn load_projects_from_db(&mut self) -> rusqlite::Result<()> {
         println!("loading project");
@@ -459,37 +222,28 @@ impl ProjectApp {
             let mode_int = row.get(*column_index.get("mode").unwrap())?;
             let mode = Mode::from_int(mode_int).unwrap();
             let deadband = row.get(*column_index.get("deadband").unwrap())?;
-            // let current: i64 = row.get(*column_index.get("current").unwrap())?;
+            let min_calc_len = row.get(*column_index.get("min_calc_len").unwrap())?;
 
-            // if current == 1 {
-            //     self.project = Some(Project {
-            //         name: name.clone(),
-            //         instrument,
-            //         instrument_serial: instrument_serial.clone(),
-            //         deadband,
-            //         main_gas,
-            //         mode,
-            //     })
-            // }
             self.all_projects.push(Project {
                 name,
                 instrument,
                 instrument_serial,
                 deadband,
+                min_calc_len,
                 main_gas,
                 mode,
             })
         }
 
         println!("loading current project");
-        let result: Result<(String, String, u8, f64, u8), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, main_gas, deadband, mode FROM projects WHERE current = 1",
+        let result: Result<(String, String, u8, f64, f64, u8), _> = conn.query_row(
+            "SELECT project_id, instrument_serial, main_gas, deadband, min_calc_len, mode FROM projects WHERE current = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
         );
 
         match result {
-            Ok((project_id, instrument_serial, gas_i, deadband, mode_i)) => {
+            Ok((project_id, instrument_serial, gas_i, deadband, min_calc_len, mode_i)) => {
                 let name = project_id.clone();
                 let serial = instrument_serial.clone();
 
@@ -502,6 +256,7 @@ impl ProjectApp {
                     instrument_serial: serial,
                     main_gas,
                     deadband,
+                    min_calc_len,
                     mode,
                 };
 
@@ -516,34 +271,6 @@ impl ProjectApp {
 
         Ok(())
     }
-    // fn load_projects_from_db(&mut self) -> Result<()> {
-    //     println!("loading project");
-    //     let conn = Connection::open("fluxrs.db")?;
-    //
-    //     let mut stmt = conn.prepare("SELECT project_id FROM projects")?;
-    //     let rows = stmt.query_map([], |row| row.get(0))?;
-    //     self.projects = rows.collect::<Result<Vec<String>, _>>()?;
-    //
-    //     let result: Result<(String, String, String), _> = conn.query_row(
-    //         "SELECT project_id, instrument_serial, main_gas FROM projects WHERE current = 1",
-    //         [],
-    //         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    //     );
-    //
-    //     match result {
-    //         Ok((project_id, instrument_serial, main_gas)) => {
-    //             self.selected_project = Some(project_id);
-    //             self.instrument_serial = instrument_serial;
-    //             self.main_gas = main_gas.parse::<GasType>().ok();
-    //         },
-    //         Err(_) => {
-    //             self.selected_project = None;
-    //             self.instrument_serial = "".to_owned();
-    //         },
-    //     }
-    //
-    //     Ok(())
-    // }
     fn set_current_project(&self, project_name: &str) -> rusqlite::Result<()> {
         let mut conn = Connection::open("fluxrs.db")?;
         let tx = conn.transaction()?;
@@ -562,15 +289,16 @@ impl ProjectApp {
         let instrument_model = self.selected_instrument.to_string();
         let deadband = self.deadband;
         let mode = self.mode.integer_repr();
+        let min_calc_len = self.min_calc_len;
 
         let tx = conn.transaction()?; //   Use transaction for consistency
 
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
         tx.execute(
-            "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, deadband, mode, current)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
-            params![&self.project_name, &main_gas, &instrument_model, &self.selected_serial, &deadband, &mode],
+            "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, deadband, min_calc_len, mode, current)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
+            params![&self.project_name, &main_gas, &instrument_model, &self.selected_serial, &deadband, min_calc_len, &mode],
         )?;
 
         tx.commit()?; //   Commit the transaction

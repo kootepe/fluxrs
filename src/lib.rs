@@ -2,6 +2,7 @@ use crate::gasdata::{query_gas, GasData};
 use crate::instruments::InstrumentType;
 use crate::meteodata::MeteoData;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::project_app::Project;
 use crate::timedata::TimeData;
 use crate::traits::EqualLen;
 use crate::volumedata::VolumeData;
@@ -19,7 +20,6 @@ use std::process;
 use tokio::sync::mpsc;
 
 pub mod app_plotting;
-pub mod archiverecord;
 mod config;
 pub mod constants;
 mod csv_parse;
@@ -452,8 +452,7 @@ fn process_cycles(
     sorted_data: &HashMap<String, GasData>,
     meteo_data: &MeteoData,
     volume_data: &VolumeData,
-    project: String,
-    project_deadband: f64,
+    project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn Error + Send + Sync>> {
     // println!("Processing cycles");
@@ -468,7 +467,8 @@ fn process_cycles(
             .close_offset(*close)
             .open_offset(*open)
             .end_offset(*end)
-            .project_name(project.to_owned())
+            .project_name(project.name.to_owned())
+            .min_calc_len(project.min_calc_len)
             .build()?;
         let st = cycle.start_time;
         let day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
@@ -526,15 +526,11 @@ fn process_cycles(
             cycle.air_temperature = temp;
             cycle.air_pressure = pressure;
 
-            // let volume = match volume_data.get_nearest_previous_volume(target, &cycle.chamber_id) {
-            //     Some(volume) => volume,
-            //     None => 1.0,
-            // };
             let volume =
                 volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
             cycle.chamber_volume = volume;
             for gas in gases {
-                cycle.deadbands.insert(gas, project_deadband);
+                cycle.deadbands.insert(gas, project.deadband);
             }
             // cycle.deadbands = project_deadband;
             cycle.reset();

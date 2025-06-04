@@ -13,21 +13,22 @@ pub mod fluxes_col {
     pub const CLOSE_LAG_S: usize = 11;
     pub const END_LAG_S: usize = 12;
     pub const START_LAG_S: usize = 13;
-    pub const AIR_PRESSURE: usize = 14;
-    pub const AIR_TEMPERATURE: usize = 15;
-    pub const CHAMBER_VOLUME: usize = 16;
-    pub const ERROR_CODE: usize = 17;
-    pub const IS_VALID: usize = 18;
-    pub const MANUAL_ADJUSTED: usize = 19;
-    pub const MANUAL_VALID: usize = 20;
-    pub const T0_CONC: usize = 21;
+    pub const MIN_CALC_LEN: usize = 14;
+    pub const AIR_PRESSURE: usize = 15;
+    pub const AIR_TEMPERATURE: usize = 16;
+    pub const CHAMBER_VOLUME: usize = 17;
+    pub const ERROR_CODE: usize = 18;
+    pub const IS_VALID: usize = 19;
+    pub const MANUAL_ADJUSTED: usize = 20;
+    pub const MANUAL_VALID: usize = 21;
+    pub const T0_CONC: usize = 22;
     pub const MEASUREMENT_R2: usize = 22;
-    pub const FLUX: usize = 23;
-    pub const R2: usize = 24;
-    pub const INTERCEPT: usize = 25;
-    pub const SLOPE: usize = 26;
-    pub const CALC_START: usize = 27;
-    pub const CALC_END: usize = 28;
+    pub const FLUX: usize = 24;
+    pub const R2: usize = 25;
+    pub const INTERCEPT: usize = 26;
+    pub const SLOPE: usize = 27;
+    pub const CALC_START: usize = 28;
+    pub const CALC_END: usize = 29;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -69,6 +70,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "close_lag_s",
     "end_lag_s",
     "start_lag_s",
+    "min_calc_len",
     "air_pressure",
     "air_temperature",
     "chamber_volume",
@@ -217,6 +219,7 @@ pub fn create_flux_table() -> String {
             close_lag_s INTEGER NOT NULL,
             end_lag_s INTEGER NOT NULL,
             start_lag_s INTEGER NOT NULL,
+            min_calc_len INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
             chamber_volume FLOAT,
@@ -288,6 +291,7 @@ pub fn create_flux_history_table() -> String {
             close_lag_s INTEGER NOT NULL,
             end_lag_s INTEGER NOT NULL,
             start_lag_s INTEGER NOT NULL,
+            min_calc_len INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
             chamber_volume FLOAT,

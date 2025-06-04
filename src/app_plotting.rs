@@ -6,7 +6,7 @@ pub use crate::instruments::GasType;
 use crate::validation_app::Adjuster;
 use crate::validation_app::ValidationApp;
 use crate::validation_app::{create_polygon, create_vline, is_inside_polygon};
-use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
+use chrono::DateTime;
 use ecolor::Hsva;
 use egui::widgets::Label;
 use egui::{Align2, Rgba};
@@ -374,7 +374,7 @@ impl ValidationApp {
         let left_id = Id::new(format!("left_test{}", gas_type));
         let main_id = Id::new("main_area");
         let right_id = Id::new("right_area");
-        let dpw = self.drag_panel_width;
+        let dpw = self.get_dragger_width(gas_type);
 
         let dark_green = Color32::DARK_GREEN;
         let red = Color32::RED;
@@ -764,6 +764,13 @@ impl ValidationApp {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
+    pub fn get_min_calc_area_len(&self) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.min_calc_len
+        } else {
+            0.0 // Return 0.0 if no valid cycle is found
+        }
+    }
     // pub fn get_measurement_datas(&mut self) {
     //     if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
     //         cycle.get_measurement_datas();
@@ -968,14 +975,6 @@ impl ValidationApp {
     where
         F: Fn(&Cycle, &GasType) -> f64,
     {
-        // BUG: actual marking of invalid traces happens in cyclenavigator. Here we use those same
-        // values for marking invalids for each separate gas even though they are meant to be only
-        // used on the main gas, causing there to be invalid marks on the plots that dont get
-        // hidden
-        // eg. for main_gas best model is poly with RMSE 0.5, For CO2 best model is
-        // roblin and the RMSE is 1.1. RMSE threshold is 1.
-        // we look at the best model of the main gas and hide points based on that, but draw points
-        //
         let mut valid_traces: HashMap<String, Vec<(FluxKind, [f64; 2])>> = HashMap::new();
         let mut invalid_traces: HashMap<String, Vec<(FluxKind, [f64; 2])>> = HashMap::new();
 
@@ -1467,6 +1466,9 @@ impl ValidationApp {
         // Disables built-in legend
         // .legend(Legend::default().show(false))
     }
+    pub fn get_dragger_width(&self, gas_type: GasType) -> f64 {
+        (self.get_calc_range(gas_type) * 0.3).min(40.)
+    }
     pub fn render_residual_plot_ui(
         &mut self,
         plot_ui: &mut egui_plot::PlotUi,
@@ -1476,7 +1478,7 @@ impl ValidationApp {
         self.render_residual_plot(plot_ui, gas_type, kind);
     }
     pub fn render_gas_plot_ui(&mut self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType) {
-        let dpw = self.drag_panel_width;
+        let dpw = self.get_dragger_width(gas_type);
 
         self.render_gas_plot(plot_ui, gas_type);
 
@@ -1554,16 +1556,19 @@ impl ValidationApp {
             }
             match self.dragging {
                 Some(Adjuster::Left) => {
+                    println!("dragging left");
                     if inside_left {
                         self.handle_drag_polygon(plot_ui, true, &gas_type)
                     }
                 },
                 Some(Adjuster::Right) => {
+                    println!("dragging right");
                     if inside_right {
                         self.handle_drag_polygon(plot_ui, false, &gas_type)
                     }
                 },
                 Some(Adjuster::Main) => {
+                    println!("dragging main");
                     if inside_main {
                         let calc_start = self.get_calc_start(gas_type);
                         let calc_end = self.get_calc_end(gas_type);
@@ -1590,6 +1595,7 @@ impl ValidationApp {
                     }
                 },
                 Some(Adjuster::CloseLag) => {
+                    println!("dragging close");
                     if inside_close_lag {
                         let transform = plot_ui.transform();
                         if self.zoom_to_measurement == 2 {
@@ -1600,10 +1606,14 @@ impl ValidationApp {
                             || (!self.calc_area_can_move(gas_type) && dx < 0.)
                         {
                             self.increment_close_lag(dx);
+                            if self.mode_after_deadband() && dx < 0. {
+                                self.increment_calc_start(gas_type, dx);
+                            }
                         }
                     }
                 },
                 Some(Adjuster::OpenLag) => {
+                    println!("dragging open");
                     if inside_open_lag {
                         let transform = plot_ui.transform();
                         if self.zoom_to_measurement == 1 {
@@ -1642,7 +1652,7 @@ impl ValidationApp {
 
         let close_time = self.get_measurement_start();
         let open_time = self.get_measurement_end();
-        let at_min_range = calc_range <= self.min_calc_area_range;
+        let at_min_range = calc_range <= self.get_min_calc_area_len();
 
         if is_left {
             let can_move_left = calc_start >= close_time;
