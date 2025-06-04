@@ -111,6 +111,7 @@ impl Default for KeyBindings {
         bindings.insert(Action::ToggleShowSettings, Key::F1);
         bindings.insert(Action::ToggleShowLegend, Key::F2);
         bindings.insert(Action::ToggleShowDetails, Key::F3);
+        bindings.insert(Action::TogglePlotWidthsWindow, Key::F4);
         Self { bindings }
     }
 }
