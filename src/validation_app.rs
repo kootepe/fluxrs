@@ -4,14 +4,16 @@ use crate::app_plotting::{
 };
 use crate::csv_parse;
 use crate::cycle::{
-    insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, update_fluxes,
+    insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
+    update_fluxes,
 };
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
-use crate::flux::{rmse, FluxKind, FluxModel, LinearFlux};
+use crate::flux::{FluxKind, FluxModel, LinearFlux};
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::gasdata::query_gas_async;
 use crate::gasdata::{insert_measurements, GasData};
+use crate::insert_cycles;
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, Li7810};
 use crate::keybinds::{Action, KeyBindings};
@@ -23,7 +25,6 @@ use crate::timedata::{query_cycles_async, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
-use crate::{insert_cycles, process_cycles};
 use egui::{FontFamily, ScrollArea};
 use tokio::sync::mpsc;
 
@@ -76,7 +77,7 @@ impl Default for Mode {
 }
 
 impl Mode {
-    pub fn integer_repr(&self) -> u8 {
+    pub fn as_int(&self) -> u8 {
         match self {
             Mode::AfterDeadband => 1,
             Mode::BestPearsonsR => 2,
@@ -729,6 +730,9 @@ impl ValidationApp {
                         if self.zoom_to_measurement == 2 {
                             self.increment_close_lag(-1.);
                         }
+                        if self.mode_pearsons() {
+                            self.set_all_calc_range_to_best_r();
+                        }
                         self.update_plots();
                     }
                     if keybind_triggered(event, &self.keybinds, Action::IncrementLag) {
@@ -738,6 +742,9 @@ impl ValidationApp {
                         }
                         if self.zoom_to_measurement == 2 {
                             self.increment_close_lag(1.);
+                        }
+                        if self.mode_pearsons() {
+                            self.set_all_calc_range_to_best_r();
                         }
                         self.update_plots();
                     }
@@ -816,10 +823,8 @@ impl ValidationApp {
         if reset_cycle {
             self.mark_dirty();
             // NOTE: hitting reset on a cycle that has no changes, will cause it to be archived
-            if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                cycle.reset();
-                self.update_plots();
-            }
+            self.reset_cycle();
+            self.update_plots();
         }
 
         if highest_r {
@@ -897,7 +902,6 @@ impl ValidationApp {
             return;
         };
 
-        let drag_panel_width = 40.;
         if ctx.style().visuals.dark_mode {
             self.calc_area_color = Color32::from_rgba_unmultiplied(255, 255, 255, 1);
             self.calc_area_adjust_color = Color32::from_rgba_unmultiplied(255, 255, 255, 20);
@@ -1838,7 +1842,6 @@ impl ValidationApp {
                     let start_date = self.start_date;
                     let end_date = self.end_date;
                     let project = self.get_project().clone();
-                    let project_deadband = self.get_project().deadband;
                     let instrument_serial = self.get_project().instrument_serial.clone();
 
                     let conn = match Connection::open("fluxrs.db") {
@@ -2079,99 +2082,8 @@ impl ValidationApp {
     pub fn mode_after_deadband(&self) -> bool {
         self.selected_project.as_ref().unwrap().mode == Mode::AfterDeadband
     }
-    fn upload_cycle_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
-        self.log_messages.push_front("Uploading cycle data...".to_string());
-
-        let mut all_times = TimeData::new();
-
-        for path in &selected_paths {
-            match csv_parse::read_time_csv(path) {
-                //   Pass `path` directly
-                Ok(res) => {
-                    if res.validate_lengths() {
-                        all_times.chamber_id.extend(res.chamber_id);
-                        all_times.start_time.extend(res.start_time);
-                        all_times.close_offset.extend(res.close_offset);
-                        all_times.open_offset.extend(res.open_offset);
-                        all_times.end_offset.extend(res.end_offset);
-
-                        self.log_messages.push_front(format!("Successfully read {:?}", path));
-                    } else {
-                        self.log_messages
-                            .push_front(format!("Skipped file {:?}: Invalid data length", path));
-                    }
-                },
-                Err(e) => {
-                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
-                },
-            }
-        }
-        match insert_cycles(conn, &all_times, self.get_project().name.clone()) {
-            Ok((row_count, duplicates)) => {
-                self.log_messages.push_front(format!(
-                    "Successfully inserted {} rows into DB. Skipped {}.",
-                    row_count, duplicates
-                ));
-            },
-            Err(e) => {
-                self.log_messages
-                    .push_front(format!("Failed to insert cycle data to db.Error {}", e));
-            },
-        }
-    }
-    fn upload_meteo_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
-        let mut meteos = MeteoData::default();
-        for path in &selected_paths {
-            match csv_parse::read_meteo_csv(path) {
-                //   Pass `path` directly
-                Ok(res) => {
-                    meteos.datetime.extend(res.datetime);
-                    meteos.pressure.extend(res.pressure);
-                    meteos.temperature.extend(res.temperature);
-                },
-                Err(e) => {
-                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
-                },
-            }
-        }
-        match insert_meteo_data(conn, &self.get_project().name.clone(), &meteos) {
-            Ok(row_count) => {
-                self.log_messages
-                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
-            },
-            Err(e) => {
-                self.log_messages
-                    .push_front(format!("Failed to insert cycle data to db.Error {}", e));
-            },
-        }
-        self.log_messages.push_front("Uploading meteo data...".to_string());
-    }
-    fn upload_volume_data(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
-        let mut volumes = VolumeData::default();
-        for path in &selected_paths {
-            match csv_parse::read_volume_csv(path) {
-                //   Pass `path` directly
-                Ok(res) => {
-                    volumes.datetime.extend(res.datetime);
-                    volumes.chamber_id.extend(res.chamber_id);
-                    volumes.volume.extend(res.volume);
-                },
-                Err(e) => {
-                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
-                },
-            }
-        }
-        match insert_volume_data(conn, &self.get_project().name.clone(), &volumes) {
-            Ok(row_count) => {
-                self.log_messages
-                    .push_front(format!("Successfully inserted {} rows into DB.", row_count));
-            },
-            Err(e) => {
-                self.log_messages
-                    .push_front(format!("Failed to insert cycle data to db.Error {}", e));
-            },
-        }
-        self.log_messages.push_front("Uploading meteo data...".to_string());
+    pub fn mode_pearsons(&self) -> bool {
+        self.selected_project.as_ref().unwrap().mode == Mode::BestPearsonsR
     }
 
     fn open_file_dialog(&mut self, title: &str) {
@@ -2329,134 +2241,6 @@ impl ValidationApp {
             }
         });
     }
-    fn _process_files(&mut self, selected_paths: Vec<PathBuf>) {
-        match Connection::open("fluxrs.db") {
-            Ok(mut conn) => {
-                if let Some(data_type) = self.selected_data_type.as_ref() {
-                    match data_type {
-                        DataType::Gas => self.process_gas_files(selected_paths, &mut conn),
-                        DataType::Cycle => self.upload_cycle_data(selected_paths, &mut conn),
-                        DataType::Meteo => self.upload_meteo_data(selected_paths, &mut conn),
-                        DataType::Volume => self.upload_volume_data(selected_paths, &mut conn),
-                    }
-                }
-            },
-            Err(e) => {
-                self.log_messages.push_front(format!("❌ Failed to connect to database: {}", e));
-            },
-        }
-    }
-
-    // pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
-    //     ui.heading("Project Management");
-    //
-    //     ui.separator();
-    //     ui.heading("Change current project");
-    //     ui.add_space(10.);
-    //     if self.selected_project.is_none() {
-    //         self.load_projects_from_db().unwrap();
-    //     }
-    //
-    //     if !self.projects.is_empty() {
-    //         egui::ComboBox::from_label("Current project")
-    //             .selected_text(
-    //                 self.selected_project.clone().unwrap_or_else(|| "Select Project".to_string()),
-    //             )
-    //             .show_ui(ui, |ui| {
-    //                 for project in &self.projects.clone() {
-    //                     if ui
-    //                         .selectable_label(
-    //                             Some(project) == self.selected_project.as_ref(),
-    //                             project,
-    //                         )
-    //                         .clicked()
-    //                     {
-    //                         if let Err(err) = self.set_current_project(project) {
-    //                             eprintln!("Failed to set project as current: {}", err);
-    //                         }
-    //                     }
-    //                 }
-    //             });
-    //     } else {
-    //         ui.label("No projects found.");
-    //     }
-    //     ui.separator();
-    //     ui.collapsing("Instructions", |ui| {
-    //         ui.label("Project name:");
-    //         ui.label("Instrument");
-    //         ui.label("Main gas");
-    //     });
-    //
-    //     ui.heading("New project");
-    //     ui.label("Project name");
-    //     ui.text_edit_singleline(&mut self.project_name);
-    //
-    //     ui.label("Select instrument");
-    //     egui::ComboBox::from_label("Instrument")
-    //         .selected_text(self.instrument.to_string())
-    //         .show_ui(ui, |ui| {
-    //             for instrument in InstrumentType::available_instruments() {
-    //                 ui.selectable_value(&mut self.instrument, instrument, instrument.to_string());
-    //             }
-    //         });
-    //
-    //     ui.label("Instrument serial");
-    //     ui.text_edit_singleline(&mut self.proj_serial);
-    //
-    //     let available_gases = self.instrument.available_gases();
-    //     if !available_gases.is_empty() {
-    //         ui.label("Select Gas:");
-    //
-    //         egui::ComboBox::from_label("Gas Type")
-    //             .selected_text(
-    //                 self.main_gas.map_or_else(|| "Select Gas".to_string(), |g| g.to_string()),
-    //             )
-    //             .show_ui(ui, |ui| {
-    //                 for gas in available_gases {
-    //                     ui.selectable_value(&mut self.main_gas, Some(gas), gas.to_string());
-    //                 }
-    //             });
-    //
-    //         if let Some(gas) = self.main_gas {
-    //             ui.label(format!("Selected Gas: {}", gas));
-    //         }
-    //     } else {
-    //         ui.label("No gases available for this instrument.");
-    //     }
-    //     ui.add_space(10.);
-    //
-    //     ui.label("Deadband in seconds");
-    //     // ui.text_edit_singleline(&mut self.project_deadband);
-    //     ui.add(egui::DragValue::new(&mut self.project_deadband).speed(1.).range(0.0..=300.));
-    //     ui.add_space(10.);
-    //     ui.label("Select flux finding mode");
-    //     egui::ComboBox::from_label("Mode").selected_text(format!("{}", self.mode)).show_ui(
-    //         ui,
-    //         |ui| {
-    //             ui.selectable_value(
-    //                 &mut self.mode,
-    //                 Mode::AfterDeadband,
-    //                 Mode::AfterDeadband.to_string(),
-    //             );
-    //             ui.selectable_value(
-    //                 &mut self.mode,
-    //                 Mode::BestPearsonsR,
-    //                 Mode::BestPearsonsR.to_string(),
-    //             );
-    //         },
-    //     );
-    //     ui.add_space(10.);
-    //     if ui.button("Add Project").clicked() {
-    //         if let Some(gas) = self.main_gas {
-    //             if let Err(err) = self.save_project_to_db() {
-    //                 eprintln!("Failed to save project: {}", err);
-    //             }
-    //         } else {
-    //             self.log_messages.push_front("No main gas selected.".to_string());
-    //         }
-    //     }
-    //     self.log_display(ui);
-    // }
 
     pub fn dl_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
         ui.heading("Data downloader");
@@ -3281,29 +3065,6 @@ pub async fn run_processing_dynamic(
                                     }
                                 }
                             }
-                            // for cycle_opt in &cycles {
-                            //     if let Some(cycle) = cycle_opt {
-                            //         // Lookup the inserted flux ID to associate flux results
-                            //         let cycle_id: i64 = conn.query_row(
-                            //     "SELECT id FROM fluxes
-                            //      WHERE instrument_serial = ?1 AND start_time = ?2 AND project_id = ?3",
-                            //     params![
-                            //         cycle.instrument_serial,
-                            //         cycle.start_time.timestamp(),
-                            //         cycle.project_id
-                            //     ],
-                            //     |row| row.get(0),
-                            // ).unwrap_or(-1);
-                            //
-                            //         if cycle_id >= 0 {
-                            //             if let Err(e) =
-                            //                 insert_flux_results(&mut conn, cycle_id, &cycle.fluxes)
-                            //             {
-                            //                 eprintln!("Error inserting flux results: {}", e);
-                            //             }
-                            //         }
-                            //     }
-                            // }
                         },
                         Err(e) => eprintln!("Error inserting fluxes: {}", e),
                     }
@@ -3568,15 +3329,6 @@ pub fn process_gas_files_async(
     project: String,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    // {
-    //     let mut logs = log_messages.lock().unwrap();
-    //     logs.push_front("Uploading gas data...".to_string());
-    //
-    // }
-    // let _ progress_sender.send)
-
-    let mut all_gas = GasData::new();
-
     for path in &selected_paths {
         let instrument = Li7810::default();
         match instrument.read_data_file(path) {

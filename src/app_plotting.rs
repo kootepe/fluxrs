@@ -5,7 +5,8 @@ use crate::flux::{self, FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
 pub use crate::instruments::GasType;
 use crate::validation_app::Adjuster;
 use crate::validation_app::ValidationApp;
-use crate::validation_app::{create_polygon, create_vline, is_inside_polygon};
+use crate::validation_app::{create_polygon, create_vline, is_inside_polygon, Mode};
+
 use chrono::DateTime;
 use ecolor::Hsva;
 use egui::widgets::Label;
@@ -172,8 +173,7 @@ impl ValidationApp {
 
             let Some(model) = self.get_model(gas_type, kind) else { return };
 
-            let y_pred: Vec<f64> =
-                dt_v.par_iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
+            let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
             let residuals: Vec<f64> =
                 actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
@@ -481,10 +481,10 @@ impl ValidationApp {
                     .color(Color32::from_rgba_unmultiplied(250, 128, 128, 255)),
                 );
             } else if cycle.is_valid {
+                plot_ui.polygon(deadband);
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
-                plot_ui.polygon(deadband);
             }
             if let Some(data) = cycle.gas_v.get(&gas_type) {
                 let dt_v = &cycle.dt_v;
@@ -1119,7 +1119,7 @@ impl ValidationApp {
             if let Some(points) = invalid_traces.get(chamber_id) {
                 // Use a special style for invalids (no need to group)
                 let plot_points =
-                    PlotPoints::from(points.par_iter().map(|(_, pt)| *pt).collect::<Vec<_>>());
+                    PlotPoints::from(points.iter().map(|(_, pt)| *pt).collect::<Vec<_>>());
 
                 plot_ui.points(
                     Points::new(format!("{} invalid", chamber_id), plot_points)
@@ -1434,6 +1434,9 @@ impl ValidationApp {
                 if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                     if cycle.start_time.timestamp() as f64 == dragged[0] {
                         cycle.set_open_lag(new_y);
+                        if self.mode_pearsons() {
+                            self.set_all_calc_range_to_best_r();
+                        }
                     }
                 }
             }
@@ -1602,41 +1605,35 @@ impl ValidationApp {
             match self.dragging {
                 Some(Adjuster::Left) => {
                     println!("dragging left");
-                    if inside_left {
-                        self.handle_drag_polygon(plot_ui, true, &gas_type)
-                    }
+                    self.handle_drag_polygon(plot_ui, true, &gas_type)
                 },
                 Some(Adjuster::Right) => {
                     println!("dragging right");
-                    if inside_right {
-                        self.handle_drag_polygon(plot_ui, false, &gas_type)
-                    }
+                    self.handle_drag_polygon(plot_ui, false, &gas_type)
                 },
                 Some(Adjuster::Main) => {
                     println!("dragging main");
-                    if inside_main {
-                        let calc_start = self.get_calc_start(gas_type);
-                        let calc_end = self.get_calc_end(gas_type);
-                        let measurement_start =
-                            self.get_measurement_start() + self.get_deadband(gas_type);
-                        let measurement_end = self.get_measurement_end();
+                    let calc_start = self.get_calc_start(gas_type);
+                    let calc_end = self.get_calc_end(gas_type);
+                    let measurement_start =
+                        self.get_measurement_start() + self.get_deadband(gas_type);
+                    let measurement_end = self.get_measurement_end();
 
-                        let mut clamped_dx = dx;
+                    let mut clamped_dx = dx;
 
-                        // Prevent dragging past left bound
-                        if moving_left && calc_start + dx < measurement_start {
-                            clamped_dx = measurement_start - calc_start;
-                        }
+                    // Prevent dragging past left bound
+                    if moving_left && calc_start + dx < measurement_start {
+                        clamped_dx = measurement_start - calc_start;
+                    }
 
-                        // Prevent dragging past right bound
-                        if moving_right && calc_end + dx > measurement_end {
-                            clamped_dx = measurement_end - calc_end;
-                        }
+                    // Prevent dragging past right bound
+                    if moving_right && calc_end + dx > measurement_end {
+                        clamped_dx = measurement_end - calc_end;
+                    }
 
-                        if clamped_dx.abs() > f64::EPSILON {
-                            self.increment_calc_start(gas_type, clamped_dx);
-                            self.increment_calc_end(gas_type, clamped_dx);
-                        }
+                    if clamped_dx.abs() > f64::EPSILON {
+                        self.increment_calc_start(gas_type, clamped_dx);
+                        self.increment_calc_end(gas_type, clamped_dx);
                     }
                 },
                 Some(Adjuster::CloseLag) => {
@@ -1651,6 +1648,9 @@ impl ValidationApp {
                             || (!self.calc_area_can_move(gas_type) && dx < 0.)
                         {
                             self.increment_close_lag(dx);
+                            if self.mode_pearsons() {
+                                self.set_all_calc_range_to_best_r();
+                            }
                             if self.mode_after_deadband() && dx < 0. {
                                 self.increment_calc_start(gas_type, dx);
                             }
@@ -1666,6 +1666,9 @@ impl ValidationApp {
                             dx *= transform.dpos_dvalue_x();
                         }
                         self.increment_open_lag(dx);
+                        if self.mode_pearsons() {
+                            self.set_all_calc_range_to_best_r();
+                        }
                     }
                 },
                 None => {},
@@ -1720,7 +1723,7 @@ impl ValidationApp {
         let legend_width = ui.available_width();
         let color_box_size = Vec2::new(16.0, 16.0);
 
-        let mut sorted_traces: Vec<String> = self.all_traces.par_iter().cloned().collect();
+        let mut sorted_traces: Vec<String> = self.all_traces.iter().cloned().collect();
 
         // Sort numerically
         sorted_traces.sort_by(|a, b| {
