@@ -1,7 +1,7 @@
 use crate::cycle::{insert_flux_history, update_fluxes, Cycle};
 use crate::cycle_navigator::compute_visible_indexes;
 use crate::errorcode::ErrorCode;
-use crate::flux::{self, FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
+use crate::flux::{FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
 pub use crate::instruments::GasType;
 use crate::validation_app::Adjuster;
 use crate::validation_app::ValidationApp;
@@ -11,18 +11,19 @@ use chrono::DateTime;
 use ecolor::Hsva;
 use egui::widgets::Label;
 use egui::{Align2, Rgba};
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 
 use std::ops::RangeInclusive;
 
-use eframe::egui::{Color32, Id, Layout, PointerButton, Pos2, RichText, Stroke, Ui, Vec2};
+use eframe::egui::{Color32, Layout, PointerButton, Pos2, RichText, Ui, Vec2};
 use egui_plot::{
-    Bar, BarChart, CoordinatesFormatter, Corner, GridInput, GridMark, Legend, Line, LineStyle,
-    MarkerShape, Plot, PlotBounds, PlotPoint, PlotPoints, PlotTransform, PlotUi, Points, Text,
+    Bar, BarChart, CoordinatesFormatter, Corner, GridInput, GridMark, Line, LineStyle, MarkerShape,
+    Plot, PlotBounds, PlotPoint, PlotPoints, PlotTransform, PlotUi, Points, Text,
 };
 
 type DataTrace = (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>);
+type DataTraceKind =
+    (HashMap<String, Vec<(FluxKind, [f64; 2])>>, HashMap<String, Vec<(FluxKind, [f64; 2])>>);
 
 impl ValidationApp {
     pub fn is_gas_enabled(&self, gas_type: &GasType) -> bool {
@@ -167,8 +168,6 @@ impl ValidationApp {
             let dt_v = cycle.get_calc_dt2(gas_type);
             let actual = cycle.get_calc_gas_v2(gas_type);
 
-            let x0 = dt_v.get(0).copied().unwrap_or(0.0);
-
             // Prepare predictions from the selected model
 
             let Some(model) = self.get_model(gas_type, kind) else { return };
@@ -252,18 +251,6 @@ impl ValidationApp {
             let residuals: Vec<f64> =
                 actual.iter().zip(&y_pred).map(|(&y, &y_hat)| y - y_hat).collect();
 
-            // In your egui `ui` code:
-            // Standardize residuals
-            let mean = residuals.iter().copied().sum::<f64>() / residuals.len() as f64;
-            let variance =
-                residuals.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / residuals.len() as f64;
-            let std = variance.sqrt();
-            let standardized: Vec<f64> = residuals.iter().map(|r| (r - mean) / std).collect();
-
-            // Plot standardized residuals vs predicted values
-            // let points: Vec<[f64; 2]> =
-            //     // y_pred.iter().zip(&standardized).map(|(&x, &res)| [x, res / -1.]).collect();
-            //     residuals.iter().zip(&standardized).map(|(&x, &res)| [x, res]).collect();
             let points: Vec<[f64; 2]> =
                 // y_pred.iter().zip(&standardized).map(|(&x, &res)| [x, res / -1.]).collect();
                 y_pred.iter().zip(&residuals).map(|(&x, &res)| [x, res]).collect();
@@ -277,21 +264,6 @@ impl ValidationApp {
                         .radius(2.0),
                 );
             }
-
-            // Optional: Add a horizontal zero-line
-            // if let Some(&x_min) = y_pred.first() {
-            //     if let Some(&x_max) = y_pred.last() {
-            //         plot_ui.line(
-            //             Line::new(
-            //                 format!("residual_zero{}", gas_type),
-            //                 PlotPoints::from(vec![[x_min, 0.0], [x_max, 0.0]]),
-            //             )
-            //             .color(egui::Color32::GRAY)
-            //             .style(egui_plot::LineStyle::dashed_loose())
-            //             .stroke(Stroke::new(1.0, egui::Color32::GRAY)),
-            //         );
-            //     }
-            // }
         } else {
             plot_ui.text(Text::new(
                 "no cycle",
@@ -371,9 +343,6 @@ impl ValidationApp {
     }
 
     pub fn render_gas_plot(&self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType) {
-        let left_id = Id::new(format!("left_test{}", gas_type));
-        let main_id = Id::new("main_area");
-        let right_id = Id::new("right_area");
         let dpw = self.get_dragger_width(gas_type);
 
         let dark_green = Color32::DARK_GREEN;
@@ -395,7 +364,6 @@ impl ValidationApp {
                 Color32::from_rgba_unmultiplied(255, 0, 0, 30),
                 Color32::BLACK,
                 "deadband",
-                main_id,
             );
 
             let left_polygon = create_polygon(
@@ -406,7 +374,6 @@ impl ValidationApp {
                 self.calc_area_adjust_color,
                 self.calc_area_stroke_color,
                 "Extend left",
-                left_id,
             );
 
             let right_polygon = create_polygon(
@@ -417,7 +384,6 @@ impl ValidationApp {
                 self.calc_area_adjust_color,
                 self.calc_area_stroke_color,
                 "Extend right",
-                right_id,
             );
 
             let main_polygon = create_polygon(
@@ -428,7 +394,6 @@ impl ValidationApp {
                 self.calc_area_color,
                 self.calc_area_stroke_color,
                 "Move",
-                main_id,
             );
 
             let dashed = LineStyle::Dashed { length: 10.0 };
@@ -458,7 +423,6 @@ impl ValidationApp {
                     error_color,
                     error_color,
                     "error_area",
-                    main_id,
                 );
                 plot_ui.polygon(error_polygon);
                 let errors = ErrorCode::from_mask(cycle.error_code.0);
@@ -700,7 +664,6 @@ impl ValidationApp {
                 let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
                 let value = selector(cycle, gas_type); // Extract value using selector
                 let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
-                let is_valid = cycle.is_valid;
                 let best_kind = cycle.best_model_by_aic(gas_type).unwrap();
                 let is_valid = cycle.is_valid_by_threshold(
                     cycle.main_gas,
@@ -1012,11 +975,7 @@ impl ValidationApp {
             0.0
         }
     }
-    pub fn create_traces_fluxkind<F>(
-        &self,
-        gas_type: &GasType,
-        selector: F,
-    ) -> (HashMap<String, Vec<(FluxKind, [f64; 2])>>, HashMap<String, Vec<(FluxKind, [f64; 2])>>)
+    pub fn create_traces_fluxkind<F>(&self, gas_type: &GasType, selector: F) -> DataTraceKind
     where
         F: Fn(&Cycle, &GasType) -> f64,
     {
@@ -1027,7 +986,6 @@ impl ValidationApp {
             if let Some(cycle) = self.cycles.get(index) {
                 let chamber_id = cycle.chamber_id.clone();
                 let start_time = cycle.start_time.timestamp() as f64;
-                let is_valid = cycle.is_valid;
                 let main_gas = cycle.main_gas;
 
                 // Get best model kind (lowest AIC among available models)
@@ -1043,14 +1001,6 @@ impl ValidationApp {
                 if let Some((best_kind, _)) = best_model {
                     let value = selector(cycle, gas_type);
 
-                    let model = self.get_model(*gas_type, best_kind).unwrap();
-
-                    // let stats_valid = p_val < p_val_thresh && r2 > r2_thresh && rmse < rmse_thresh;
-                    // let is_valid = model.p_value() < Some(self.p_val_thresh as f64)
-                    //     && Some(*cycle.measurement_r2.get(gas_type).unwrap())
-                    //         > Some(self.r2_thresh as f64)
-                    //     && model.rmse() < Some(self.rmse_thresh as f64)
-                    //     && cycle.error_code.0 == 0;
                     let is_valid = cycle.is_valid_by_threshold(
                         cycle.main_gas,
                         best_kind,
@@ -1077,7 +1027,6 @@ impl ValidationApp {
         plot_ui: &mut egui_plot::PlotUi,
         gas_type: &GasType,
         selector: F,
-        plot_name: &str,
     ) where
         F: Fn(&Cycle, &GasType) -> f64, // Selector function for extracting data
     {
@@ -1405,12 +1354,8 @@ impl ValidationApp {
         // === Detect hovered point ===
         if let Some(cursor_pos) = plot_ui.ctx().pointer_latest_pos() {
             if self.dragged_point.is_none() {
-                hovered_point = find_closest_point_screen_space(
-                    &transform,
-                    Some(cursor_pos),
-                    &lag_traces,
-                    20.0,
-                );
+                hovered_point =
+                    find_closest_point_screen_space(transform, Some(cursor_pos), &lag_traces, 20.0);
             }
         }
 
@@ -1692,7 +1637,7 @@ impl ValidationApp {
         }
     }
     pub fn handle_drag_polygon(&mut self, plot_ui: &mut PlotUi, is_left: bool, gas_type: &GasType) {
-        let mut dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
+        let dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
 
         let calc_start = self.get_calc_start(*gas_type);
         let calc_end = self.get_calc_end(*gas_type);
@@ -1752,7 +1697,7 @@ impl ValidationApp {
                     let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
 
                     ui.horizontal(|ui| {
-                        let color = self.chamber_colors.get(chamber_id).unwrap().clone();
+                        let color = *self.chamber_colors.get(chamber_id).unwrap();
 
                         let response = ui.checkbox(&mut visible, "");
 
@@ -1829,136 +1774,6 @@ impl ValidationApp {
             plot_ui.line(Line::new(label, points).color(color).stroke(stroke).style(style));
         }
     }
-    fn plot_linear_fit(
-        &self,
-        plot_ui: &mut egui_plot::PlotUi,
-        gas_type: GasType, // or whatever type you're using
-    ) {
-        let x_min = self.get_measurement_start();
-        let x_max = self.get_measurement_end();
-        // let x_max = x_min + 150.;
-        let num_points = x_max - x_min;
-
-        if let Some(model) = self
-            .get_model(gas_type, FluxKind::Linear)
-            .and_then(|m| m.as_any().downcast_ref::<LinearFlux>())
-        {
-            let model = &model.model;
-            let points: PlotPoints = (0..=num_points as i64)
-                .map(|i| {
-                    let x = x_min + (x_max - x_min) * i as f64 / num_points;
-                    let y = model.calculate(x);
-                    [x, y]
-                })
-                .collect();
-
-            plot_ui.line(
-                Line::new("linfit", points)
-                    .name("Linear fit")
-                    .color(egui::Color32::PURPLE)
-                    .style(egui_plot::LineStyle::Solid)
-                    .stroke(Stroke::new(2.0, egui::Color32::PURPLE)),
-            );
-        }
-    }
-    fn plot_roblinear_fit(
-        &self,
-        plot_ui: &mut egui_plot::PlotUi,
-        gas_type: GasType, // or whatever type you're using
-    ) {
-        let x_min = self.get_measurement_start();
-        let x_max = self.get_measurement_end();
-        // let x_max = x_min + 150.;
-        let num_points = x_max - x_min;
-
-        if let Some(model) = self
-            .get_model(gas_type, FluxKind::RobLin)
-            .and_then(|m| m.as_any().downcast_ref::<RobustFlux>())
-        {
-            let model = &model.model;
-            let points: PlotPoints = (0..=num_points as i64)
-                .map(|i| {
-                    let t = i as f64 / num_points;
-                    let x_real = x_min + t * (x_max - x_min);
-                    let x_model = x_real - x_min;
-                    let y = model.calculate(x_model);
-                    [x_real, y]
-                })
-                .collect();
-
-            plot_ui.line(
-                Line::new("roblin", points)
-                    .name("Robust Linear Fit")
-                    .color(egui::Color32::RED)
-                    .style(egui_plot::LineStyle::Solid)
-                    .stroke(Stroke::new(2.0, egui::Color32::RED)),
-            );
-            // if self.show_roblinfit {
-            //                     let x_min = self.get_measurement_start();
-            //                     let x_max = self.get_measurement_end();
-            //                     // let x_max = x_min + 240.;
-            //                     let num_points = x_max - x_min;
-            //                     if let Some(model) = self
-            //                         .get_model(gas_type, FluxKind::RobLin)
-            //                         .and_then(|m| m.as_any().downcast_ref::<RobustFlux>())
-            //                     {
-            //                         let model = &model.model;
-            //                         let points: PlotPoints = (0..=num_points as i64)
-            //                             .map(|i| {
-            //                                 let t = i as f64 / num_points;
-            //                                 let x_real = x_min + t * (x_max - x_min);
-            //                                 let x_model = x_real - x_min;
-            //                                 let y = model.calculate(x_model);
-            //                                 [x_real, y]
-            //                             })
-            //                             .collect();
-            //                         plot_ui.line(
-            //                             Line::new("roblinfit", points)
-            //                                 .name("Fitted Line")
-            //                                 .color(egui::Color32::RED)
-            //                                 .style(egui_plot::LineStyle::Solid)
-            //                                 .stroke(Stroke::new(2.0, egui::Color32::RED)),
-            //                         );
-            //                     }
-            //                 }
-        }
-    }
-    fn plot_poly_fit(
-        &self,
-        plot_ui: &mut egui_plot::PlotUi,
-        gas_type: GasType, // or whatever type you're using
-    ) {
-        let x_min = self.get_measurement_start();
-        let x_max = self.get_measurement_end();
-        // let x_max = x_min + 150.;
-        // let x_max = self.get_measurement_end();
-        let num_points = x_max - x_min;
-        // let num_points = 100.;
-
-        if let Some(model) = self
-            .get_model(gas_type, FluxKind::Poly)
-            .and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
-        {
-            let model = &model.model;
-            let points: PlotPoints = (0..=num_points as i64)
-                .map(|i| {
-                    let t = i as f64 / num_points;
-                    let x_real = x_min + t * (x_max - x_min);
-                    let x_model = x_real - x_min;
-                    let y = model.calculate(x_model);
-                    [x_real, y]
-                })
-                .collect();
-
-            plot_ui.line(
-                Line::new("poly", points)
-                    .name("Polynomial fit")
-                    .color(egui::Color32::BLUE)
-                    .style(egui_plot::LineStyle::Solid)
-                    .stroke(Stroke::new(2.0, egui::Color32::BLUE)),
-            );
-        }
-    }
 }
 pub fn init_attribute_plot(
     attribute: String,
@@ -2015,7 +1830,7 @@ pub fn init_residual_bars(gas_type: &GasType, kind: FluxKind, w: f32, h: f32) ->
         .y_axis_label(format!("{}", gas_type))
 }
 pub fn init_gas_plot(gas_type: &GasType, start: f64, end: f64, w: f32, h: f32) -> egui_plot::Plot {
-    let x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
+    let _x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
         let timestamp = mark.value as i64;
 
         // Round to the nearest 5-minute interval (300 seconds)
@@ -2116,7 +1931,7 @@ pub fn init_lag_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
         .y_axis_label(format!("{} lag", gas_type))
         .x_axis_formatter(format_x_axis)
 }
-fn generate_grid_marks(range: GridInput) -> Vec<GridMark> {
+fn _generate_grid_marks(range: GridInput) -> Vec<GridMark> {
     let (min, max) = range.bounds;
     let week = 604800.0; // 1 week in seconds
     let day = 86400.0; // 1 day in seconds

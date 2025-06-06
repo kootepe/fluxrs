@@ -1,5 +1,5 @@
 use crate::app_plotting::{
-    init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars, init_residual_plot,
+    init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
 use crate::csv_parse;
@@ -26,11 +26,9 @@ use crate::Cycle;
 use crate::EqualLen;
 use tokio::sync::mpsc;
 
-use eframe::egui::{
-    Color32, Context, Id, Key, Separator, Stroke, Ui, Vec2, WidgetInfo, WidgetType,
-};
+use eframe::egui::{Color32, Context, Stroke, Ui};
 use egui_file::FileDialog;
-use egui_plot::{Legend, LineStyle, MarkerShape, PlotPoints, PlotUi, Polygon, VLine};
+use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use csv::Writer;
@@ -898,12 +896,6 @@ impl ValidationApp {
             self.enabled_gases.insert(main_gas);
         }
 
-        let lag_s = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.open_lag_s
-        } else {
-            return;
-        };
-
         if ctx.style().visuals.dark_mode {
             self.calc_area_color = Color32::from_rgba_unmultiplied(255, 255, 255, 1);
             self.calc_area_adjust_color = Color32::from_rgba_unmultiplied(255, 255, 255, 20);
@@ -953,7 +945,7 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
-                            let selected_model = self.selected_model.clone();
+                            let selected_model = self.selected_model;
                             let response = flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
@@ -986,7 +978,6 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
-                            let selected_model = self.selected_model.clone();
                             let response = poly_flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
@@ -1019,7 +1010,6 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
-                            let selected_model = self.selected_model.clone();
                             let response = roblin_flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
@@ -1052,7 +1042,6 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
-                            let selected_model = self.selected_model.clone();
                             let response = lin_p_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
@@ -1576,12 +1565,9 @@ impl ValidationApp {
                         self.flux_plot_h,
                     );
                     let response2 = flux_plot.show(ui, |plot_ui| {
-                        self.render_best_flux_plot(
-                            plot_ui,
-                            &gas_type,
-                            |cycle, gas| cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN),
-                            "Best Flux (AIC)",
-                        );
+                        self.render_best_flux_plot(plot_ui, &gas_type, |cycle, gas| {
+                            cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN)
+                        });
                     });
                     if response.response.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -2066,10 +2052,6 @@ impl ValidationApp {
                         self.init_enabled = true;
                         self.query_in_progress = false;
                     },
-                    // ProcessEvent::Done => {
-                    //     self.log_messages.push_front("All processing finished.".to_string());
-                    //     self.cycles_progress = 0;
-                    // },
                 }
             }
         }
@@ -2115,8 +2097,6 @@ impl ValidationApp {
                     let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
                     if !selected_paths.is_empty() {
                         self.opened_files = Some(selected_paths.clone());
-                        // self.log_messages
-                        //     .push_front(format!("Selected files: {:?}", selected_paths));
                         self.process_files_async(
                             selected_paths,
                             self.selected_data_type.clone(),
@@ -2135,48 +2115,6 @@ impl ValidationApp {
                 },
                 _ => {}, // Do nothing if still open
             }
-        }
-    }
-
-    fn process_gas_files(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
-        self.log_messages.push_front("Uploading gas data...".to_owned());
-        let mut all_gas = GasData::new();
-        for path in &selected_paths {
-            let instrument = Li7810::default(); // Assuming you have a default instrument
-            match instrument.read_data_file(path) {
-                Ok(data) => {
-                    if data.validate_lengths() && !data.any_col_invalid() {
-                        let rows = data.diag.len();
-                        all_gas.datetime.extend(data.datetime);
-                        all_gas.diag.extend(data.diag);
-                        all_gas.instrument_model = data.instrument_model;
-                        all_gas.instrument_serial = data.instrument_serial;
-
-                        // Merge gas values correctly
-                        for (gas_type, values) in data.gas {
-                            all_gas.gas.entry(gas_type).or_default().extend(values);
-                        }
-                        self.log_messages.push_front(format!(
-                            "Succesfully read file {:?} with {} rows.",
-                            path, rows
-                        ));
-                    }
-                },
-                Err(e) => {
-                    self.log_messages.push_front(format!("Failed to read file {:?}: {}", path, e));
-                },
-            }
-        }
-        match insert_measurements(conn, &all_gas, self.get_project().name.clone()) {
-            Ok((row_count, duplicates)) => {
-                self.log_messages.push_front(format!(
-                    "Successfully inserted {} rows into DB. Skipped {} rows.",
-                    row_count, duplicates
-                ));
-            },
-            Err(_) => {
-                self.log_messages.push_front("Failed to insert gas data to db.".to_owned());
-            },
         }
     }
 
@@ -2554,9 +2492,6 @@ impl ValidationApp {
             let mut roblin_aic_gases: Vec<(GasType, bool)> =
                 gases.iter().map(|gas| (*gas, self.is_roblin_aic_enabled(gas))).collect();
 
-            let mut aic_diff_gases: Vec<(GasType, bool)> =
-                gases.iter().map(|gas| (*gas, self.is_aic_diff_enabled(gas))).collect();
-
             let min_width = 100.;
             ui.vertical(|ui| {
                 ui.label("Robust linear model plots");
@@ -2759,7 +2694,6 @@ pub fn create_polygon(
     color: Color32,
     stroke: Color32,
     id: &str,
-    idd: Id,
 ) -> Polygon {
     Polygon::new(
         id,
@@ -2987,7 +2921,7 @@ pub async fn run_processing_dynamic(
     let mut time_chunks = VecDeque::from(times.chunk()); // ⬅️ chunk into ~250 cycles
     let mut active_tasks = Vec::new();
 
-    let mut processed = 0;
+    let processed = 0;
     while !time_chunks.is_empty() || !active_tasks.is_empty() {
         // Fill up active tasks
         while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
@@ -3036,7 +2970,7 @@ pub async fn run_processing_dynamic(
         }
 
         // Wait for one task to finish
-        let (result, i, remaining_tasks) = futures::future::select_all(active_tasks).await;
+        let (result, _i, remaining_tasks) = futures::future::select_all(active_tasks).await;
         active_tasks = remaining_tasks; // assign back for next loop
 
         match result {
@@ -3079,130 +3013,6 @@ pub async fn run_processing_dynamic(
 
     // Final insert (if you're collecting cycles earlier)
     let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
-}
-async fn run_processing(
-    times: TimeData,
-    gas_data: HashMap<String, GasData>,
-    meteo_data: MeteoData,
-    volume_data: VolumeData,
-    project: Project,
-    conn: Arc<Mutex<rusqlite::Connection>>,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) {
-    println!("Running cycle processing threads.");
-    if times.start_time.is_empty() || gas_data.is_empty() {
-        println!("Empty data — skipping");
-        return;
-    }
-
-    let total_cycles = times.start_time.len();
-    let gas_data_arc = Arc::new(gas_data);
-    let all_dates: Vec<String> = times
-        .start_time
-        .iter()
-        .map(|dt| dt.format("%Y-%m-%d").to_string())
-        .collect::<HashSet<_>>() // remove duplicates
-        .into_iter()
-        .collect();
-
-    let num_chunks = 10;
-    let date_chunks = chunk_dates(all_dates, num_chunks);
-
-    let mut tasks = Vec::new();
-
-    for date_group in date_chunks {
-        let dates_set: HashSet<String> = date_group.iter().cloned().collect();
-        let filtered_times = filter_time_data_by_dates(&times, &dates_set);
-        let meteo_clone = meteo_data.clone();
-        let volume_clone = volume_data.clone();
-        let project_clone = project.clone();
-
-        let mut gas_data_for_thread = HashMap::new();
-        for date in &date_group {
-            if let Some(day_data) = gas_data_arc.get(date) {
-                gas_data_for_thread.insert(date.clone(), day_data.clone());
-            }
-        }
-        let progress_sender = progress_sender.clone();
-        let task = tokio::task::spawn_blocking(move || {
-            match process_cycles(
-                &filtered_times,
-                &gas_data_for_thread,
-                &meteo_clone,
-                &volume_clone,
-                project_clone,
-                progress_sender.clone(),
-            ) {
-                Ok(result) => {
-                    println!("sent message");
-                    let count = result.iter().flatten().count();
-                    let _ = progress_sender
-                        .send(ProcessEvent::Progress(ProgressEvent::Rows(count, total_cycles)));
-                    Ok(result)
-                },
-                Err(e) => {
-                    let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
-                    Err(e)
-                },
-            }
-        });
-
-        tasks.push(task);
-    }
-
-    let results = futures::future::join_all(tasks).await;
-
-    let mut all_cycles: Vec<Option<Cycle>> = Vec::new();
-
-    for result in results {
-        match result {
-            Ok(Ok(mut cycles)) => all_cycles.append(&mut cycles),
-            Ok(Err(e)) => eprintln!("Error processing cycles: {}", e),
-            Err(e) => eprintln!("Thread join error: {}", e),
-        }
-    }
-
-    if all_cycles.is_empty() {
-        println!("NO CYCLES WITH DATA FOUND");
-    } else {
-        match insert_fluxes_ignore_duplicates(&mut conn.lock().unwrap(), &all_cycles, project.name)
-        {
-            Ok((pushed, skipped)) => {
-                println!("{} Fluxes inserted successfully!", pushed);
-                println!("{} cycles skipped.", skipped);
-            },
-            Err(e) => eprintln!("Error inserting fluxes: {}", e),
-        }
-    }
-    // drop(results);
-    // drop(gas_data)
-}
-
-fn chunk_dates(dates: Vec<String>, num_chunks: usize) -> Vec<Vec<String>> {
-    let mut chunks = vec![vec![]; num_chunks];
-    for (i, date) in dates.into_iter().enumerate() {
-        chunks[i % num_chunks].push(date);
-    }
-    chunks
-}
-
-fn filter_time_data_by_dates(times: &TimeData, dates: &HashSet<String>) -> TimeData {
-    let mut indices = Vec::new();
-
-    for (i, dt) in times.start_time.iter().enumerate() {
-        if dates.contains(&dt.format("%Y-%m-%d").to_string()) {
-            indices.push(i);
-        }
-    }
-
-    TimeData {
-        chamber_id: indices.iter().map(|&i| times.chamber_id[i].clone()).collect(),
-        start_time: indices.iter().map(|&i| times.start_time[i]).collect(),
-        close_offset: indices.iter().map(|&i| times.close_offset[i]).collect(),
-        open_offset: indices.iter().map(|&i| times.open_offset[i]).collect(),
-        end_offset: indices.iter().map(|&i| times.end_offset[i]).collect(),
-        project: indices.iter().map(|&i| times.project[i].clone()).collect(),
-    }
 }
 
 pub fn export_sqlite_to_csv(
@@ -3278,7 +3088,7 @@ fn render_recalculate_ui(
 
         if ui.button("Recalculate.").clicked() {
 
-            let mut conn = match Connection::open("fluxrs.db") {
+            let conn = match Connection::open("fluxrs.db") {
                 Ok(conn) => conn,
                 Err(e) => {
                     eprintln!("Failed to open database: {}", e);
@@ -3289,7 +3099,7 @@ fn render_recalculate_ui(
 
             let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
             match (
-                load_cycles(&mut conn, &project, start_date, end_date, progress_sender),
+                load_cycles(&conn, &project, start_date, end_date, progress_sender),
                 query_volume(&conn, start_date, end_date,project.name.clone()),
             ) {
                 (Ok(mut cycles), Ok(volumes)) => {
