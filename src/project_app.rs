@@ -1,4 +1,5 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
+use crate::main_app::AppEvent;
 use crate::validation_app::Mode;
 use crate::GasType;
 use crate::InstrumentType;
@@ -7,7 +8,6 @@ use rusqlite;
 // use rusqlite::Connection;
 use rusqlite::{params, Connection, Result};
 
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashMap;
 
 #[derive(Default, Clone)]
@@ -186,6 +186,9 @@ impl ProjectApp {
         }
     }
 
+    pub fn update_project(&mut self) -> Option<AppEvent> {
+        Some(AppEvent::SelectProject(self.project.clone()))
+    }
     pub fn build_project_from_form(&self) -> Option<Project> {
         Some(Project {
             name: self.project_name.clone(),
@@ -200,6 +203,7 @@ impl ProjectApp {
 
     pub fn load_projects_from_db(&mut self) -> rusqlite::Result<()> {
         println!("loading project");
+        self.all_projects = Vec::new();
         let conn = Connection::open("fluxrs.db")?;
 
         let mut stmt = conn.prepare("SELECT * FROM projects")?;
@@ -277,7 +281,7 @@ impl ProjectApp {
         tx.execute("UPDATE projects SET current = 1 WHERE project_id = ?1", [project_name])?;
         tx.commit()?;
         println!("Current project set: {}", project_name);
-        // self.project.as_mut().unwrap().name = project_name.to_string();
+
         Ok(())
     }
     fn save_project_to_db(&mut self, project: &Project) -> rusqlite::Result<()> {

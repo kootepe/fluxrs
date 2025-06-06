@@ -1,7 +1,11 @@
 use crate::keybinds::{Action, KeyBindings};
-use crate::project_app::ProjectApp;
+use crate::project_app::{Project, ProjectApp};
 use crate::validation_app::{TableApp, ValidationApp};
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
+
+pub enum AppEvent {
+    SelectProject(Option<Project>),
+}
 
 #[derive(Default, PartialEq)]
 struct EmptyPanel {}
@@ -44,7 +48,18 @@ impl MainApp {
             self.validation_panel.keybinds =
                 KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
         }
-
+        if let Some(event) = self.proj_panel.update_project() {
+            match event {
+                AppEvent::SelectProject(proj) => {
+                    if self.validation_panel.selected_project.clone().unwrap_or_default().name
+                        != proj.clone().unwrap_or_default().name
+                    {
+                        self.validation_panel.selected_project = proj;
+                        self.validation_panel.cycles = Vec::new();
+                    }
+                },
+            }
+        }
         // println!("{:?}", self.validation_panel.selected_project);
         for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
             // font_id.size = self.validation_panel.font_size;
