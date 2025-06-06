@@ -2549,7 +2549,131 @@ pub fn calculate_max_y_from_vec(values: &[Option<f64>]) -> f64 {
 pub fn calculate_min_y_from_vec(values: &[Option<f64>]) -> f64 {
     values.iter().filter_map(|&v| v).filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min)
 }
+pub fn process_cycles(
+    timev: &TimeData,
+    sorted_data: &HashMap<String, GasData>,
+    meteo_data: &MeteoData,
+    volume_data: &VolumeData,
+    project: Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+) -> Result<Vec<Option<Cycle>>, Box<dyn error::Error + Send + Sync>> {
+    // println!("Processing cycles");
+    let mut cycle_vec = Vec::new();
+    let mut no_data_for_day = false;
+    let mut last_date = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
+    let mut processed_cycles: u32 = 0;
+    for (chamber, start, close, open, end, _) in timev.iter() {
+        let mut cycle = CycleBuilder::new()
+            .chamber_id(chamber.to_owned())
+            .start_time(*start)
+            .close_offset(*close)
+            .open_offset(*open)
+            .end_offset(*end)
+            .project_name(project.name.to_owned())
+            .min_calc_len(project.min_calc_len)
+            .build()?;
+        let st = cycle.start_time;
+        let day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+        if no_data_for_day && last_date == day {
+            continue;
+        } else {
+            no_data_for_day = false;
+        }
 
+        // if day != last_date {
+        //     println!("Processed {}/{} cycles from {}", processed_cycles, total_cycles, day);
+        // }
+        last_date = day.clone();
+
+        if let Some(cur_data) = sorted_data.get(&start.format("%Y-%m-%d").to_string()) {
+            processed_cycles += 1;
+            // cur_data is ordered, so we can check last and first timestamp to skip cycles
+            // with no data
+            if start < &cur_data.datetime[0] || start > cur_data.datetime.last().unwrap() {
+                continue;
+            }
+            // let si = (cycle.start_time.timestamp() - cur_data.datetime.first().unwrap().timestamp())
+            //     as usize;
+
+            let mut si = 0;
+            for (i, t) in cur_data.datetime.iter().enumerate() {
+                if t >= &cycle.start_time {
+                    si = i;
+                    break;
+                }
+            }
+            let ei = si + *end as usize - 1;
+            if si == 0 || (si >= cur_data.datetime.len() - 1 || ei >= cur_data.datetime.len()) {
+                continue;
+            }
+            // println!("{}", si);
+            // println!("{}", ei);
+            cycle.dt_v =
+                cur_data.datetime[si..ei].to_vec().iter().map(|t| t.timestamp() as f64).collect();
+            for (gas_type, gas_values) in &cur_data.gas {
+                cycle.gas_v.insert(*gas_type, gas_values[si..ei].to_vec());
+            }
+            cycle.diag_v = cur_data.diag[si..ei].to_vec();
+            // cur_data.datetime.iter().enumerate().for_each(|(i, t)| {
+            //     // println!("{}", t);
+            //     if t >= &cycle.start_time && t <= &end_time {
+            //         cycle.dt_v.push(t.timestamp() as f64);
+            //         for (gas_type, gas_values) in &cur_data.gas {
+            //             if let Some(value) = gas_values.get(i) {
+            //                 cycle.gas_v.entry(*gas_type).or_insert_with(Vec::new).push(*value);
+            //             }
+            //         }
+            //         if let Some(value) = cur_data.diag.get(i) {
+            //             cycle.diag_v.push(*value);
+            //         }
+            //     }
+            // });
+
+            let gases: Vec<_> = cur_data.gas.keys().cloned().collect(); // Collect first
+            cycle.gases = gases.clone();
+            cycle.instrument_model = InstrumentType::from_str(&cur_data.instrument_model.clone());
+            cycle.instrument_serial = cur_data.instrument_serial.clone();
+
+            let target =
+                (cycle.start_time + chrono::TimeDelta::seconds(cycle.close_offset)).timestamp();
+            let (temp, pressure) = match meteo_data.get_nearest(target) {
+                Some((temp, pressure)) => (temp, pressure),
+                None => (10.0, 1000.0),
+            };
+            cycle.air_temperature = temp;
+            cycle.air_pressure = pressure;
+
+            let volume =
+                volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
+            cycle.chamber_volume = volume;
+            for gas in gases {
+                cycle.deadbands.insert(gas, project.deadband);
+            }
+            if project.mode == Mode::BestPearsonsR {
+                cycle.init(true);
+            } else {
+                cycle.init(false);
+            }
+            if cycle.dt_v.is_empty() {
+                let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(format!(
+                    "{}",
+                    cycle.start_time
+                ))));
+                // progress_sender.send(ProcessEvent::NoGasData(format!("{}", cycle.start_time)));
+                cycle_vec.push(None);
+            } else {
+                cycle_vec.push(Some(cycle));
+            }
+        } else {
+            no_data_for_day = true;
+            progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(
+                start.format("%Y-%m-%d").to_string(),
+            )))?;
+            continue;
+        }
+    }
+    Ok(cycle_vec)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
