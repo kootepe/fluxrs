@@ -881,6 +881,40 @@ impl ValidationApp {
             cycle.reload_gas_data();
         }
     }
+    pub fn reset_cycle(&mut self) {
+        let mode = self.get_project_mode();
+        if let Some(c) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            c.manual_adjusted = false;
+            c.close_lag_s = 0.;
+            c.open_lag_s = 0.;
+            c.reset_deadbands();
+            if c.end_lag_s != 0. || c.start_lag_s != 0. {
+                c.end_lag_s = 0.;
+                c.start_lag_s = 0.;
+                c.reload_gas_data();
+            }
+            c.check_diag();
+            c.check_missing();
+
+            if !c.has_error(ErrorCode::TooManyDiagErrors)
+                && !c.has_error(ErrorCode::TooFewMeasurements)
+            {
+                c.search_open_lag(c.main_gas);
+                match mode {
+                    Mode::AfterDeadband => c.set_calc_ranges(),
+                    Mode::BestPearsonsR => c.find_best_r_indices(),
+                }
+                c.calculate_concentration_at_t0();
+                c.calculate_measurement_rs();
+                c.check_main_r();
+                // c.find_highest_r_windows();
+                c.compute_all_fluxes();
+                c.calculate_max_y();
+                c.calculate_min_y();
+                c.check_errors();
+            }
+        }
+    }
     pub fn print_stats(&self) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             println!("g {}", cycle.gas_v.get(&GasType::CH4).unwrap().len());
@@ -906,6 +940,17 @@ impl ValidationApp {
         }
     }
 
+    pub fn set_calc_range_to_best_r(&mut self, gas_type: GasType) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.find_best_r_indices_for_gas(gas_type);
+        }
+    }
+
+    pub fn set_all_calc_range_to_best_r(&mut self) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.find_best_r_indices();
+        }
+    }
     pub fn decrement_calc_start(&mut self, gas_type: GasType, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
