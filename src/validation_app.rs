@@ -9,7 +9,7 @@ use crate::cycle::{
 };
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
-use crate::flux::{FluxKind, FluxModel, LinearFlux};
+use crate::flux::FluxKind;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::gasdata::query_gas_async;
 use crate::gasdata::{insert_measurements, GasData};
@@ -20,12 +20,10 @@ use crate::keybinds::{Action, KeyBindings};
 use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::project_app::Project;
-use crate::project_app::ProjectApp;
 use crate::timedata::{query_cycles_async, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
-use egui::{FontFamily, ScrollArea};
 use tokio::sync::mpsc;
 
 use eframe::egui::{
@@ -101,6 +99,9 @@ impl std::fmt::Display for Mode {
     }
 }
 
+type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
+type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
+
 pub struct ValidationApp {
     pub runtime: tokio::runtime::Runtime,
     pub init_enabled: bool,
@@ -108,27 +109,27 @@ pub struct ValidationApp {
     cycles_progress: usize,
     cycles_state: Option<(usize, usize)>,
     query_in_progress: bool,
-    pub load_result: Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>,
-    progress_receiver: Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>,
+    pub load_result: LoadResult,
+    progress_receiver: ProgReceiver,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
-    pub enabled_gases: BTreeSet<GasType>, // Stores which gases are enabled for plotting
-    pub enabled_calc_r: BTreeSet<GasType>, // Stores which r values are enabled for plotting
+    pub enabled_gases: BTreeSet<GasType>,
+    pub enabled_calc_r: BTreeSet<GasType>,
 
-    pub enabled_lin_fluxes: BTreeSet<GasType>, // Stores which fluxes are enabled for plotting
-    pub enabled_poly_fluxes: BTreeSet<GasType>, // Stores which fluxes are enabled for plotting
-    pub enabled_roblin_fluxes: BTreeSet<GasType>, // Stores which fluxes are enabled for plotting
+    pub enabled_lin_fluxes: BTreeSet<GasType>,
+    pub enabled_poly_fluxes: BTreeSet<GasType>,
+    pub enabled_roblin_fluxes: BTreeSet<GasType>,
 
-    pub enabled_lin_adj_r2: BTreeSet<GasType>, // Stores which r values are enabled for plotting
-    pub enabled_lin_p_val: BTreeSet<GasType>,  // Stores which fluxes are enabled for plotting
-    pub enabled_lin_sigma: BTreeSet<GasType>,  // Stores which fluxes are enabled for plotting
-    pub enabled_lin_rmse: BTreeSet<GasType>,   // Stores which r values are enabled for plotting
-    pub enabled_lin_aic: BTreeSet<GasType>,    // Stores which r values are enabled for plotting
+    pub enabled_lin_adj_r2: BTreeSet<GasType>,
+    pub enabled_lin_p_val: BTreeSet<GasType>,
+    pub enabled_lin_sigma: BTreeSet<GasType>,
+    pub enabled_lin_rmse: BTreeSet<GasType>,
+    pub enabled_lin_aic: BTreeSet<GasType>,
 
-    pub enabled_roblin_adj_r2: BTreeSet<GasType>, // Stores which r values are enabled for plotting
-    pub enabled_roblin_sigma: BTreeSet<GasType>,  // Stores which fluxes are enabled for plotting
-    pub enabled_roblin_rmse: BTreeSet<GasType>,   // Stores which r values are enabled for plotting
-    pub enabled_roblin_aic: BTreeSet<GasType>,    // Stores which r values are enabled for plotting
+    pub enabled_roblin_adj_r2: BTreeSet<GasType>,
+    pub enabled_roblin_sigma: BTreeSet<GasType>,
+    pub enabled_roblin_rmse: BTreeSet<GasType>,
+    pub enabled_roblin_aic: BTreeSet<GasType>,
     //
     pub enabled_poly_sigma: BTreeSet<GasType>,
     pub enabled_poly_adj_r2: BTreeSet<GasType>,
@@ -136,8 +137,8 @@ pub struct ValidationApp {
     pub enabled_poly_aic: BTreeSet<GasType>,
 
     pub enabled_aic_diff: BTreeSet<GasType>,
-    pub enabled_measurement_rs: BTreeSet<GasType>, // Stores which gases are enabled for plotting
-    pub enabled_conc_t0: BTreeSet<GasType>,        // Stores which gases are enabled for plotting
+    pub enabled_measurement_rs: BTreeSet<GasType>,
+    pub enabled_conc_t0: BTreeSet<GasType>,
 
     pub p_val_thresh: f32,
     pub rmse_thresh: f32,
