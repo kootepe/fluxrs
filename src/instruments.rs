@@ -62,7 +62,7 @@ impl GasType {
             GasType::N2O => "N2O",
         }
     }
-    pub fn integer_repr(&self) -> u8 {
+    pub fn as_int(&self) -> u8 {
         match self {
             GasType::CO2 => 1,
             GasType::CH4 => 2,

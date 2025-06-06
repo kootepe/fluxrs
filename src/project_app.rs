@@ -204,8 +204,7 @@ impl ProjectApp {
 
         let mut stmt = conn.prepare("SELECT * FROM projects")?;
 
-        let column_names: Vec<String> =
-            stmt.column_names().par_iter().map(|s| s.to_string()).collect();
+        let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
         let column_index: HashMap<String, usize> =
             column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
 
@@ -285,10 +284,10 @@ impl ProjectApp {
         let mut conn = Connection::open("fluxrs.db")?;
         let current_project = project.clone();
 
-        let main_gas = self.main_gas.unwrap().integer_repr();
+        let main_gas = self.main_gas.unwrap().as_int();
         let instrument_model = self.selected_instrument.to_string();
         let deadband = self.deadband;
-        let mode = self.mode.integer_repr();
+        let mode = self.mode.as_int();
         let min_calc_len = self.min_calc_len;
 
         let tx = conn.transaction()?; //   Use transaction for consistency
