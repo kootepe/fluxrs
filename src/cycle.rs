@@ -1029,7 +1029,7 @@ impl Cycle {
         let ret: Vec<f64> = self
             .gas_v
             .get(&gas_type)
-            .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
+            .map(|vec| vec.iter().map(|s| s.unwrap_or(f64::NAN)).collect())
             .unwrap_or_default();
         if s > ret.len() {
             return ret;
@@ -2115,13 +2115,7 @@ pub fn load_cycles(
                     min_y.insert(*gas, calculate_min_y_from_vec(&meas_vals));
                     let target =
                         close_offset + close_lag_s as i64 + open_lag_s as i64 + deadband as i64;
-                    let end_target = open_offset + close_lag_s as i64 + open_lag_s as i64;
 
-                    let s = target as usize;
-                    let mut e = end_target as usize;
-                    if e > dt_v.len() {
-                        e = dt_v.len()
-                    }
                     deadbands.insert(*gas, deadband);
 
                     let t0 = meas_vals[target as usize].unwrap();
@@ -2221,12 +2215,6 @@ pub fn load_cycles(
         ) {
             cycle.calc_range_start.insert(gas_type, calc_start);
             cycle.calc_range_end.insert(gas_type, calc_end + 1.);
-            let s = (calc_start - cycle.start_time.timestamp() as f64) as usize;
-            let e = (calc_end - cycle.start_time.timestamp() as f64) as usize;
-            // cycle.calc_dt_v.insert(gas_type, cycle.get_measurement_dt_v2()[s..e].to_vec());
-            // cycle
-            //     .calc_gas_v
-            //     .insert(gas_type, cycle.get_measurement_gas_v2(gas_type)[s..e].to_vec());
             let lin = LinearFlux {
                 fit_id: "linear".to_string(),
                 gas_type,
@@ -2271,10 +2259,6 @@ pub fn load_cycles(
         ) {
             cycle.calc_range_start.insert(gas_type, calc_start);
             cycle.calc_range_end.insert(gas_type, calc_end + 1.);
-            let s = (calc_start - cycle.start_time.timestamp() as f64) as usize;
-            let e = (calc_end - cycle.start_time.timestamp() as f64) as usize;
-            // cycle.calc_dt_v.insert(gas_type, cycle.dt_v[s..e].to_vec());
-            // cycle.calc_gas_v.insert(gas_type, cycle.gas_v.get(&gas_type).unwrap()[s..e].to_vec());
             let lin = RobustFlux {
                 fit_id: "roblin".to_string(),
                 gas_type,
@@ -2320,10 +2304,6 @@ pub fn load_cycles(
         ) {
             cycle.calc_range_start.insert(gas_type, calc_start);
             cycle.calc_range_end.insert(gas_type, calc_end + 1.);
-            let s = (calc_start - cycle.start_time.timestamp() as f64) as usize;
-            let e = (calc_end - cycle.start_time.timestamp() as f64) as usize;
-            // cycle.calc_dt_v.insert(gas_type, cycle.dt_v[s..e].to_vec());
-            // cycle.calc_gas_v.insert(gas_type, cycle.gas_v.get(&gas_type).unwrap()[s..e].to_vec());
             let lin = PolyFlux {
                 fit_id: "linear".to_string(),
                 gas_type,
@@ -2391,6 +2371,48 @@ fn filter_diag_data(
         .unzip()
 }
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub fn find_best_window_for_gas_par_print(
+    dt_v: &[f64],
+    gas_v: &[f64],
+    gaps: &[bool],
+    min_window: usize,
+    step: usize,
+) -> Option<(usize, usize, f64)> {
+    let max_len = gas_v.len();
+    let counter = AtomicUsize::new(0);
+
+    let result = (min_window..=max_len)
+        .step_by(step)
+        .flat_map(move |win_size| {
+            let last_start = max_len.saturating_sub(win_size);
+            (0..=last_start).step_by(step).map(move |start| (start, win_size))
+        })
+        .par_bridge()
+        .filter_map(|(start, win_size)| {
+            let end = start + win_size;
+
+            // Skip windows with gaps
+            if gaps.get(start..end.saturating_sub(1))?.iter().any(|&gap| gap) {
+                return None;
+            }
+
+            let window_dt = &dt_v[start..end];
+            let window_gas = &gas_v[start..end];
+
+            let r = stats::fast_pearson(window_dt, window_gas).unwrap_or(0.0);
+
+            counter.fetch_add(1, Ordering::Relaxed); // increment the counter
+
+            Some((start, end, r))
+        })
+        .reduce_with(|a, b| if a.2 > b.2 { a } else { b });
+
+    println!("Total iterations (evaluated windows): {}", counter.load(Ordering::Relaxed));
+
+    result
+}
 pub fn find_best_window_for_gas_par(
     dt_v: &[f64],
     gas_v: &[f64],
