@@ -574,6 +574,7 @@ impl ValidationApp {
                         }
                     }
                 }
+                self.toggled_gas = None;
                 self.mark_dirty();
             }
         });
