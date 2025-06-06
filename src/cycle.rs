@@ -250,7 +250,13 @@ impl Cycle {
     pub fn get_model(&self, gas_type: GasType, kind: FluxKind) -> Option<&dyn FluxModel> {
         self.fluxes.get(&(gas_type, kind)).map(|b| b.model.as_ref())
     }
+    pub fn get_adjusted_close_i(&self) -> usize {
+        (self.close_offset as f64 + self.open_lag_s + self.close_lag_s) as usize
+    }
 
+    pub fn get_adjusted_open_i(&self) -> usize {
+        (self.open_offset as f64 + self.open_lag_s) as usize
+    }
     pub fn get_adjusted_close(&self) -> f64 {
         self.get_start() + self.close_offset as f64 + self.open_lag_s + self.close_lag_s
     }
@@ -1018,9 +1024,8 @@ impl Cycle {
         }
     }
     pub fn get_measurement_gas_v2(&self, gas_type: GasType) -> Vec<f64> {
-        let s = ((self.get_adjusted_close() + self.get_deadband(gas_type))
-            - self.start_time.timestamp() as f64) as usize;
-        let e = (self.get_adjusted_open() - self.start_time.timestamp() as f64) as usize;
+        let s = self.get_adjusted_close_i();
+        let e = self.get_adjusted_open_i();
         let ret: Vec<f64> = self
             .gas_v
             .get(&gas_type)
@@ -1032,11 +1037,13 @@ impl Cycle {
         ret[s..e].to_vec()
     }
     pub fn get_measurement_dt_v2(&self) -> Vec<f64> {
-        let close_time = self.get_adjusted_close() - self.start_time.timestamp() as f64;
-        let open_time = self.get_adjusted_open() - self.start_time.timestamp() as f64;
+        // let close_time = self.get_adjusted_close() - self.start_time.timestamp() as f64;
+        // let open_time = self.get_adjusted_open() - self.start_time.timestamp() as f64;
 
-        let s = close_time as usize;
-        let e = open_time as usize;
+        // let s = close_time as usize;
+        // let e = open_time as usize;
+        let s = self.get_adjusted_close_i();
+        let e = self.get_adjusted_open_i();
         if s > self.dt_v.len() {
             return self.dt_v.clone();
         }
