@@ -758,20 +758,49 @@ impl Cycle {
             self.calculate_calc_r(gas_type);
         }
     }
-
-    pub fn find_highest_r_windows(&mut self) {
+    pub fn find_best_r_indices_for_gas(&mut self, gas_type: GasType) {
         // Precompute timestamps as float
-        let dt_v: Vec<f64> = self.measurement_dt_v.clone();
+        let dt_v: Vec<f64> = self.get_measurement_dt_v2();
 
         // Precompute timestamp gaps (difference > 1.0 sec)
         let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
 
+        let gas_v = self.get_measurement_gas_v2(gas_type);
+
+        if gas_v.len() < self.min_calc_len as usize || dt_v.len() < self.min_calc_len as usize {
+            return;
+        }
+
+        if let Some((start, end, _r)) = find_best_window_for_gas_par(
+            &dt_v,
+            &gas_v,
+            &gaps,
+            self.min_calc_len as usize,
+            WINDOW_INCREMENT,
+        ) {
+            let start_time = dt_v[start];
+            let end_time = dt_v[end];
+            self.set_calc_start(gas_type, start_time);
+            self.set_calc_end(gas_type, end_time);
+        }
+    }
+    pub fn find_best_r_indices(&mut self) {
+        // Precompute timestamps as float
+        let dt_v: Vec<f64> = self.get_measurement_dt_v2();
+
+        // Precompute timestamp gaps (difference > 1.0 sec)
+        let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
+        let mut gas_vecs = HashMap::new();
+        for gas_type in self.gases.clone() {
+            gas_vecs.insert(gas_type, self.get_measurement_gas_v2(gas_type));
+        }
+
         // Run analysis in parallel for all gases
         let results: Vec<_> = self
             .gases
-            .par_iter()
+            .iter()
             .filter_map(|&gas| {
-                let gas_v = self.measurement_gas_v.get(&gas)?;
+                let gas_v = gas_vecs.get(&gas).unwrap();
 
                 if gas_v.len() < self.min_calc_len as usize
                     || dt_v.len() < self.min_calc_len as usize
@@ -779,77 +808,21 @@ impl Cycle {
                     return None;
                 }
 
-                find_best_window_for_gas(
+                find_best_window_for_gas_par(
                     &dt_v,
                     gas_v,
                     &gaps,
                     self.min_calc_len as usize,
                     WINDOW_INCREMENT,
                 )
-                .map(|(start, end, r2, best_y)| (gas, start, end, r2, best_y))
+                .map(|(start, end, r)| (gas, start, end, r))
             })
             .collect();
-
-        // Store results
-        for (gas, start, end, r2, best_y) in results {
-            self.calc_r2.insert(gas, r2);
-            self.calc_range_start.insert(gas, self.measurement_dt_v[start]);
-            self.calc_range_end.insert(gas, self.measurement_dt_v[end.saturating_sub(1)]);
-            self.calc_dt_v.insert(gas, self.measurement_dt_v[start..end].to_vec());
-            self.calc_gas_v.insert(gas, best_y);
-        }
-    }
-    pub fn find_highest_r_window(&mut self, gas_type: GasType) {
-        if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
-            if self.measurement_dt_v.len() < self.min_calc_len as usize
-                || self.min_calc_len as usize == 0
-            {
-                println!("Short data");
-                return;
-            }
-
-            // Keep everything aligned with Option<f64>
-            let dt_v: Vec<f64> = self.measurement_dt_v.clone();
-
-            let max_window = gas_v.len();
-            let mut max_r = f64::MIN;
-            let mut start_idx = 0;
-            let mut end_idx = 0;
-
-            for win_size in (self.min_calc_len as usize..max_window).step_by(WINDOW_INCREMENT) {
-                for start in (0..=(max_window - win_size)).step_by(WINDOW_INCREMENT) {
-                    let end = start + win_size;
-
-                    let x_win = &dt_v[start..end];
-                    let y_win = &gas_v[start..end];
-
-                    // Extract only the (Some) valid pairs
-                    let valid: Vec<(f64, f64)> = x_win
-                        .iter()
-                        .zip(y_win.iter())
-                        .filter_map(|(&x, &y)| y.map(|val| (x, val)))
-                        .collect();
-
-                    let (x_vals, y_vals): (Vec<f64>, Vec<f64>) = valid.into_iter().unzip();
-
-                    let r = stats::pearson_correlation(&x_vals, &y_vals).unwrap_or(0.0);
-                    if r > max_r {
-                        max_r = r;
-                        start_idx = start;
-                        end_idx = end;
-                    }
-                }
-            }
-
-            // Store full window (including None values) from original slice
-            if max_r != f64::MIN {
-                self.calc_r2.insert(gas_type, max_r);
-                self.calc_range_start.insert(gas_type, self.measurement_dt_v[start_idx]);
-                self.calc_range_end.insert(gas_type, self.measurement_dt_v[end_idx - 1]);
-                self.calc_dt_v.insert(gas_type, self.measurement_dt_v[start_idx..end_idx].to_vec());
-                self.calc_gas_v.insert(gas_type, gas_v[start_idx..end_idx].to_vec());
-                // <- keeps Option<f64>
-            }
+        for (gas_type, start, end, _) in results {
+            let start = dt_v[start];
+            let end = dt_v[end - 1];
+            self.set_calc_start(gas_type, start);
+            self.set_calc_end(gas_type, end);
         }
     }
     pub fn get_calc_datas(&mut self) {
@@ -858,11 +831,6 @@ impl Cycle {
         }
     }
 
-    // pub fn get_measurement_datas(&mut self) {
-    //     for &gas_type in &self.gases.clone() {
-    //         self.get_measurement_data(gas_type);
-    //     }
-    // }
     pub fn calculate_measurement_rs2(&mut self) {
         for &gas_type in &self.gases {
             let gas_v: Vec<f64> = self.get_measurement_gas_v2(gas_type);
@@ -1680,93 +1648,6 @@ pub fn insert_flux_results(
     tx.commit()?;
     Ok((inserted, skipped))
 }
-// pub fn insert_flux_results(
-//     conn: &mut Connection,
-//     cycle_id: i64,
-//     fluxes: HashMap<(GasType, FluxKind), Box<dyn FluxModel>>,
-// ) -> rusqlite::Result<(usize, usize)> {
-//     let mut inserted = 0;
-//     let mut skipped = 0;
-//
-//     let tx = conn.transaction()?;
-//
-//     {
-//         let mut stmt = tx.prepare(&make_insert_flux_results())?;
-//
-//         for model in fluxes {
-//             // Only handling LinearFlux for now — add others as needed
-//             if let Some(lin) = model.as_any().downcast_ref::<LinearFlux>() {
-//                 // Skip if flux is NaN or invalid
-//                 if lin.flux.is_nan() || lin.r2.is_nan() {
-//                     skipped += 1;
-//                     continue;
-//                 }
-//
-//                 stmt.execute(params![
-//                     cycle_id,
-//                     lin.fit_id,
-//                     lin.gas_type.to_string(),
-//                     lin.flux,
-//                     lin.r2,
-//                     lin.model.intercept,
-//                     lin.model.slope,
-//                     lin.range_start,
-//                     lin.range_end,
-//                 ])?;
-//                 inserted += 1;
-//             } else {
-//                 skipped += 1;
-//             }
-//         }
-//     }
-//
-//     tx.commit()?;
-//     Ok((inserted, skipped))
-// }
-// pub fn insert_flux_results(
-//     conn: &mut Connection,
-//     cycle_id: i64,
-//     fluxes: &[Box<dyn FluxModel>],
-// ) -> Result<usize, usize> {
-//     let mut inserted = 0;
-//     let mut skipped = 0;
-//     let tx = conn.transaction()?;
-//
-//     {
-//         let mut stmt = tx.prepare(
-//             "INSERT INTO flux_results (
-//             cycle_id, fit_id, gas_type,
-//             flux, r2, intercept, slope,
-//             range_start, range_end
-//         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-//         )?;
-//
-//         for model in fluxes {
-//             if let Some(lin) = model.as_any().downcast_ref::<LinearFlux>() {
-//                 match model {
-//                     Some(m) => {
-//                         stmt.execute(params![
-//                             cycle_id,
-//                             lin.fit_id,
-//                             lin.gas_type.to_string(),
-//                             lin.flux,
-//                             lin.r2,
-//                             lin.model.intercept,
-//                             lin.model.slope,
-//                             lin.range_start,
-//                             lin.range_end,
-//                         ])?;
-//                     },
-//                     None => println!("fail"),
-//                 };
-//             }
-//             // Add other model types here if needed
-//         }
-//     }
-//
-//     tx.commit()?;
-//     Ok((inserted, skipped))
-// }
 pub fn update_fluxes(
     conn: &mut Connection,
     cycles: &[Cycle],
@@ -2485,61 +2366,71 @@ fn filter_diag_data(
         .unzip()
 }
 
-fn find_best_window_for_gas(
+pub fn find_best_window_for_gas_par(
     dt_v: &[f64],
-    gas_v: &[Option<f64>],
+    gas_v: &[f64],
     gaps: &[bool],
     min_window: usize,
     step: usize,
-) -> Option<(usize, usize, f64, Vec<Option<f64>>)> {
+) -> Option<(usize, usize, f64)> {
     let max_len = gas_v.len();
-    let mut best_r2 = f64::MIN;
-    let mut best_range = (0, 0);
-    let mut best_y = Vec::new();
 
-    for win_size in (min_window..=max_len).step_by(step) {
-        for start in (0..=max_len.saturating_sub(win_size)).step_by(step) {
+    (min_window..=max_len)
+        .step_by(step)
+        .flat_map(move |win_size| {
+            let last_start = max_len.saturating_sub(win_size);
+            (0..=last_start).step_by(step).map(move |start| (start, win_size))
+        })
+        .par_bridge()
+        .filter_map(|(start, win_size)| {
             let end = start + win_size;
 
-            if end - start < min_window {
-                continue;
-            }
-
-            // Skip window if it has timestamp gaps
-            if gaps[start..end.saturating_sub(1)].iter().any(|&gap| gap) {
-                continue;
+            // Skip windows with gaps
+            if gaps.get(start..end.saturating_sub(1))?.iter().any(|&gap| gap) {
+                return None;
             }
 
             let window_dt = &dt_v[start..end];
             let window_gas = &gas_v[start..end];
 
-            // Pair and filter out None
-            let valid_pairs: Vec<(f64, f64)> = window_dt
-                .iter()
-                .zip(window_gas.iter())
-                .filter_map(|(&x, &y)| y.map(|val| (x, val)))
-                .collect();
+            let r = stats::fast_pearson(window_dt, window_gas).unwrap_or(0.0);
 
-            if valid_pairs.len() < min_window {
-                continue;
+            Some((start, end, r))
+        })
+        .reduce_with(|a, b| if a.2 > b.2 { a } else { b })
+}
+fn find_best_window_for_gas_(
+    dt_v: &[f64],
+    gas_v: &[f64],
+    gaps: &[bool],
+    min_window: usize,
+    step: usize,
+) -> Option<(usize, usize, f64)> {
+    let max_len = gas_v.len();
+
+    // Generate all candidate (start, win_size) pairs
+    let candidates: Vec<(usize, usize)> = (min_window..=max_len)
+        .step_by(step)
+        .flat_map(|win_size| {
+            let last_start = max_len.saturating_sub(win_size);
+            (0..=last_start).step_by(step).map(move |start| (start, win_size))
+        })
+        .collect();
+
+    candidates
+        .into_iter()
+        .filter_map(|(start, win_size)| {
+            let end = start + win_size;
+            if gaps[start..end.saturating_sub(1)].iter().any(|&gap| gap) {
+                return None;
             }
 
-            let (x_vals, y_vals): (Vec<f64>, Vec<f64>) = valid_pairs.into_iter().unzip();
-            let r2 = stats::pearson_correlation(&x_vals, &y_vals).unwrap_or(0.0).powi(2);
-
-            if r2 > best_r2 {
-                best_r2 = r2;
-                best_range = (start, end);
-                best_y = window_gas.to_vec(); // preserves None values
-            }
-        }
-    }
-
-    if best_range.1 == 0 {
-        None
-    } else {
-        Some((best_range.0, best_range.1, best_r2, best_y))
-    }
+            let window_dt = &dt_v[start..end];
+            let window_gas = &gas_v[start..end];
+            let r2 = stats::pearson_correlation(window_dt, window_gas).unwrap_or(0.0).powi(2);
+            Some((start, end, r2))
+        })
+        .max_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
 }
 
 pub fn calculate_max_y_from_vec(values: &[Option<f64>]) -> f64 {
