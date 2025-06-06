@@ -192,6 +192,36 @@ impl RobReg {
     }
 }
 
+pub fn fast_pearson(x: &[f64], y: &[f64]) -> Option<f64> {
+    if x.len() < 5 || x.len() != y.len() {
+        return None;
+    }
+
+    let n = x.len() as f64;
+    let sum_x = x.iter().sum::<f64>();
+    let sum_y = y.iter().sum::<f64>();
+    let mean_x = sum_x / n;
+    let mean_y = sum_y / n;
+
+    let mut num = 0.0;
+    let mut denom_x = 0.0;
+    let mut denom_y = 0.0;
+
+    for (&xi, &yi) in x.iter().zip(y.iter()) {
+        let dx = xi - mean_x;
+        let dy = yi - mean_y;
+        num += dx * dy;
+        denom_x += dx * dx;
+        denom_y += dy * dy;
+    }
+
+    let denom = (denom_x * denom_y).sqrt();
+    if denom == 0.0 {
+        None
+    } else {
+        Some((num / denom).abs())
+    }
+}
 pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     if x.len() < 5 {
         return None;
