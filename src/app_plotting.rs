@@ -350,6 +350,10 @@ impl ValidationApp {
         let error_color = Color32::from_rgba_unmultiplied(255, 50, 50, 55);
 
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            // let si = cycle.get_calc_start_i(gas_type);
+            // let ei = cycle.get_calc_end_i(gas_type);
+            // let calc_start = cycle.get_measurement_gas_v2(gas_type)[si];
+            // let calc_end = cycle.get_measurement_gas_v2(gas_type)[ei];
             let dead_s = self.get_deadband(gas_type);
             let calc_start = cycle.get_calc_start(gas_type);
             let calc_end = cycle.get_calc_end(gas_type);
@@ -1370,8 +1374,12 @@ impl ValidationApp {
         if let Some(dragged) = self.dragged_point {
             if response.dragged_by(egui::PointerButton::Primary) {
                 let delta = response.drag_delta();
-                let dy = delta.y as f64 * transform.dvalue_dpos()[1];
-                let new_y = dragged[1] + dy;
+                let mut dy = delta.y as f64 * transform.dvalue_dpos()[1];
+                self.current_ydelta += dy;
+                let steps = self.current_ydelta.trunc();
+
+                let new_y = dragged[1] + steps;
+                self.current_ydelta -= steps;
 
                 self.dragged_point = Some([dragged[0], new_y]);
 
@@ -1391,6 +1399,7 @@ impl ValidationApp {
         if response.drag_stopped() {
             self.mark_dirty();
             self.dragged_point = None;
+            self.current_ydelta = 0.;
         }
 
         // Clicked on point — select corresponding cycle
@@ -1519,11 +1528,22 @@ impl ValidationApp {
 
             let dragging_polygon = dragging_left || dragging_right || dragging_main;
             let dragging_lag = dragging_open_lag || dragging_close_lag;
+            let dragging_element = dragging_polygon || dragging_lag;
             let mut dx = drag_delta.x as f64;
+            if dragging_element && self.zoom_to_measurement < 1 {
+                self.current_delta += dx;
+            }
+            if dragging_element && self.zoom_to_measurement > 0 {
+                let mut d = dx;
+                d *= plot_ui.transform().dpos_dvalue_x();
+                self.current_z_delta += d;
+            }
             let moving_right = dx > 0.;
             let moving_left = dx < 0.;
             if !dragged {
-                self.dragging = None
+                self.dragging = None;
+                self.current_delta = 0.;
+                self.current_z_delta = 0.;
             }
 
             if self.dragging.is_none() {
@@ -1547,6 +1567,7 @@ impl ValidationApp {
                     self.dragging = Some(Adjuster::CloseLag);
                 }
             }
+
             match self.dragging {
                 Some(Adjuster::Left) => {
                     println!("dragging left");
@@ -1564,7 +1585,8 @@ impl ValidationApp {
                         self.get_measurement_start() + self.get_deadband(gas_type);
                     let measurement_end = self.get_measurement_end();
 
-                    let mut clamped_dx = dx;
+                    let mut clamped_dx = self.current_delta.trunc();
+                    self.current_delta -= clamped_dx;
 
                     // Prevent dragging past left bound
                     if moving_left && calc_start + dx < measurement_start {
@@ -1580,24 +1602,30 @@ impl ValidationApp {
                         self.increment_calc_start(gas_type, clamped_dx);
                         self.increment_calc_end(gas_type, clamped_dx);
                     }
+                    self.current_delta -= 1.;
                 },
                 Some(Adjuster::CloseLag) => {
                     println!("dragging close");
                     if inside_close_lag {
-                        let transform = plot_ui.transform();
+                        let d_steps = self.current_delta.trunc();
+                        let mut steps = d_steps;
                         if self.zoom_to_measurement == 2 {
-                            println!("Transforming to zoom");
-                            dx *= transform.dpos_dvalue_x();
+                            steps = self.current_z_delta.trunc();
                         }
                         if self.calc_area_can_move(gas_type)
                             || (!self.calc_area_can_move(gas_type) && dx < 0.)
                         {
-                            self.increment_close_lag(dx);
+                            self.increment_close_lag(steps);
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
                             if self.mode_after_deadband() && dx < 0. {
-                                self.increment_calc_start(gas_type, dx);
+                                self.increment_calc_start(gas_type, steps);
+                            }
+                            if self.zoom_to_measurement != 0 {
+                                self.current_z_delta -= steps;
+                            } else {
+                                self.current_delta -= d_steps;
                             }
                         }
                     }
@@ -1605,14 +1633,19 @@ impl ValidationApp {
                 Some(Adjuster::OpenLag) => {
                     println!("dragging open");
                     if inside_open_lag {
-                        let transform = plot_ui.transform();
+                        let d_steps = self.current_delta.trunc();
+                        let mut steps = d_steps;
                         if self.zoom_to_measurement == 1 {
-                            println!("Transforming to zoom");
-                            dx *= transform.dpos_dvalue_x();
+                            steps = self.current_z_delta.trunc();
                         }
-                        self.increment_open_lag(dx);
+                        self.increment_open_lag(steps);
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
+                        }
+                        if self.zoom_to_measurement != 0 {
+                            self.current_z_delta -= steps;
+                        } else {
+                            self.current_delta -= d_steps;
                         }
                     }
                 },
@@ -1637,7 +1670,8 @@ impl ValidationApp {
         }
     }
     pub fn handle_drag_polygon(&mut self, plot_ui: &mut PlotUi, is_left: bool, gas_type: &GasType) {
-        let dx = plot_ui.pointer_coordinate_drag_delta().x as f64;
+        let dx = self.current_delta.trunc();
+        self.current_delta -= dx;
 
         let calc_start = self.get_calc_start(*gas_type);
         let calc_end = self.get_calc_end(*gas_type);
@@ -1722,12 +1756,11 @@ impl ValidationApp {
                     });
                 }
 
-                // Add the 'Show All' button
                 if ui.button("Select All").clicked() {
                     for key in &sorted_traces {
                         self.visible_traces.insert(key.clone(), true);
                     }
-                    self.update_plots(); // Refresh after update
+                    self.update_plots();
                 }
             },
         );
@@ -1740,11 +1773,9 @@ impl ValidationApp {
         let is_visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
 
         if is_visible && visible_count == 1 {
-            // Prevent disabling the last visible trace
             return;
         }
 
-        // Toggle visibility
         self.visible_traces.insert(chamber_id.clone(), !is_visible);
     }
 
@@ -2056,5 +2087,13 @@ fn marker_shape_for_flux_kind(kind: FluxKind) -> MarkerShape {
         FluxKind::Poly => MarkerShape::Square,
         FluxKind::RobLin => MarkerShape::Diamond,
         _ => MarkerShape::Cross, // Fallback
+    }
+}
+
+pub fn to_round(val: f64) -> f64 {
+    if val > 0.0 {
+        val.ceil()
+    } else {
+        val.floor()
     }
 }

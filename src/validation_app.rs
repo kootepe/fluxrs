@@ -197,6 +197,9 @@ pub struct ValidationApp {
     pub toggled_gas: Option<GasType>,
     pub dragging: Option<Adjuster>,
     pub mode: Mode,
+    pub current_delta: f64,
+    pub current_z_delta: f64,
+    pub current_ydelta: f64,
 }
 
 impl Default for ValidationApp {
@@ -303,6 +306,9 @@ impl Default for ValidationApp {
             toggled_gas: None,
             dragging: None,
             mode: Mode::default(),
+            current_delta: 0.,
+            current_z_delta: 0.,
+            current_ydelta: 0.,
         }
     }
 }
@@ -3251,7 +3257,6 @@ fn upload_meteo_data_async(
     }
     log_msgs.push_front("Uploading meteo data...".to_string());
 }
-// fn upload_volume_data_async(&mut self, selected_paths: Vec<PathBuf>, conn: &mut Connection) {
 fn upload_volume_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
