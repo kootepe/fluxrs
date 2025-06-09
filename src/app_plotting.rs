@@ -1532,10 +1532,12 @@ impl ValidationApp {
             let dragging_lag = dragging_open_lag || dragging_close_lag;
             let dragging_element = dragging_polygon || dragging_lag;
             let mut dx = drag_delta.x as f64;
-            if dragging_element && self.zoom_to_measurement < 1 {
+
+            if dragged && self.zoom_to_measurement < 1 {
+                println!("Adding to delta");
                 self.current_delta += dx;
             }
-            if dragging_element && self.zoom_to_measurement > 0 {
+            if dragged && self.zoom_to_measurement > 0 {
                 let mut d = dx;
                 d *= plot_ui.transform().dpos_dvalue_x();
                 self.current_z_delta += d;
@@ -1571,40 +1573,38 @@ impl ValidationApp {
             }
 
             match self.dragging {
-                Some(Adjuster::Left) => {
-                    println!("dragging left");
-                    self.handle_drag_polygon(plot_ui, true, &gas_type)
-                },
+                Some(Adjuster::Left) => self.handle_drag_polygon(plot_ui, true, &gas_type),
                 Some(Adjuster::Right) => {
                     println!("dragging right");
                     self.handle_drag_polygon(plot_ui, false, &gas_type)
                 },
                 Some(Adjuster::Main) => {
-                    println!("dragging main");
-                    let calc_start = self.get_calc_start(gas_type);
-                    let calc_end = self.get_calc_end(gas_type);
-                    let measurement_start =
-                        self.get_measurement_start() + self.get_deadband(gas_type);
-                    let measurement_end = self.get_measurement_end();
+                    if dragging_main {
+                        println!("dragging main");
+                        let calc_start = self.get_calc_start(gas_type);
+                        let calc_end = self.get_calc_end(gas_type);
+                        let measurement_start =
+                            self.get_measurement_start() + self.get_deadband(gas_type);
+                        let measurement_end = self.get_measurement_end();
 
-                    let mut clamped_dx = self.current_delta.trunc();
-                    self.current_delta -= clamped_dx;
+                        let mut clamped_dx = self.current_delta.trunc();
 
-                    // Prevent dragging past left bound
-                    if moving_left && calc_start + dx < measurement_start {
-                        clamped_dx = measurement_start - calc_start;
+                        // Prevent dragging past left bound
+                        if moving_left && calc_start + clamped_dx < measurement_start {
+                            clamped_dx = measurement_start - calc_start;
+                        }
+
+                        // Prevent dragging past right bound
+                        if moving_right && calc_end + clamped_dx > measurement_end {
+                            clamped_dx = measurement_end - calc_end;
+                        }
+
+                        if clamped_dx.abs() > f64::EPSILON {
+                            self.increment_calc_start(gas_type, clamped_dx);
+                            self.increment_calc_end(gas_type, clamped_dx);
+                        }
+                        self.current_delta -= clamped_dx;
                     }
-
-                    // Prevent dragging past right bound
-                    if moving_right && calc_end + dx > measurement_end {
-                        clamped_dx = measurement_end - calc_end;
-                    }
-
-                    if clamped_dx.abs() > f64::EPSILON {
-                        self.increment_calc_start(gas_type, clamped_dx);
-                        self.increment_calc_end(gas_type, clamped_dx);
-                    }
-                    self.current_delta -= 1.;
                 },
                 Some(Adjuster::CloseLag) => {
                     println!("dragging close");
