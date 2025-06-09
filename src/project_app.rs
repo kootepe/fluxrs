@@ -78,7 +78,8 @@ impl ProjectApp {
                 )
                 .show_ui(ui, |ui| {
                     for project in &self.all_projects {
-                        let is_selected = self.project.as_ref().is_some();
+                        let is_selected =
+                            self.project.as_ref().map(|p| p.name == project.name).unwrap_or(false);
                         if ui.selectable_label(is_selected, &project.name).clicked() {
                             if let Err(err) = self.set_current_project(&project.name) {
                                 eprintln!("Failed to set project as current: {}", err);
