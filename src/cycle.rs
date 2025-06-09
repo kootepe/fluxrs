@@ -1535,7 +1535,7 @@ impl CycleBuilder {
             id: 0,
             chamber_id: chamber,
             start_time: start,
-            instrument_model: InstrumentType::Li7810,
+            instrument_model: InstrumentType::LI7810,
             instrument_serial: String::new(),
             project_name: String::new(),
             min_calc_len: MIN_CALC_AREA_RANGE,
@@ -1597,7 +1597,7 @@ impl CycleBuilder {
         Ok(Cycle {
             id: 0,
             chamber_id: chamber,
-            instrument_model: InstrumentType::Li7810,
+            instrument_model: InstrumentType::LI7810,
             instrument_serial: String::new(),
             min_calc_len,
             project_name: project,

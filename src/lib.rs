@@ -11,7 +11,6 @@ use csv::StringRecord;
 use csv::Writer;
 use cycle::{Cycle, CycleBuilder};
 use instruments::GasType;
-use instruments::Li7810;
 use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::error::Error;
@@ -369,29 +368,29 @@ pub fn initiate_db() -> Result<(), Box<dyn std::error::Error>> {
 //     Ok(cycle_vec)
 // }
 
-fn get_gas_data(path: &str) -> Result<GasData, Box<dyn Error>> {
-    let gas_paths = get_paths::get_paths(path.to_owned(), "gas")?;
-    let mut all_gas = GasData::new();
-
-    for path in gas_paths {
-        let instrument = Li7810::default();
-        println!("{:?}", path);
-        let res = instrument.read_data_file(path)?;
-
-        if res.validate_lengths() && !res.any_col_invalid() {
-            all_gas.datetime.extend(res.datetime);
-            all_gas.diag.extend(res.diag);
-
-            // Merge gas values correctly
-            for (gas_type, values) in res.gas {
-                all_gas.gas.entry(gas_type).or_insert_with(Vec::new).extend(values);
-            }
-        }
-    }
-
-    all_gas.sort();
-    Ok(all_gas)
-}
+// fn get_gas_data(path: &str) -> Result<GasData, Box<dyn Error>> {
+//     let gas_paths = get_paths::get_paths(path.to_owned(), "gas")?;
+//     let mut all_gas = GasData::new();
+//
+//     for path in gas_paths {
+//         let instrument = Li7810::default();
+//         println!("{:?}", path);
+//         let res = instrument.read_data_file(path)?;
+//
+//         if res.validate_lengths() && !res.any_col_invalid() {
+//             all_gas.datetime.extend(res.datetime);
+//             all_gas.diag.extend(res.diag);
+//
+//             // Merge gas values correctly
+//             for (gas_type, values) in res.gas {
+//                 all_gas.gas.entry(gas_type).or_insert_with(Vec::new).extend(values);
+//             }
+//         }
+//     }
+//
+//     all_gas.sort();
+//     Ok(all_gas)
+// }
 
 fn get_time_data(path: &str) -> Result<TimeData, Box<dyn Error>> {
     let time_paths = get_paths::get_paths(path.to_owned(), "time")?;

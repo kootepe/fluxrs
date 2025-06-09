@@ -15,7 +15,7 @@ use crate::gasdata::query_gas_async;
 use crate::gasdata::{insert_measurements, GasData};
 use crate::insert_cycles;
 use crate::instruments::InstrumentType;
-use crate::instruments::{GasType, Li7810};
+use crate::instruments::{GasType, InstrumentConfig};
 use crate::keybinds::{Action, KeyBindings};
 use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
@@ -176,7 +176,6 @@ pub struct ValidationApp {
     pub show_valids: bool,
     pub show_invalids: bool,
     pub show_bad: bool,
-    pub instrument: InstrumentType,
     pub projects: Vec<Project>,
     pub initiated: bool,
     pub selected_project: Option<Project>,
@@ -285,7 +284,6 @@ impl Default for ValidationApp {
             show_invalids: true,
             show_valids: true,
             show_bad: false,
-            instrument: InstrumentType::Li7810,
             projects: Vec::new(),
             initiated: false,
             selected_project: None,
@@ -2106,7 +2104,7 @@ impl ValidationApp {
                         self.process_files_async(
                             selected_paths,
                             self.selected_data_type.clone(),
-                            self.get_project().name.clone(),
+                            self.get_project(),
                             arc_msgs,
                             progress_sender.clone(),
                             &self.runtime,
@@ -2128,13 +2126,14 @@ impl ValidationApp {
         &self,
         path_list: Vec<PathBuf>,
         data_type: Option<DataType>,
-        project: String,
+        project: &Project,
         log_messages: Arc<Mutex<VecDeque<String>>>,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
         runtime: &tokio::runtime::Runtime,
     ) {
         let log_messages_clone = Arc::clone(&log_messages); // clone Arc for move
         let sender_clone = progress_sender.clone();
+        let project_clone = project.clone();
         runtime.spawn(async move {
             let join_result =
                 tokio::task::spawn_blocking(move || match Connection::open("fluxrs.db") {
@@ -2144,29 +2143,29 @@ impl ValidationApp {
                                 DataType::Gas => {
                                     let _ = progress_sender
                                         .send(ProcessEvent::Query(QueryEvent::InitStarted));
-                                    process_gas_files_async(
+                                    upload_gas_data_async(
                                         path_list,
                                         &mut conn,
-                                        project,
+                                        project_clone,
                                         progress_sender,
                                     )
                                 },
                                 DataType::Cycle => upload_cycle_data_async(
                                     path_list,
                                     &mut conn,
-                                    project,
+                                    project_clone,
                                     log_messages,
                                 ),
                                 DataType::Meteo => upload_meteo_data_async(
                                     path_list,
                                     &mut conn,
-                                    project,
+                                    project_clone,
                                     log_messages,
                                 ),
                                 DataType::Volume => upload_volume_data_async(
                                     path_list,
                                     &mut conn,
-                                    project,
+                                    project_clone,
                                     log_messages,
                                 ),
                             }
@@ -2218,35 +2217,40 @@ impl ValidationApp {
         ui.horizontal(|ui| {
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    for gas in self.instrument.available_gases() {
+                    for gas in self.selected_project.as_ref().unwrap().instrument.available_gases()
+                    {
                         ui.checkbox(&mut checked, gas.flux_col());
                     }
                 });
             });
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    for gas in self.instrument.available_gases() {
+                    for gas in self.selected_project.as_ref().unwrap().instrument.available_gases()
+                    {
                         ui.checkbox(&mut checked, gas.r2_col());
                     }
                 });
             });
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    for gas in self.instrument.available_gases() {
+                    for gas in self.selected_project.as_ref().unwrap().instrument.available_gases()
+                    {
                         ui.checkbox(&mut checked, gas.measurement_r2_col());
                     }
                 });
             });
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    for gas in self.instrument.available_gases() {
+                    for gas in self.selected_project.as_ref().unwrap().instrument.available_gases()
+                    {
                         ui.checkbox(&mut checked, gas.calc_range_start_col());
                     }
                 });
             });
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    for gas in self.instrument.available_gases() {
+                    for gas in self.selected_project.as_ref().unwrap().instrument.available_gases()
+                    {
                         ui.checkbox(&mut checked, gas.calc_range_end_col());
                     }
                 });
@@ -3141,19 +3145,23 @@ fn render_recalculate_ui(
     });
 }
 
-pub fn process_gas_files_async(
+pub fn upload_gas_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: String,
+    project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
-        let instrument = Li7810::default();
-        match instrument.read_data_file(path) {
+        let instrument = match project.instrument {
+            InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
+            InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
+            InstrumentType::Other => None,
+        };
+        match instrument.unwrap().read_data_file(path) {
             Ok(data) => {
                 if data.validate_lengths() && !data.any_col_invalid() {
                     let rows = data.datetime.len();
-                    match insert_measurements(conn, &data, project.clone()) {
+                    match insert_measurements(conn, &data, &project.name) {
                         Ok((count, duplicates)) => {
                             let _ = progress_sender
                                 .send(ProcessEvent::Insert(InsertEvent::OkSkip(count, duplicates)));
@@ -3184,7 +3192,7 @@ pub fn process_gas_files_async(
 fn upload_cycle_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: String,
+    project: Project,
     log_messages: Arc<Mutex<VecDeque<String>>>,
 ) {
     let mut log_msgs = log_messages.lock().unwrap();
@@ -3213,7 +3221,7 @@ fn upload_cycle_data_async(
             },
         }
     }
-    match insert_cycles(conn, &all_times, project) {
+    match insert_cycles(conn, &all_times, project.name) {
         Ok((row_count, duplicates)) => {
             log_msgs.push_front(format!(
                 "Successfully inserted {} rows into DB. Skipped {}.",
@@ -3229,7 +3237,7 @@ fn upload_cycle_data_async(
 fn upload_meteo_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: String,
+    project: Project,
     log_messages: Arc<Mutex<VecDeque<String>>>,
 ) {
     let mut log_msgs = log_messages.lock().unwrap();
@@ -3247,7 +3255,7 @@ fn upload_meteo_data_async(
             },
         }
     }
-    match insert_meteo_data(conn, &project, &meteos) {
+    match insert_meteo_data(conn, &project.name, &meteos) {
         Ok(row_count) => {
             log_msgs.push_front(format!("Successfully inserted {} rows into DB.", row_count));
         },
@@ -3260,7 +3268,7 @@ fn upload_meteo_data_async(
 fn upload_volume_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: String,
+    project: Project,
     log_messages: Arc<Mutex<VecDeque<String>>>,
 ) {
     let mut log_msgs = log_messages.lock().unwrap();
@@ -3278,7 +3286,7 @@ fn upload_volume_data_async(
             },
         }
     }
-    match insert_volume_data(conn, &project, &volumes) {
+    match insert_volume_data(conn, &project.name, &volumes) {
         Ok(row_count) => {
             log_msgs.push_front(format!("Successfully inserted {} rows into DB.", row_count));
         },

@@ -11,18 +11,13 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum GasType {
+    #[default]
     CH4,
     CO2,
     H2O,
     N2O,
-}
-
-impl Default for GasType {
-    fn default() -> Self {
-        GasType::CO2 // or any sensible default
-    }
 }
 
 impl fmt::Display for GasType {
@@ -138,18 +133,19 @@ impl GasType {
         }
     }
 }
-
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InstrumentType {
     #[default]
-    Li7810,
+    LI7810,
+    LI7820,
     Other, // Placeholder for additional instruments
 }
 
 impl fmt::Display for InstrumentType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            InstrumentType::Li7810 => write!(f, "LI-7810"),
+            InstrumentType::LI7810 => write!(f, "LI-7810"),
+            InstrumentType::LI7820 => write!(f, "LI-7820"),
             InstrumentType::Other => write!(f, "Other"),
         }
     }
@@ -159,123 +155,131 @@ impl InstrumentType {
     /// Convert a `&str` into an `InstrumentType`
     pub fn from_str(s: &str) -> Self {
         match s {
-            "LI-7810" => InstrumentType::Li7810,
+            "LI-7810" => InstrumentType::LI7810,
+            "LI-7820" => InstrumentType::LI7820,
             _ => InstrumentType::Other,
         }
     }
 
     /// Return a list of available instruments (for UI dropdown)
     pub fn available_instruments() -> Vec<InstrumentType> {
-        vec![InstrumentType::Li7810, InstrumentType::Other] // Expand this list as needed
+        vec![InstrumentType::LI7810, InstrumentType::LI7820, InstrumentType::Other]
+        // Expand this list as needed
     }
     pub fn available_gases(&self) -> Vec<GasType> {
         match self {
-            InstrumentType::Li7810 => vec![GasType::CH4, GasType::CO2, GasType::H2O],
+            InstrumentType::LI7810 => InstrumentConfig::li7810().available_gases,
+            InstrumentType::LI7820 => InstrumentConfig::li7820().available_gases,
             InstrumentType::Other => vec![GasType::N2O], // Example for another instrument
         }
     }
 }
-pub struct Instrument {
-    sep: u8,
-    skiprows: i64,
-    skip_after_header: i64,
-    time_col: String,
+
+#[derive(Debug, Clone)]
+pub enum TimeSource {
+    /// For data that has SECONDS and optional NANOSECONDS
+    SecsNsecs(i64, i64),
+    /// For data that has a full timestamp string (e.g., ISO 8601)
+    StringTimestamp(String, String),
+    /// For data that only has SECONDS
+    SecondsOnly(i64),
+}
+
+impl TimeSource {
+    pub fn to_datetime(&self) -> DateTime<Utc> {
+        match self {
+            TimeSource::SecsNsecs(sec, nsec) => parse_secnsec_to_dt(*sec, *nsec),
+            TimeSource::SecondsOnly(sec) => parse_secnsec_to_dt(*sec, 0),
+            TimeSource::StringTimestamp(s, fmt) => NaiveDateTime::parse_from_str(s, fmt)
+                .ok()
+                .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+                .unwrap(),
+        }
+    }
+}
+#[derive(Debug, Clone, Copy)]
+pub enum TimeSourceKind {
+    Seconds,
+    SecondsAndNanos,
+    StringFormat,
+}
+#[derive(Debug, Clone)]
+pub struct InstrumentConfig {
+    pub name: String,
+    pub model: String,
+    pub sep: u8,
+    pub skiprows: usize,
+    pub skip_after_header: usize,
+    pub time_col: String,
+    pub nsecs_col: String,
     pub gas_cols: Vec<String>,
-    flux_cols: Vec<String>,
-    diag_col: String,
-    has_header: bool,
+    pub flux_cols: Vec<String>,
+    pub diag_col: String,
+    pub has_header: bool,
+    pub available_gases: Vec<GasType>,
+    pub time_source: TimeSourceKind,
+    pub time_fmt: Option<String>,
 }
 
-pub struct Li7810_test {
-    pub base: Instrument,
-    pub model: String,
-}
-
-pub struct Li7810 {
-    pub base: Instrument,
-    pub model: String,
-}
-
-impl Instrument {
-    pub fn mk_rdr<P: AsRef<Path>>(&self, filename: P) -> Result<csv::Reader<File>, Box<dyn Error>> {
+impl InstrumentConfig {
+    pub fn li7810() -> Self {
+        Self {
+            name: "LI-7810".to_string(),
+            model: "LI-7810".to_string(),
+            sep: b'\t',
+            skiprows: 3,
+            skip_after_header: 1,
+            time_col: "SECONDS".to_string(),
+            nsecs_col: "NANOSECONDS".to_string(),
+            gas_cols: vec!["CO2".to_string(), "CH4".to_string(), "H2O".to_string()],
+            flux_cols: vec!["CO2".to_string(), "CH4".to_string()],
+            diag_col: "DIAG".to_string(),
+            has_header: true,
+            available_gases: vec![GasType::CH4, GasType::CO2, GasType::H2O],
+            time_source: TimeSourceKind::SecondsAndNanos,
+            time_fmt: None,
+        }
+    }
+    pub fn li7820() -> Self {
+        Self {
+            name: "LI-7820".to_string(),
+            model: "LI-7820".to_string(),
+            sep: b'\t',
+            skiprows: 3,
+            skip_after_header: 1,
+            time_col: "SECONDS".to_owned(),
+            nsecs_col: "NANOSECONDS".to_owned(),
+            gas_cols: vec!["N2O".to_owned(), "H2O".to_owned()],
+            flux_cols: vec!["N2O".to_owned()],
+            diag_col: "DIAG".to_owned(),
+            has_header: true,
+            available_gases: vec![GasType::N2O, GasType::H2O],
+            time_source: TimeSourceKind::SecondsAndNanos,
+            time_fmt: None,
+        }
+    }
+    pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
         let file = File::open(filename)?;
-        let rdr = csv::ReaderBuilder::new()
+        let mut rdr = csv::ReaderBuilder::new()
             .delimiter(self.sep)
             .has_headers(self.has_header)
             .flexible(true)
             .from_reader(file);
-        Ok(rdr)
-    }
-}
 
-impl Default for Li7810_test {
-    fn default() -> Self {
-        Self {
-            base: Instrument {
-                sep: b'\t',
-                skiprows: 4,
-                skip_after_header: 1,
-                time_col: "SECONDS".to_string(),
-                gas_cols: vec![
-                    "CO2".to_string(),
-                    "CH4".to_string(),
-                    "H2O".to_string(),
-                    "N2O".to_string(),
-                ],
-                flux_cols: vec!["CO2".to_string(), "CH4".to_string(), "N2O".to_string()],
-                diag_col: "DIAG".to_string(),
-                has_header: true,
-            },
-            model: "LI-7810_test".to_owned(),
-        }
-    }
-}
-impl Default for Li7810 {
-    fn default() -> Self {
-        Self {
-            base: Instrument {
-                sep: b'\t',
-                skiprows: 4,
-                skip_after_header: 1,
-                time_col: "SECONDS".to_string(),
-                gas_cols: vec!["CO2".to_string(), "CH4".to_string(), "H2O".to_string()],
-                flux_cols: vec!["CO2".to_string(), "CH4".to_string()],
-                diag_col: "DIAG".to_string(),
-                has_header: true,
-            },
-            model: "LI-7810".to_owned(),
-        }
-    }
-}
-
-impl Li7810 {
-    pub fn mk_rdr<P: AsRef<Path>>(&self, filename: P) -> Result<csv::Reader<File>, Box<dyn Error>> {
-        self.base.mk_rdr(filename)
-    }
-    pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
-        let mut rdr = self.mk_rdr(filename)?;
         let mut instrument_serial = String::new();
-        // let mut skip = 1;
 
-        // rdr.records().next();
-        // for _ in 0..skip {
-        //     rdr.records().next();
-        // }
         if let Some(result) = rdr.records().next() {
-            instrument_serial = result.unwrap()[1].to_owned();
-            // instrument_serial.push(result.unwrap()[0].to_owned())
+            instrument_serial = result?.get(1).unwrap_or("").to_string();
         }
 
-        let skip = 3;
-        for _ in 0..skip {
+        for _ in 0..self.skiprows {
             rdr.records().next();
         }
-        // let instrument_model = vec![self.model.clone()];
-        let instrument_model = self.model.clone();
 
         let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
         let mut diag: Vec<i64> = Vec::new();
         let mut datetime: Vec<DateTime<Utc>> = Vec::new();
+        // let mut time_sources: Vec<TimeSource> = Vec::new();
         let mut header = csv::StringRecord::new();
 
         if let Some(result) = rdr.records().next() {
@@ -283,74 +287,77 @@ impl Li7810 {
         }
 
         let mut gas_indices: HashMap<GasType, usize> = HashMap::new();
-        let diag_col = "DIAG";
-        let secs_col = "SECONDS";
-        let nsecs_col = "NANOSECONDS";
+        let idx_diag = header.iter().position(|h| h == self.diag_col).unwrap_or(0);
+        let idx_secs = header.iter().position(|h| h == self.time_col).unwrap_or(0);
+        let idx_nsecs = header.iter().position(|h| h == self.nsecs_col).unwrap_or(0);
 
-        // Find column indices dynamically
-        for (i, h) in header.iter().enumerate() {
-            if let Ok(gas_type) = h.parse::<GasType>() {
-                gas_indices.insert(gas_type, i);
-                gas_data.insert(gas_type, Vec::new()); // Initialize gas vectors
+        for gas_col in &self.gas_cols {
+            if let Some((i, _)) = header.iter().enumerate().find(|(_, h)| h == gas_col) {
+                if let Ok(gas_type) = gas_col.parse::<GasType>() {
+                    gas_indices.insert(gas_type, i);
+                    gas_data.insert(gas_type, Vec::new());
+                } else {
+                    eprintln!("Warning: Could not parse gas column '{}' as GasType", gas_col);
+                }
+            } else {
+                eprintln!("Warning: Gas column '{}' not found in header", gas_col);
             }
         }
-        let idx_diag = header.iter().position(|h| h == diag_col).unwrap_or_else(|| {
-            eprintln!("Warning: Column '{}' not found, using default index.", diag_col);
-            0
-        });
-        let idx_secs = header.iter().position(|h| h == secs_col).unwrap_or_else(|| {
-            eprintln!("Warning: Column '{}' not found, using default index.", diag_col);
-            0
-        });
-        let idx_nsecs = header.iter().position(|h| h == nsecs_col).unwrap_or_else(|| {
-            eprintln!("Warning: Column '{}' not found, using default index.", diag_col);
-            0
-        });
 
-        for (i, r) in rdr.records().enumerate() {
-            let record = r?;
-            if i == 0 || i == 1 {
-                continue;
-            }
+        for record in rdr.records().skip(self.skip_after_header) {
+            let record = record?;
 
             for (&gas_type, &idx) in &gas_indices {
-                let value = record[idx].parse::<f64>().unwrap_or(f64::NAN);
+                let value = record.get(idx).unwrap_or("NaN").parse::<f64>().unwrap_or(f64::NAN);
                 if let Some(gas_vector) = gas_data.get_mut(&gas_type) {
                     gas_vector.push(value);
                 }
             }
 
-            if let Ok(val) = record[idx_diag].parse::<i64>() {
+            if let Ok(val) = record.get(idx_diag).unwrap_or("0").parse::<i64>() {
                 diag.push(val);
             }
 
-            let sec = record[idx_secs].parse::<i64>()?;
-            let nsec = record[idx_nsecs].parse::<i64>()?;
-            let dt_utc = parse_secnsec_to_dt(sec, nsec);
-            datetime.push(dt_utc);
+            let timestamp = match self.time_source {
+                TimeSourceKind::Seconds => {
+                    let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
+                    parse_secnsec_to_dt(sec, 0)
+                },
+                TimeSourceKind::SecondsAndNanos => {
+                    let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
+                    let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<i64>()?;
+                    parse_secnsec_to_dt(sec, nsec)
+                },
+                TimeSourceKind::StringFormat => {
+                    let time_str = record.get(idx_secs).unwrap_or("");
+                    let fmt = self.time_fmt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
+                    let naive = NaiveDateTime::parse_from_str(time_str, fmt)?;
+                    DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
+                },
+            };
+            datetime.push(timestamp);
         }
 
         let mut indices: Vec<usize> = (0..datetime.len()).collect();
-        indices.sort_by(|&i, &j| datetime[i].cmp(&datetime[j]));
+        indices.sort_by_key(|&i| datetime[i]);
 
-        let datetime: Vec<DateTime<Utc>> = indices.iter().map(|&i| datetime[i]).collect();
-        let diag: Vec<i64> = indices.iter().map(|&i| diag[i]).collect();
+        let datetime: Vec<_> = indices.iter().map(|&i| datetime[i]).collect();
+        let diag: Vec<_> = indices.iter().map(|&i| diag[i]).collect();
+
         let mut sorted_gas_data: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
-
-        for (&gas_type, gas_values) in &gas_data {
-            sorted_gas_data
-                .insert(gas_type, indices.iter().map(|&i| Some(gas_values[i])).collect());
+        for (&gas_type, values) in &gas_data {
+            let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
+            sorted_gas_data.insert(gas_type, sorted);
         }
 
-        let df = GasData {
+        Ok(GasData {
             header,
-            instrument_model,
+            instrument_model: self.model.clone(),
             instrument_serial,
             datetime,
             gas: sorted_gas_data,
             diag,
-        };
-        Ok(df)
+        })
     }
 }
 
@@ -367,9 +374,10 @@ pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
 }
 
-pub fn get_instrument_by_model(model: InstrumentType) -> Option<Li7810> {
+pub fn get_instrument_by_model(model: InstrumentType) -> Option<InstrumentConfig> {
     match model {
-        InstrumentType::Li7810 => Some(Li7810::default()),
+        InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
+        InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
         _ => None,
     }
 }

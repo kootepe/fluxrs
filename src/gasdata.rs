@@ -348,7 +348,7 @@ pub fn query_gas_all(
 pub fn insert_measurements(
     conn: &mut Connection,
     all_gas: &GasData,
-    project: String,
+    project: &String,
 ) -> Result<(usize, usize)> {
     let diag_vec = &all_gas.diag;
     let datetime_vec = all_gas.datetime.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
