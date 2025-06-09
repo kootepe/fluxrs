@@ -1530,129 +1530,309 @@ impl ValidationApp {
 
             let dragging_polygon = dragging_left || dragging_right || dragging_main;
             let dragging_lag = dragging_open_lag || dragging_close_lag;
-            let dragging_element = dragging_polygon || dragging_lag;
-            let mut dx = drag_delta.x as f64;
 
-            if dragged && self.zoom_to_measurement < 1 {
-                println!("Adding to delta");
-                self.current_delta += dx;
-            }
-            if dragged && self.zoom_to_measurement > 0 {
-                let mut d = dx;
-                d *= plot_ui.transform().dpos_dvalue_x();
-                self.current_z_delta += d;
-            }
-            let moving_right = dx > 0.;
-            let moving_left = dx < 0.;
+            let mut dx = drag_delta.x as f64;
+            let can_move = self.calc_area_can_move(gas_type);
+
+            // Reset drag state when not dragging
             if !dragged {
                 self.dragging = None;
-                self.current_delta = 0.;
-                self.current_z_delta = 0.;
+                self.current_delta = 0.0;
+                self.current_z_delta = 0.0;
             }
 
+            // Determine which element is being dragged
             if self.dragging.is_none() {
                 if dragging_left {
                     self.dragging = Some(Adjuster::Left);
-                }
-
-                if dragging_right {
+                } else if dragging_right {
                     self.dragging = Some(Adjuster::Right);
-                }
-
-                if dragging_main {
+                } else if dragging_main {
                     self.dragging = Some(Adjuster::Main);
-                }
-
-                if dragging_open_lag {
+                } else if dragging_open_lag {
                     self.dragging = Some(Adjuster::OpenLag);
-                }
-
-                if dragging_close_lag {
+                } else if dragging_close_lag {
                     self.dragging = Some(Adjuster::CloseLag);
                 }
             }
 
+            // Apply zoom transform only if needed
+            let zoomed_dx = dx * plot_ui.transform().dpos_dvalue_x();
+
+            // Match active drag
             match self.dragging {
-                Some(Adjuster::Left) => self.handle_drag_polygon(plot_ui, true, &gas_type),
-                Some(Adjuster::Right) => {
-                    println!("dragging right");
-                    self.handle_drag_polygon(plot_ui, false, &gas_type)
-                },
-                Some(Adjuster::Main) => {
-                    if dragging_main {
-                        println!("dragging main");
-                        let calc_start = self.get_calc_start(gas_type);
-                        let calc_end = self.get_calc_end(gas_type);
-                        let measurement_start =
-                            self.get_measurement_start() + self.get_deadband(gas_type);
-                        let measurement_end = self.get_measurement_end();
-
-                        let mut clamped_dx = self.current_delta.trunc();
-
-                        // Prevent dragging past left bound
-                        if moving_left && calc_start + clamped_dx < measurement_start {
-                            clamped_dx = measurement_start - calc_start;
-                        }
-
-                        // Prevent dragging past right bound
-                        if moving_right && calc_end + clamped_dx > measurement_end {
-                            clamped_dx = measurement_end - calc_end;
-                        }
-
-                        if clamped_dx.abs() > f64::EPSILON {
-                            self.increment_calc_start(gas_type, clamped_dx);
-                            self.increment_calc_end(gas_type, clamped_dx);
-                        }
-                        self.current_delta -= clamped_dx;
+                Some(Adjuster::Left) => {
+                    println!("Dragging left");
+                    if inside_left && can_move && dragged {
+                        self.current_delta += dx;
+                        self.handle_drag_polygon(plot_ui, true, &gas_type);
                     }
                 },
-                Some(Adjuster::CloseLag) => {
-                    println!("dragging close");
-                    if inside_close_lag {
-                        let d_steps = self.current_delta.trunc();
-                        let mut steps = d_steps;
-                        if self.zoom_to_measurement == 2 {
-                            steps = self.current_z_delta.trunc();
+
+                Some(Adjuster::Right) => {
+                    println!("Dragging right");
+                    if inside_right && can_move && dragged {
+                        self.current_delta += dx;
+                        self.handle_drag_polygon(plot_ui, false, &gas_type);
+                    }
+                },
+
+                Some(Adjuster::Main) => {
+                    println!("Dragging main");
+                    if inside_main && dragged {
+                        self.current_delta += dx;
+                        let full_steps = self.current_delta.trunc();
+                        self.current_delta -= full_steps;
+
+                        if full_steps != 0.0 {
+                            let calc_start = self.get_calc_start(gas_type);
+                            let calc_end = self.get_calc_end(gas_type);
+                            let measurement_start =
+                                self.get_measurement_start() + self.get_deadband(gas_type);
+                            let measurement_end = self.get_measurement_end();
+
+                            let mut clamped = full_steps;
+
+                            if clamped > 0.0 && calc_end + clamped > measurement_end {
+                                clamped = measurement_end - calc_end;
+                            } else if clamped < 0.0 && calc_start + clamped < measurement_start {
+                                clamped = measurement_start - calc_start;
+                            }
+
+                            if clamped.abs() > f64::EPSILON {
+                                self.increment_calc_start(gas_type, clamped);
+                                self.increment_calc_end(gas_type, clamped);
+                            }
                         }
-                        if self.calc_area_can_move(gas_type)
-                            || (!self.calc_area_can_move(gas_type) && dx < 0.)
-                        {
-                            self.increment_close_lag(steps);
+                    }
+                },
+
+                Some(Adjuster::CloseLag) => {
+                    println!("Dragging close");
+                    if inside_close_lag && dragged {
+                        let delta = if self.zoom_to_measurement == 2 {
+                            self.current_z_delta += zoomed_dx;
+                            let steps = self.current_z_delta.trunc();
+                            self.current_z_delta -= steps;
+                            steps
+                        } else {
+                            self.current_delta += dx;
+                            let steps = self.current_delta.trunc();
+                            self.current_delta -= steps;
+                            steps
+                        };
+
+                        if delta != 0.0 {
+                            if can_move || (!can_move && delta < 0.0) {
+                                self.increment_close_lag(delta);
+                                if self.mode_pearsons() {
+                                    self.set_all_calc_range_to_best_r();
+                                }
+                                if self.mode_after_deadband() && delta < 0.0 {
+                                    self.increment_calc_start(gas_type, delta);
+                                }
+                            }
+                        }
+                    }
+                },
+
+                Some(Adjuster::OpenLag) => {
+                    println!("Dragging open");
+                    if inside_open_lag && dragged {
+                        let delta = if self.zoom_to_measurement == 1 {
+                            self.current_z_delta += zoomed_dx;
+                            let steps = self.current_z_delta.trunc();
+                            self.current_z_delta -= steps;
+                            steps
+                        } else {
+                            self.current_delta += dx;
+                            let steps = self.current_delta.trunc();
+                            self.current_delta -= steps;
+                            steps
+                        };
+
+                        if delta != 0.0 {
+                            self.increment_open_lag(delta);
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
-                            if self.mode_after_deadband() && dx < 0. {
-                                self.increment_calc_start(gas_type, steps);
-                            }
-                            if self.zoom_to_measurement != 0 {
-                                self.current_z_delta -= steps;
-                            } else {
-                                self.current_delta -= d_steps;
-                            }
                         }
                     }
                 },
-                Some(Adjuster::OpenLag) => {
-                    println!("dragging open");
-                    if inside_open_lag {
-                        let d_steps = self.current_delta.trunc();
-                        let mut steps = d_steps;
-                        if self.zoom_to_measurement == 1 {
-                            steps = self.current_z_delta.trunc();
-                        }
-                        self.increment_open_lag(steps);
-                        if self.mode_pearsons() {
-                            self.set_all_calc_range_to_best_r();
-                        }
-                        if self.zoom_to_measurement != 0 {
-                            self.current_z_delta -= steps;
-                        } else {
-                            self.current_delta -= d_steps;
-                        }
-                    }
-                },
+
                 None => {},
             }
+            // let mut dx = drag_delta.x as f64;
+            // let mut raw_dx = dx;
+            //
+            // let can_move = self.calc_area_can_move(gas_type);
+            //
+            // if let Some(adjusting) = &self.dragging {
+            //     let inside_correct = match adjusting {
+            //         Adjuster::Left => inside_left && can_move,
+            //         Adjuster::Right => inside_right && can_move,
+            //         Adjuster::Main => inside_main,
+            //         Adjuster::OpenLag => inside_open_lag,
+            //         Adjuster::CloseLag => inside_close_lag,
+            //     };
+            //
+            //     if dragged && inside_correct {
+            //         if self.zoom_to_measurement < 1 {
+            //             self.current_delta += dx;
+            //         } else {
+            //             let d = dx * plot_ui.transform().dpos_dvalue_x();
+            //             self.current_z_delta += d;
+            //         }
+            //     }
+            // }
+            // // if dragged && self.zoom_to_measurement < 1 {
+            // //     println!("Adding to delta");
+            // //     self.current_delta += dx;
+            // // }
+            // // if dragged && self.zoom_to_measurement > 0 {
+            // //     let mut d = dx;
+            // //     d *= plot_ui.transform().dpos_dvalue_x();
+            // //     self.current_z_delta += d;
+            // // }
+            // let moving_right = dx > 0.;
+            // let moving_left = dx < 0.;
+            // if !dragged {
+            //     self.dragging = None;
+            //     self.current_delta = 0.;
+            //     self.current_z_delta = 0.;
+            // }
+            //
+            // if self.dragging.is_none() {
+            //     if dragging_left {
+            //         self.dragging = Some(Adjuster::Left);
+            //     }
+            //
+            //     if dragging_right {
+            //         self.dragging = Some(Adjuster::Right);
+            //     }
+            //
+            //     if dragging_main {
+            //         self.dragging = Some(Adjuster::Main);
+            //     }
+            //
+            //     if dragging_open_lag {
+            //         self.dragging = Some(Adjuster::OpenLag);
+            //     }
+            //
+            //     if dragging_close_lag {
+            //         self.dragging = Some(Adjuster::CloseLag);
+            //     }
+            // }
+            //
+            // match self.dragging {
+            //     Some(Adjuster::Left) => {
+            //         println!("dragging left");
+            //         self.handle_drag_polygon(plot_ui, true, &gas_type)
+            //     },
+            //     Some(Adjuster::Right) => {
+            //         println!("dragging right");
+            //         self.handle_drag_polygon(plot_ui, false, &gas_type)
+            //     },
+            //
+            //     Some(Adjuster::Main) => {
+            //         if inside_main && dragged {
+            //             let calc_start = self.get_calc_start(gas_type);
+            //             let calc_end = self.get_calc_end(gas_type);
+            //             let measurement_start =
+            //                 self.get_measurement_start() + self.get_deadband(gas_type);
+            //             let measurement_end = self.get_measurement_end();
+            //
+            //             let mut clamped_dx = self.current_delta + raw_dx;
+            //             clamped_dx = clamped_dx.trunc(); // Only use full steps
+            //
+            //             // Prevent dragging past bounds
+            //             if clamped_dx > 0.0 && calc_end + clamped_dx > measurement_end {
+            //                 clamped_dx = measurement_end - calc_end;
+            //             } else if clamped_dx < 0.0 && calc_start + clamped_dx < measurement_start {
+            //                 clamped_dx = measurement_start - calc_start;
+            //             }
+            //
+            //             if clamped_dx.abs() > f64::EPSILON {
+            //                 self.increment_calc_start(gas_type, clamped_dx);
+            //                 self.increment_calc_end(gas_type, clamped_dx);
+            //                 self.current_delta += raw_dx - clamped_dx; // Keep the leftover
+            //             } else {
+            //                 self.current_delta += raw_dx;
+            //             }
+            //         }
+            //     },
+            //     // Some(Adjuster::Main) => {
+            //     //     let calc_start = self.get_calc_start(gas_type);
+            //     //     let calc_end = self.get_calc_end(gas_type);
+            //     //     let measurement_start =
+            //     //         self.get_measurement_start() + self.get_deadband(gas_type);
+            //     //     let measurement_end = self.get_measurement_end();
+            //     //
+            //     //     let mut clamped_dx = self.current_delta.trunc();
+            //     //
+            //     //     // Prevent dragging past left bound
+            //     //     if moving_left && calc_start + clamped_dx < measurement_start {
+            //     //         clamped_dx = measurement_start - calc_start;
+            //     //     }
+            //     //
+            //     //     // Prevent dragging past right bound
+            //     //     if moving_right && calc_end + clamped_dx > measurement_end {
+            //     //         clamped_dx = measurement_end - calc_end;
+            //     //     }
+            //     //
+            //     //     if clamped_dx.abs() > f64::EPSILON {
+            //     //         self.increment_calc_start(gas_type, clamped_dx);
+            //     //         self.increment_calc_end(gas_type, clamped_dx);
+            //     //     }
+            //     //     self.current_delta -= clamped_dx;
+            //     // },
+            //     Some(Adjuster::CloseLag) => {
+            //         println!("dragging close");
+            //         if inside_close_lag {
+            //             let d_steps = self.current_delta.trunc();
+            //             let mut steps = d_steps;
+            //             if self.zoom_to_measurement == 2 {
+            //                 steps = self.current_z_delta.trunc();
+            //             }
+            //             if self.calc_area_can_move(gas_type)
+            //                 || (!self.calc_area_can_move(gas_type) && dx < 0.)
+            //             {
+            //                 self.increment_close_lag(steps);
+            //                 if self.mode_pearsons() {
+            //                     self.set_all_calc_range_to_best_r();
+            //                 }
+            //                 if self.mode_after_deadband() && dx < 0. {
+            //                     self.increment_calc_start(gas_type, steps);
+            //                 }
+            //                 if self.zoom_to_measurement != 0 {
+            //                     self.current_z_delta -= steps;
+            //                 } else {
+            //                     self.current_delta -= d_steps;
+            //                 }
+            //             }
+            //         }
+            //     },
+            //     Some(Adjuster::OpenLag) => {
+            //         println!("dragging open");
+            //         if inside_open_lag {
+            //             let d_steps = self.current_delta.trunc();
+            //             let mut steps = d_steps;
+            //             if self.zoom_to_measurement == 1 {
+            //                 steps = self.current_z_delta.trunc();
+            //             }
+            //             self.increment_open_lag(steps);
+            //             if self.mode_pearsons() {
+            //                 self.set_all_calc_range_to_best_r();
+            //             }
+            //             if self.zoom_to_measurement != 0 {
+            //                 self.current_z_delta -= steps;
+            //             } else {
+            //                 self.current_delta -= d_steps;
+            //             }
+            //         }
+            //     },
+            //     None => {},
+            // }
 
             // --- Then: mutate the cycle safely ---
             if dragging_polygon {
