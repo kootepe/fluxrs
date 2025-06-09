@@ -1630,6 +1630,7 @@ impl ValidationApp {
                                 }
                                 if self.mode_after_deadband() && delta < 0.0 {
                                     self.increment_calc_start(gas_type, delta);
+                                    self.increment_calc_end(gas_type, delta);
                                 }
                             }
                         }
@@ -1655,6 +1656,10 @@ impl ValidationApp {
                             self.increment_open_lag(delta);
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
+                            }
+                            if self.mode_after_deadband() && delta < 0.0 {
+                                self.increment_calc_start(gas_type, delta);
+                                // self.increment_calc_end(gas_type, delta);
                             }
                         }
                     }
