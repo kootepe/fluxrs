@@ -343,6 +343,8 @@ impl ValidationApp {
     }
 
     pub fn render_gas_plot(&self, plot_ui: &mut egui_plot::PlotUi, gas_type: GasType) {
+        // BUG: if there's a gap in the data dragging stops working properly, items cant be dragged
+        // over the plots if the start or end of the measurement is over the gap
         let dpw = self.get_dragger_width(gas_type);
 
         let dark_green = Color32::DARK_GREEN;
