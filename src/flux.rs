@@ -5,6 +5,7 @@ use egui::{Color32, Stroke};
 use egui_plot::{Line, LineStyle};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::any::Any;
+use std::fmt;
 
 #[derive(Clone)]
 pub struct FluxRecord {
@@ -17,6 +18,16 @@ pub enum FluxKind {
     Linear,
     RobLin,
     Poly,
+}
+
+impl std::fmt::Display for FluxKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FluxKind::Linear => write!(f, "Lin"),
+            FluxKind::RobLin => write!(f, "RobLin"),
+            FluxKind::Poly => write!(f, "Poly"),
+        }
+    }
 }
 
 impl FluxKind {
@@ -83,6 +94,45 @@ pub trait FluxModel: Sync + Send + DynClone {
 }
 dyn_clone::clone_trait_object!(FluxModel);
 
+impl fmt::Display for LinearFlux {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}, {}, flux: {}, r2: {}, len: {}",
+            self.model,
+            self.gas_type,
+            self.flux,
+            self.r2,
+            (self.range_end - self.range_start)
+        )
+    }
+}
+impl fmt::Display for PolyFlux {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}, {}, flux: {}, r2: {}, len: {}",
+            self.model,
+            self.gas_type,
+            self.flux,
+            self.r2,
+            (self.range_end - self.range_start)
+        )
+    }
+}
+impl fmt::Display for RobustFlux {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}, {}, flux: {}, r2: {}, len: {}",
+            self.model,
+            self.gas_type,
+            self.flux,
+            self.r2,
+            (self.range_end - self.range_start)
+        )
+    }
+}
 #[derive(Clone)]
 pub struct LinearFlux {
     pub fit_id: String,
@@ -179,6 +229,8 @@ impl LinearFlux {
         let x0 = x[0]; // normalize x
         let x_norm: Vec<f64> = x.iter().map(|&t| t - x0).collect();
         let n = x.len() as f64;
+        // println!("{} {} {}", n, x.len(), y.len());
+        // println!("{:?} {:?}", y, x);
 
         let model = LinReg::train(&x_norm, y);
 
@@ -187,7 +239,7 @@ impl LinearFlux {
         let rss: f64 = residuals.iter().map(|r| r.powi(2)).sum();
 
         let sigma = (rss / (n - 2.0)).sqrt();
-        let rmse_val = rmse(&y, &y_hat).unwrap_or(0.0);
+        let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
 
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
         let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();

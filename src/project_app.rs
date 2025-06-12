@@ -3,6 +3,7 @@ use crate::main_app::AppEvent;
 use crate::validation_app::Mode;
 use crate::GasType;
 use crate::InstrumentType;
+use std::fmt;
 
 use rusqlite;
 // use rusqlite::Connection;
@@ -19,6 +20,24 @@ pub struct Project {
     pub deadband: f64,
     pub min_calc_len: f64,
     pub mode: Mode,
+    pub upload_from: Option<InstrumentType>,
+}
+impl fmt::Display for Project {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}, {}, {}, {}, {}, {}",
+            self.name,
+            self.instrument,
+            self.instrument_serial,
+            self.main_gas
+                .as_ref()
+                .map(|g| format!("{:?}", g))
+                .unwrap_or_else(|| "None".to_string()),
+            self.deadband,
+            self.min_calc_len
+        )
+    }
 }
 
 pub struct ProjectApp {
@@ -198,6 +217,7 @@ impl ProjectApp {
             deadband: self.deadband,
             mode: self.mode,
             min_calc_len: self.min_calc_len,
+            upload_from: None,
         })
     }
 
@@ -235,32 +255,43 @@ impl ProjectApp {
                 min_calc_len,
                 main_gas,
                 mode,
+                upload_from: None,
             })
         }
 
         println!("loading current project");
-        let result: Result<(String, String, u8, f64, f64, u8), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, main_gas, deadband, min_calc_len, mode FROM projects WHERE current = 1",
+        let result: Result<(String, String,String, usize, f64, f64, u8), _> = conn.query_row(
+            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode FROM projects WHERE current = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            |row| Ok((row.get(0)?, row.get(1)?,row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
         );
 
         match result {
-            Ok((project_id, instrument_serial, gas_i, deadband, min_calc_len, mode_i)) => {
+            Ok((
+                project_id,
+                instrument_serial,
+                instrument_string,
+                gas_i,
+                deadband,
+                min_calc_len,
+                mode_i,
+            )) => {
                 let name = project_id.clone();
                 let serial = instrument_serial.clone();
 
                 let main_gas = GasType::from_int(gas_i);
                 let mode = Mode::from_int(mode_i).unwrap();
+                let instrument = InstrumentType::from_str(&instrument_string);
 
                 let project = Project {
                     name,
-                    instrument: InstrumentType::default(),
+                    instrument,
                     instrument_serial: serial,
                     main_gas,
                     deadband,
                     min_calc_len,
                     mode,
+                    upload_from: None,
                 };
 
                 self.project = Some(project); // assuming you have this field

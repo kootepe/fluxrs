@@ -1,8 +1,26 @@
+use std::fmt;
+
 #[derive(Clone, Copy)]
 pub struct LinReg {
     pub intercept: f64,
     pub slope: f64,
 }
+impl fmt::Display for LinReg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "LinReg")
+    }
+}
+impl fmt::Display for PolyReg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "PolyReg")
+    }
+}
+impl fmt::Display for RobReg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "RobReg")
+    }
+}
+
 impl Default for LinReg {
     fn default() -> Self {
         Self::new()

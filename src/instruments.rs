@@ -1,4 +1,5 @@
 use crate::gasdata::GasData;
+use crate::validation_app::GasKey;
 use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};
@@ -14,8 +15,8 @@ use std::str::FromStr;
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum GasType {
     #[default]
-    CH4,
     CO2,
+    CH4,
     H2O,
     N2O,
 }
@@ -57,20 +58,20 @@ impl GasType {
             GasType::N2O => "N2O",
         }
     }
-    pub fn as_int(&self) -> u8 {
+    pub fn as_int(&self) -> usize {
         match self {
-            GasType::CO2 => 1,
-            GasType::CH4 => 2,
-            GasType::H2O => 3,
-            GasType::N2O => 4,
+            GasType::CO2 => 0,
+            GasType::CH4 => 1,
+            GasType::H2O => 2,
+            GasType::N2O => 3,
         }
     }
-    pub fn from_int(i: u8) -> Option<GasType> {
+    pub fn from_int(i: usize) -> Option<GasType> {
         match i {
-            1 => Some(GasType::CO2),
-            2 => Some(GasType::CH4),
-            3 => Some(GasType::H2O),
-            4 => Some(GasType::N2O),
+            0 => Some(GasType::CO2),
+            1 => Some(GasType::CH4),
+            2 => Some(GasType::H2O),
+            3 => Some(GasType::N2O),
             _ => None,
         }
     }
@@ -157,6 +158,8 @@ impl InstrumentType {
         match s {
             "LI-7810" => InstrumentType::LI7810,
             "LI-7820" => InstrumentType::LI7820,
+            "LI7810" => InstrumentType::LI7810,
+            "LI7820" => InstrumentType::LI7820,
             _ => InstrumentType::Other,
         }
     }
@@ -235,7 +238,7 @@ impl InstrumentConfig {
             flux_cols: vec!["CO2".to_string(), "CH4".to_string()],
             diag_col: "DIAG".to_string(),
             has_header: true,
-            available_gases: vec![GasType::CH4, GasType::CO2, GasType::H2O],
+            available_gases: vec![GasType::CO2, GasType::CH4, GasType::H2O],
             time_source: TimeSourceKind::SecondsAndNanos,
             time_fmt: None,
         }
@@ -258,6 +261,7 @@ impl InstrumentConfig {
             time_fmt: None,
         }
     }
+
     pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
         let file = File::open(filename)?;
         let mut rdr = csv::ReaderBuilder::new()
@@ -278,8 +282,7 @@ impl InstrumentConfig {
 
         let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
         let mut diag: Vec<i64> = Vec::new();
-        let mut datetime: Vec<DateTime<Utc>> = Vec::new();
-        // let mut time_sources: Vec<TimeSource> = Vec::new();
+        let mut datetime_map: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
         let mut header = csv::StringRecord::new();
 
         if let Some(result) = rdr.records().next() {
@@ -335,30 +338,148 @@ impl InstrumentConfig {
                     DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
                 },
             };
-            datetime.push(timestamp);
+
+            datetime_map.entry(instrument_serial.clone()).or_default().push(timestamp);
         }
 
-        let mut indices: Vec<usize> = (0..datetime.len()).collect();
-        indices.sort_by_key(|&i| datetime[i]);
+        // Sort timestamps and align data accordingly
+        let mut datetime_sorted: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
+        let mut diag_sorted: Vec<i64> = Vec::new();
+        let mut sorted_gas_data: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
 
-        let datetime: Vec<_> = indices.iter().map(|&i| datetime[i]).collect();
-        let diag: Vec<_> = indices.iter().map(|&i| diag[i]).collect();
+        if let Some(dt_list) = datetime_map.get(&instrument_serial) {
+            let mut indices: Vec<usize> = (0..dt_list.len()).collect();
+            indices.sort_by_key(|&i| dt_list[i]);
 
-        let mut sorted_gas_data: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
-        for (&gas_type, values) in &gas_data {
-            let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
-            sorted_gas_data.insert(gas_type, sorted);
+            datetime_sorted
+                .insert(instrument_serial.clone(), indices.iter().map(|&i| dt_list[i]).collect());
+
+            diag_sorted = indices.iter().map(|&i| diag[i]).collect();
+
+            for (&gas_type, values) in &gas_data {
+                let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
+                sorted_gas_data
+                    .insert(GasKey::from((&gas_type, instrument_serial.as_str())), sorted);
+            }
         }
+
+        let mut model_key = HashMap::new();
+        model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
 
         Ok(GasData {
             header,
             instrument_model: self.model.clone(),
             instrument_serial,
-            datetime,
+            model_key,
+            datetime: datetime_sorted,
             gas: sorted_gas_data,
-            diag,
+            diag: diag_sorted,
         })
     }
+    // pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
+    //     let file = File::open(filename)?;
+    //     let mut rdr = csv::ReaderBuilder::new()
+    //         .delimiter(self.sep)
+    //         .has_headers(self.has_header)
+    //         .flexible(true)
+    //         .from_reader(file);
+    //
+    //     let mut instrument_serial = String::new();
+    //
+    //     if let Some(result) = rdr.records().next() {
+    //         instrument_serial = result?.get(1).unwrap_or("").to_string();
+    //     }
+    //
+    //     for _ in 0..self.skiprows {
+    //         rdr.records().next();
+    //     }
+    //
+    //     let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
+    //     let mut diag: Vec<i64> = Vec::new();
+    //     let mut datetime: Vec<DateTime<Utc>> = Vec::new();
+    //     // let mut time_sources: Vec<TimeSource> = Vec::new();
+    //     let mut header = csv::StringRecord::new();
+    //
+    //     if let Some(result) = rdr.records().next() {
+    //         header = result?;
+    //     }
+    //
+    //     let mut gas_indices: HashMap<GasType, usize> = HashMap::new();
+    //     let idx_diag = header.iter().position(|h| h == self.diag_col).unwrap_or(0);
+    //     let idx_secs = header.iter().position(|h| h == self.time_col).unwrap_or(0);
+    //     let idx_nsecs = header.iter().position(|h| h == self.nsecs_col).unwrap_or(0);
+    //
+    //     for gas_col in &self.gas_cols {
+    //         if let Some((i, _)) = header.iter().enumerate().find(|(_, h)| h == gas_col) {
+    //             if let Ok(gas_type) = gas_col.parse::<GasType>() {
+    //                 gas_indices.insert(gas_type, i);
+    //                 gas_data.insert(gas_type, Vec::new());
+    //             } else {
+    //                 eprintln!("Warning: Could not parse gas column '{}' as GasType", gas_col);
+    //             }
+    //         } else {
+    //             eprintln!("Warning: Gas column '{}' not found in header", gas_col);
+    //         }
+    //     }
+    //
+    //     for record in rdr.records().skip(self.skip_after_header) {
+    //         let record = record?;
+    //
+    //         for (&gas_type, &idx) in &gas_indices {
+    //             let value = record.get(idx).unwrap_or("NaN").parse::<f64>().unwrap_or(f64::NAN);
+    //             if let Some(gas_vector) = gas_data.get_mut(&gas_type) {
+    //                 gas_vector.push(value);
+    //             }
+    //         }
+    //
+    //         if let Ok(val) = record.get(idx_diag).unwrap_or("0").parse::<i64>() {
+    //             diag.push(val);
+    //         }
+    //
+    //         let timestamp = match self.time_source {
+    //             TimeSourceKind::Seconds => {
+    //                 let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
+    //                 parse_secnsec_to_dt(sec, 0)
+    //             },
+    //             TimeSourceKind::SecondsAndNanos => {
+    //                 let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
+    //                 let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<i64>()?;
+    //                 parse_secnsec_to_dt(sec, nsec)
+    //             },
+    //             TimeSourceKind::StringFormat => {
+    //                 let time_str = record.get(idx_secs).unwrap_or("");
+    //                 let fmt = self.time_fmt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
+    //                 let naive = NaiveDateTime::parse_from_str(time_str, fmt)?;
+    //                 DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
+    //             },
+    //         };
+    //         datetime.push(timestamp);
+    //     }
+    //
+    //     let mut indices: Vec<usize> = (0..datetime.len()).collect();
+    //     indices.sort_by_key(|&i| datetime[i]);
+    //
+    //     let datetime: Vec<_> = indices.iter().map(|&i| datetime[i]).collect();
+    //     let diag: Vec<_> = indices.iter().map(|&i| diag[i]).collect();
+    //
+    //     let mut sorted_gas_data: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
+    //     for (&gas_type, values) in &gas_data {
+    //         let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
+    //         sorted_gas_data.insert((gas_type, instrument_serial.clone()), sorted);
+    //     }
+    //     let mut model_key = HashMap::new();
+    //     model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
+    //
+    //     Ok(GasData {
+    //         header,
+    //         instrument_model: self.model.clone(),
+    //         instrument_serial,
+    //         model_key,
+    //         datetime,
+    //         gas: sorted_gas_data,
+    //         diag,
+    //     })
+    // }
 }
 
 pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {

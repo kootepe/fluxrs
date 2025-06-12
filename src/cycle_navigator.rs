@@ -1,4 +1,5 @@
 use crate::flux::FluxKind;
+use crate::validation_app::GasKey;
 use crate::GasType;
 use csv::Error;
 
@@ -202,46 +203,34 @@ fn is_cycle_visible(
     t0_thresh: f64,
 ) -> bool {
     let main_gas = cycle.main_gas;
-    let best_model = cycle.best_model_by_aic(&main_gas).unwrap();
-    let p_val = cycle.fluxes.get(&(main_gas, best_model)).unwrap().model.p_value().unwrap_or(0.0);
-    let r2 = cycle.measurement_r2.get(&main_gas).unwrap_or(&0.0);
-    let rmse = cycle.fluxes.get(&(main_gas, best_model)).unwrap().model.rmse().unwrap_or(0.0);
-    let t0 = cycle.t0_concentration.get(&main_gas).unwrap_or(&0.0);
-    let stats_valid =
-        p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh;
+    let main_instr = cycle.main_instrument_serial.as_str();
+    let kind = cycle
+        .best_model_by_aic(&(GasKey::from((&main_gas, main_instr))))
+        .unwrap_or(FluxKind::Linear);
+    let key = GasKey::from((&main_gas, main_instr));
+    // let p_val = cycle
+    //     .fluxes
+    //     .get(&(GasKey::from((&main_gas, main_instr)), best_model))
+    //     .map_or(0.0, |f| f.model.p_value().unwrap_or(0.0));
+    // let r2 = cycle.measurement_r2.get(&(GasKey::from((&main_gas, main_instr)))).unwrap_or(&0.0);
+    // let rmse = cycle
+    //     .fluxes
+    //     .get(&(GasKey::from((&main_gas, main_instr)), best_model))
+    //     .map_or(0.0, |f| f.model.p_value().unwrap_or(0.0));
+    // let t0 = cycle.t0_concentration.get(&(GasKey::from((&main_gas, main_instr)))).unwrap_or(&0.0);
+    // let stats_valid =
+    //     p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh;
+    let is_valid =
+        cycle.is_valid_by_threshold(key, kind, p_val_thresh, r2_thresh, rmse_thresh, t0_thresh)
+            && cycle.error_code.0 == 0;
 
     let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
     let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
-    let valid_ok = show_valids || !cycle.is_valid || !stats_valid;
-    let invalid_ok = show_invalids || cycle.is_valid && stats_valid;
+    let valid_ok = show_valids || !is_valid;
+    let invalid_ok = show_invalids || is_valid;
     trace_visible && valid_ok && invalid_ok && bad_ok
 }
-fn _is_cycle_visible(
-    cycle: &Cycle,
-    visible_traces: &HashMap<String, bool>,
-    show_valids: bool,
-    show_invalids: bool,
-    show_bad: bool,
-) -> bool {
-    let p_val =
-        cycle.fluxes.get(&(GasType::CH4, FluxKind::Linear)).unwrap().model.p_value().unwrap_or(0.0);
-    let r2 = cycle.fluxes.get(&(GasType::CH4, FluxKind::Linear)).unwrap().model.r2().unwrap_or(0.0);
-    let rmse =
-        cycle.fluxes.get(&(GasType::CH4, FluxKind::Linear)).unwrap().model.rmse().unwrap_or(0.0);
-    let stats_valid = p_val < 0.05 && r2 > 0.9 && rmse < 25.;
-    // let is_valid = check;
-    // let is_valid = cycle.is_valid;
-    let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
-    // let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
-    // let stats_ok = show_valids || !stats_valid;
-    // let stats_not_ok = show_invalids || stats_valid;
-    let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
-    let valid_ok = show_valids || !cycle.is_valid || !stats_valid;
-    let invalid_ok = show_invalids || cycle.is_valid || stats_valid;
-    // let is_valid = show_valids || !stats_valid;
-    // let stats_not_ok = show_invalids || stats_valid;
-    trace_visible && valid_ok && invalid_ok && bad_ok
-}
+
 pub fn compute_visible_indexes(
     cycles: &[Cycle],
     visible_traces: &HashMap<String, bool>,

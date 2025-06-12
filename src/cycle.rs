@@ -11,6 +11,7 @@ use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::project_app::Project;
 use crate::stats::{self, LinReg, PolyReg, RobReg};
+use crate::validation_app::GasKey;
 use crate::validation_app::Mode;
 
 use crate::gasdata::GasData;
@@ -19,9 +20,10 @@ use crate::timedata::TimeData;
 use crate::volumedata::VolumeData;
 
 use chrono::{DateTime, TimeDelta, Utc};
+use chrono_tz::Africa::Windhoek;
 use rayon::prelude::*;
 use rusqlite::{params, Connection, Error, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fmt;
 use std::hash::Hash;
@@ -32,6 +34,8 @@ pub const MIN_WINDOW_SIZE: f64 = 180.;
 // how many seconds to increment the moving window searching for max r
 pub const WINDOW_INCREMENT: usize = 1;
 
+type InstrumentSerial = String;
+
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 struct CycleKey {
     start_time: i64,
@@ -39,10 +43,13 @@ struct CycleKey {
     project_id: String,
     chamber_id: String,
 }
+
 #[derive(Clone)]
 pub struct Cycle {
     pub id: i64,
     pub chamber_id: String,
+    pub main_instrument_model: InstrumentType,
+    pub main_instrument_serial: String,
     pub instrument_model: InstrumentType,
     pub instrument_serial: String,
     pub project_name: String,
@@ -52,7 +59,7 @@ pub struct Cycle {
     pub chamber_volume: f64,
     pub error_code: ErrorMask,
     pub is_valid: bool,
-    pub gas_is_valid: HashMap<GasType, bool>,
+    pub gas_is_valid: HashMap<GasKey, bool>,
     pub override_valid: Option<bool>,
     pub manual_valid: bool,
     pub main_gas: GasType,
@@ -64,36 +71,37 @@ pub struct Cycle {
     pub end_lag_s: f64,
     pub start_lag_s: f64,
     pub max_idx: f64,
-    pub gases: Vec<GasType>,
-    pub calc_range_start: HashMap<GasType, f64>,
-    pub calc_range_end: HashMap<GasType, f64>,
+    pub gases: Vec<GasKey>,
+    pub calc_range_start: HashMap<GasKey, f64>,
+    pub calc_range_end: HashMap<GasKey, f64>,
     pub manual_adjusted: bool,
-    pub min_y: HashMap<GasType, f64>,
-    pub max_y: HashMap<GasType, f64>,
-    pub flux: HashMap<GasType, f64>,
-    pub linfit: HashMap<GasType, LinReg>,
+    pub min_y: HashMap<GasKey, f64>,
+    pub max_y: HashMap<GasKey, f64>,
+    pub flux: HashMap<GasKey, f64>,
+    pub linfit: HashMap<GasKey, LinReg>,
     pub measurement_range_start: f64,
     pub measurement_range_end: f64,
-    pub deadbands: HashMap<GasType, f64>,
+    pub deadbands: HashMap<GasKey, f64>,
 
-    pub fluxes: HashMap<(GasType, FluxKind), FluxRecord>,
-    pub measurement_r2: HashMap<GasType, f64>,
-    pub calc_r2: HashMap<GasType, f64>,
+    pub fluxes: HashMap<(GasKey, FluxKind), FluxRecord>,
+    pub measurement_r2: HashMap<GasKey, f64>,
+    pub calc_r2: HashMap<GasKey, f64>,
 
     // datetime vectors
     // pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
-    pub dt_v: Vec<f64>,
+    // pub dt_v: Vec<f64>,
+    pub dt_v: HashMap<String, Vec<f64>>,
     // pub dt_v_f: Vec<f64>,
-    pub calc_dt_v: HashMap<GasType, Vec<f64>>,
+    pub calc_dt_v: HashMap<GasKey, Vec<f64>>,
     pub measurement_dt_v: Vec<f64>,
 
     // gas vectors
-    pub gas_v: HashMap<GasType, Vec<Option<f64>>>,
-    pub gas_v_mole: HashMap<GasType, Vec<Option<f64>>>,
-    pub calc_gas_v: HashMap<GasType, Vec<Option<f64>>>,
-    pub measurement_gas_v: HashMap<GasType, Vec<Option<f64>>>,
+    pub gas_v: HashMap<GasKey, Vec<Option<f64>>>,
+    pub gas_v_mole: HashMap<GasKey, Vec<Option<f64>>>,
+    pub calc_gas_v: HashMap<GasKey, Vec<Option<f64>>>,
+    pub measurement_gas_v: HashMap<GasKey, Vec<Option<f64>>>,
     pub measurement_diag_v: Vec<i64>,
-    pub t0_concentration: HashMap<GasType, f64>,
+    pub t0_concentration: HashMap<GasKey, f64>,
 
     pub diag_v: Vec<i64>,
     pub min_calc_len: f64,
@@ -152,102 +160,102 @@ impl Cycle {
     pub fn get_open(&self) -> f64 {
         self.start_time.timestamp() as f64 + self.open_offset as f64
     }
-    pub fn get_lin_r2(&self, gas: GasType) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(gas, FluxKind::Linear)) {
+    pub fn get_lin_r2(&self, key: GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(key, FluxKind::Linear)) {
             return Some(flux.model.r2().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_flux(&self, gas: GasType) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(gas, FluxKind::Linear)) {
+    pub fn get_lin_flux(&self, key: &GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(key.clone(), FluxKind::Linear)) {
             return Some(flux.model.flux().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_sigma(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::Linear)) {
+    pub fn get_lin_sigma(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::Linear)) {
             return Some(model.model.sigma().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_rmse(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::Linear)) {
+    pub fn get_lin_rmse(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::Linear)) {
             return Some(model.model.rmse().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_p_value(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::Linear)) {
+    pub fn get_lin_p_value(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::Linear)) {
             return Some(model.model.p_value().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_roblin_flux(&self, gas: GasType) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(gas, FluxKind::RobLin)) {
+    pub fn get_roblin_flux(&self, key: GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(key, FluxKind::RobLin)) {
             return Some(flux.model.flux().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_roblin_sigma(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::RobLin)) {
+    pub fn get_roblin_sigma(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::RobLin)) {
             return Some(model.model.sigma().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_roblin_rmse(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::RobLin)) {
+    pub fn get_roblin_rmse(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::RobLin)) {
             return Some(model.model.rmse().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_poly_flux(&self, gas: GasType) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(gas, FluxKind::Poly)) {
+    pub fn get_poly_flux(&self, key: GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(key, FluxKind::Poly)) {
             return Some(flux.model.flux().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_poly_sigma(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::Poly)) {
+    pub fn get_poly_sigma(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::Poly)) {
             return Some(model.model.sigma().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_poly_rmse(&self, gas: GasType) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(gas, FluxKind::Poly)) {
+    pub fn get_poly_rmse(&self, key: GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(key, FluxKind::Poly)) {
             return Some(model.model.rmse().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_flux(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.flux())
+    pub fn get_flux(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.flux())
     }
 
-    pub fn get_r2(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.r2())
+    pub fn get_r2(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.r2())
     }
 
-    pub fn get_adjusted_r2(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.adj_r2())
+    pub fn get_adjusted_r2(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.adj_r2())
     }
 
-    pub fn get_aic(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.aic())
+    pub fn get_aic(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.aic())
     }
 
-    pub fn get_p_value(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.p_value())
+    pub fn get_p_value(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.p_value())
     }
 
-    pub fn get_sigma(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.sigma())
+    pub fn get_sigma(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.sigma())
     }
 
-    pub fn get_rmse(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(gas, kind)).and_then(|m| m.model.rmse())
+    pub fn get_rmse(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.rmse())
     }
 
-    pub fn get_model(&self, gas_type: GasType, kind: FluxKind) -> Option<&dyn FluxModel> {
-        self.fluxes.get(&(gas_type, kind)).map(|b| b.model.as_ref())
+    pub fn get_model(&self, key: GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
+        self.fluxes.get(&(key, kind)).map(|b| b.model.as_ref())
     }
     pub fn get_adjusted_close_i(&self) -> usize {
         (self.close_offset as f64 + self.open_lag_s + self.close_lag_s) as usize
@@ -266,15 +274,15 @@ impl Cycle {
         // let idx = (self.open_offset as f64 + self.open_lag_s) as usize;
         // self.dt_v[idx]
     }
-    pub fn get_intercept(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(gas, kind)) {
+    pub fn get_intercept(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(key.clone(), kind)) {
             return Some(flux.model.intercept().unwrap());
         }
 
         None
     }
-    pub fn get_slope(&self, gas: GasType, kind: FluxKind) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(gas, kind)) {
+    pub fn get_slope(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(key.clone(), kind)) {
             return Some(flux.model.slope().unwrap());
         }
 
@@ -284,25 +292,22 @@ impl Cycle {
     pub fn toggle_valid(&mut self) {
         self.is_valid = !self.is_valid; // Toggle `is_valid`
     }
-    pub fn set_calc_start(&mut self, gas_type: GasType, value: f64) {
-        let rm = (self.get_adjusted_close() + self.deadbands.get(&gas_type).unwrap_or(&0.0))
-            - self.start_time.timestamp() as f64;
-        let range_min = self.dt_v[rm as usize];
+    pub fn set_calc_start(&mut self, key: &GasKey, value: f64) {
+        let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap_or(&0.0);
         // the calc area cant go beyond the measurement area
         if range_min > value {
-            self.calc_range_start.insert(gas_type, range_min);
+            self.calc_range_start.insert(key.clone(), range_min);
         } else {
-            self.calc_range_start.insert(gas_type, value);
+            self.calc_range_start.insert(key.clone(), value);
         }
     }
-    pub fn set_calc_end(&mut self, gas_type: GasType, value: f64) {
-        let rm = self.get_adjusted_open() - self.start_time.timestamp() as f64;
-        let range_max = self.dt_v[rm as usize];
+    pub fn set_calc_end(&mut self, key: &GasKey, value: f64) {
+        let range_max = self.get_adjusted_open() - self.start_time.timestamp() as f64;
         // the calc area cant go beyond the measurement area
         if value > range_max {
-            self.calc_range_end.insert(gas_type, range_max);
+            self.calc_range_end.insert(key.clone(), range_max);
         } else {
-            self.calc_range_end.insert(gas_type, value);
+            self.calc_range_end.insert(key.clone(), value);
         }
         self.adjust_calc_range_all();
     }
@@ -318,13 +323,14 @@ impl Cycle {
         self.reload_gas_data();
     }
     pub fn calculate_concentration_at_t0(&mut self) {
-        for gas_type in self.gases.clone() {
-            let gas_v = self.get_measurement_gas_v2(gas_type);
+        for key in self.gases.clone() {
+            // let gas_v = self.get_measurement_gas_v2(&key);
+            let (_, gas_v) = self.get_measurement_data(&key);
             if gas_v.is_empty() {
-                self.t0_concentration.insert(gas_type, 0.0);
+                self.t0_concentration.insert(key, 0.0);
             } else {
                 let t0 = *gas_v.first().unwrap_or(&0.0);
-                self.t0_concentration.insert(gas_type, t0);
+                self.t0_concentration.insert(key, t0);
             }
         }
     }
@@ -340,84 +346,84 @@ impl Cycle {
         self.reload_gas_data();
     }
 
-    pub fn get_deadband(&self, gas_type: GasType) -> f64 {
-        *self.deadbands.get(&gas_type).unwrap_or(&0.0)
+    pub fn get_deadband(&self, key: &GasKey) -> f64 {
+        *self.deadbands.get(key).unwrap_or(&0.0)
     }
-    pub fn calc_area_can_move(&self, gas_type: GasType) -> bool {
-        let s = self.get_calc_start(gas_type);
-        let e = self.get_calc_end(gas_type);
-        let ms = self.get_adjusted_close() + self.get_deadband(gas_type);
+    pub fn calc_area_can_move(&self, key: &GasKey) -> bool {
+        let s = self.get_calc_start(key);
+        let e = self.get_calc_end(key);
+        let ms = self.get_adjusted_close() + self.get_deadband(key);
         let me = self.get_adjusted_open();
         let cs_at_ms = s <= ms;
         let ce_at_me = e >= me;
 
         let calc_at_bounds = cs_at_ms && ce_at_me;
-        let at_min_range = self.min_calc_len >= self.get_calc_range(gas_type);
+        let at_min_range = self.min_calc_len >= self.get_calc_range(key);
         let check = calc_at_bounds && at_min_range;
 
         !check
     }
 
-    fn _adjust_calc_range_all<F>(&mut self, mut adjust_shortfall: F)
-    where
-        F: FnMut(&mut Self, GasType, f64),
-    {
-        let mut shortfall_adjustments = Vec::new();
-        for gas_type in self.gases.iter().copied() {
-            let deadband = self.get_deadband(gas_type);
-            let range_min = self.get_adjusted_close() + deadband;
-            let range_max = self.get_adjusted_open();
-            let min_range = self.min_calc_len;
-
-            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
-            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
-
-            let available_range = range_max - range_min;
-
-            // If range is too short, adjust based on logic passed in
-            if available_range < min_range {
-                shortfall_adjustments.push((gas_type, available_range - min_range));
-                // adjust_shortfall(self, gas_type, available_range - min_range);
-            }
-
-            // Clamp to bounds
-            if start < range_min {
-                start = range_min;
-            }
-            if end > range_max {
-                end = range_max;
-            }
-
-            // Enforce minimum range
-            let current_range = end - start;
-            if current_range < min_range {
-                let needed = min_range - current_range;
-                let half = needed / 2.0;
-
-                let new_start = (start - half).max(range_min);
-                let new_end = (end + half).min(range_max);
-
-                if new_end - new_start >= min_range {
-                    start = new_start;
-                    end = new_end;
-                } else {
-                    end = start + min_range;
-                    if end > range_max {
-                        start = range_max - min_range;
-                        end = range_max;
-                    }
-                }
-            }
-
-            self.calc_range_start.insert(gas_type, start);
-            self.calc_range_end.insert(gas_type, end);
-        }
-        for (gas_type, shortfall) in shortfall_adjustments {
-            adjust_shortfall(self, gas_type, shortfall);
-        }
-    }
-    pub fn set_deadband(&mut self, gas_type: GasType, deadband: f64) {
-        self.deadbands.insert(gas_type, deadband);
+    // fn _adjust_calc_range_all<F>(&mut self, mut adjust_shortfall: F)
+    // where
+    //     F: FnMut(&mut Self, GasKey, f64),
+    // {
+    //     let mut shortfall_adjustments = Vec::new();
+    //     for key in self.gases.iter().clone() {
+    //         let deadband = self.get_deadband(key.clone());
+    //         let range_min = self.get_adjusted_close() + deadband;
+    //         let range_max = self.get_adjusted_open();
+    //         let min_range = self.min_calc_len;
+    //
+    //         let mut start = *self.calc_range_start.get(&key).unwrap_or(&range_min);
+    //         let mut end = *self.calc_range_end.get(&key).unwrap_or(&range_max);
+    //
+    //         let available_range = range_max - range_min;
+    //
+    //         // If range is too short, adjust based on logic passed in
+    //         if available_range < min_range {
+    //             shortfall_adjustments.push((key, available_range - min_range));
+    //             // adjust_shortfall(self, key, available_range - min_range);
+    //         }
+    //
+    //         // Clamp to bounds
+    //         if start < range_min {
+    //             start = range_min;
+    //         }
+    //         if end > range_max {
+    //             end = range_max;
+    //         }
+    //
+    //         // Enforce minimum range
+    //         let current_range = end - start;
+    //         if current_range < min_range {
+    //             let needed = min_range - current_range;
+    //             let half = needed / 2.0;
+    //
+    //             let new_start = (start - half).max(range_min);
+    //             let new_end = (end + half).min(range_max);
+    //
+    //             if new_end - new_start >= min_range {
+    //                 start = new_start;
+    //                 end = new_end;
+    //             } else {
+    //                 end = start + min_range;
+    //                 if end > range_max {
+    //                     start = range_max - min_range;
+    //                     end = range_max;
+    //                 }
+    //             }
+    //         }
+    //
+    //         self.calc_range_start.insert(key.clone(), start);
+    //         self.calc_range_end.insert(key.clone(), end);
+    //     }
+    //     for (key, shortfall) in shortfall_adjustments {
+    //         adjust_shortfall(self, key.clone(), shortfall);
+    //     }
+    // }
+    pub fn set_deadband(&mut self, key: &GasKey, deadband: f64) {
+        self.deadbands.insert(key.clone(), deadband);
         self.adjust_calc_range_all_deadband();
 
         self.check_errors();
@@ -443,19 +449,19 @@ impl Cycle {
         self.compute_all_fluxes();
     }
 
-    fn _get_available_range(&self, gas_type: GasType) -> f64 {
-        let range_min = self.get_adjusted_close() + self.deadbands.get(&gas_type).unwrap();
+    fn _get_available_range(&self, key: &GasKey) -> f64 {
+        let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
         let range_max = self.get_adjusted_open();
         range_max - range_min
     }
     fn adjust_calc_range_all_deadband(&mut self) {
-        for gas_type in self.gases.iter().copied() {
-            let mut deadband = self.get_deadband(gas_type);
+        for key in self.gases.iter().clone() {
+            let mut deadband = self.get_deadband(&key);
             let range_min = self.get_adjusted_close() + deadband;
             let range_max = self.get_adjusted_open();
             let min_range = self.min_calc_len;
-            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
-            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
+            let mut start = *self.calc_range_start.get(key).unwrap_or(&range_min);
+            let mut end = *self.calc_range_end.get(key).unwrap_or(&range_max);
 
             let available_range = range_max - range_min;
             // Clamp to bounds
@@ -475,7 +481,7 @@ impl Cycle {
             // available range should never be smaller than the minimum range of the measurement
             if available_range < min_range {
                 deadband += available_range - min_range;
-                self.deadbands.insert(gas_type, deadband);
+                self.deadbands.insert(key.clone(), deadband);
             }
             // Ensure min range
             let current_range = end - start;
@@ -499,17 +505,17 @@ impl Cycle {
                 }
             }
 
-            self.calc_range_start.insert(gas_type, start);
-            self.calc_range_end.insert(gas_type, end);
+            self.calc_range_start.insert(key.clone(), start);
+            self.calc_range_end.insert(key.clone(), end);
         }
     }
     fn adjust_calc_range_all(&mut self) {
-        for gas_type in self.gases.iter().copied() {
-            let range_min = self.get_adjusted_close() + self.deadbands.get(&gas_type).unwrap();
+        for key in self.gases.iter().clone() {
+            let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
             let range_max = self.get_adjusted_open();
             let min_range = self.min_calc_len;
-            let mut start = *self.calc_range_start.get(&gas_type).unwrap_or(&range_min);
-            let mut end = *self.calc_range_end.get(&gas_type).unwrap_or(&range_max);
+            let mut start = *self.calc_range_start.get(&key).unwrap_or(&range_min);
+            let mut end = *self.calc_range_end.get(&key).unwrap_or(&range_max);
 
             let available_range = range_max - range_min;
             // Clamp to bounds
@@ -552,8 +558,8 @@ impl Cycle {
                 }
             }
 
-            self.calc_range_start.insert(gas_type, start);
-            self.calc_range_end.insert(gas_type, end);
+            self.calc_range_start.insert(key.clone(), start);
+            self.calc_range_end.insert(key.clone(), end);
         }
     }
     pub fn set_measurement_start(&mut self, value: f64) {
@@ -562,36 +568,37 @@ impl Cycle {
     pub fn set_measurement_end(&mut self, value: f64) {
         self.measurement_range_end = value;
     }
-    pub fn get_calc_start(&self, gas_type: GasType) -> f64 {
-        *self.calc_range_start.get(&gas_type).unwrap_or(&0.0)
+    pub fn get_calc_start(&self, key: &GasKey) -> f64 {
+        *self.calc_range_start.get(&key).unwrap_or(&0.0)
     }
-    pub fn get_calc_end(&self, gas_type: GasType) -> f64 {
-        *self.calc_range_end.get(&gas_type).unwrap_or(&0.0)
+    pub fn get_calc_end(&self, key: &GasKey) -> f64 {
+        *self.calc_range_end.get(&key).unwrap_or(&0.0)
     }
-    pub fn get_calc_start_i(&self, gas_type: GasType) -> usize {
-        (self.get_calc_start(gas_type) - self.get_measurement_start()) as usize
+    pub fn get_calc_start_i(&self, key: &GasKey) -> usize {
+        (self.get_calc_start(key) - self.get_start()) as usize
     }
-    pub fn get_calc_end_i(&self, gas_type: GasType) -> usize {
-        (self.get_calc_end(gas_type) - self.get_measurement_start()) as usize
+    pub fn get_calc_end_i(&self, key: &GasKey) -> usize {
+        (self.get_calc_end(key) - self.get_start()) as usize
     }
 
-    pub fn get_calc_range(&self, gas_type: GasType) -> f64 {
-        let start = self.get_calc_start(gas_type);
-        let end = self.get_calc_end(gas_type);
+    pub fn get_calc_range(&self, key: &GasKey) -> f64 {
+        let start = self.get_calc_start(key);
+        let end = self.get_calc_end(key);
         end - start
     }
     pub fn get_measurement_start(&self) -> f64 {
-        // self.start_time.timestamp() as f64
-        //     + self.close_offset as f64
-        //     + self.open_lag_s
-        //     + self.close_lag_s
-        let idx = self.close_offset as f64 + self.open_lag_s + self.close_lag_s;
-        self.dt_v[idx as usize]
+        self.start_time.timestamp() as f64
+            + self.close_offset as f64
+            + self.open_lag_s
+            + self.close_lag_s
+        // let idx = self.close_offset as f64 + self.open_lag_s + self.close_lag_s;
+        // self.dt_v.get(&self.main_instrument_serial).unwrap()[idx as usize]
     }
     pub fn get_measurement_end(&self) -> f64 {
-        // self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
-        let idx = self.open_offset as f64 + self.open_lag_s;
-        self.dt_v[idx as usize]
+        self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
+        // let idx = self.open_offset as f64 + self.open_lag_s;
+        // println!("end idx: {}", idx);
+        // self.dt_v.get(&self.main_instrument_serial).unwrap()[idx as usize]
         // + self.close_lag_s
     }
     pub fn set_automatic_valid(&mut self, valid: bool) {
@@ -640,10 +647,10 @@ impl Cycle {
     /// gets the peak gas concentration +-5 from the given timestamp
     pub fn get_peak_near_timestamp(
         &mut self,
-        gas_type: GasType,
+        key: &GasKey,
         target_time: i64, // Now an i64 timestamp
     ) -> Option<f64> {
-        if let Some(gas_v) = self.gas_v.get(&gas_type) {
+        if let Some(gas_v) = self.gas_v.get(&(key)) {
             let len = gas_v.len();
             if len < 120 {
                 println!("Less than 2minutes of data.");
@@ -653,6 +660,8 @@ impl Cycle {
             // Find index closest to `target_time` in `dt_v`
             let target_idx = self
                 .dt_v
+                .get(&key.label)
+                .unwrap()
                 .iter()
                 .enumerate()
                 .min_by_key(|(_, &dt)| (dt as i64 - target_time).abs())
@@ -667,7 +676,7 @@ impl Cycle {
                 gas_v[a].partial_cmp(&gas_v[b]).unwrap_or(std::cmp::Ordering::Equal)
             });
             if let Some(idx) = max_idx {
-                if let Some(peak_time) = self.dt_v.get(idx).cloned() {
+                if let Some(peak_time) = self.dt_v.get(&key.label).unwrap().get(idx).cloned() {
                     let lags = peak_time - (self.start_time.timestamp() + self.open_offset) as f64;
                     self.set_open_lag(lags);
 
@@ -678,8 +687,8 @@ impl Cycle {
         None
     }
     /// gets the timestamp of the highest gas concentration from the last 240 entries
-    pub fn search_open_lag(&mut self, gas_type: GasType) -> Option<f64> {
-        if let Some(gas_v) = self.gas_v.get(&gas_type) {
+    pub fn search_open_lag(&mut self, key: GasKey) -> Option<f64> {
+        if let Some(gas_v) = self.gas_v.get(&key) {
             let len = gas_v.len();
             if len < 120 {
                 return None;
@@ -693,8 +702,11 @@ impl Cycle {
                 .map(|(idx, _)| start_index + idx);
 
             if let Some(idx) = max_idx {
-                if let Some(peak_time) = self.dt_v.get(idx) {
-                    self.open_lag_s = peak_time - (self.dt_v[self.open_offset as usize]);
+                if let Some(peak_time) =
+                    self.dt_v.get(&self.main_instrument_serial).unwrap().get(idx)
+                {
+                    self.open_lag_s =
+                        peak_time - (self.start_time.timestamp() + self.open_offset) as f64;
 
                     return Some(*peak_time);
                 }
@@ -725,31 +737,31 @@ impl Cycle {
     }
 
     pub fn calculate_max_y(&mut self) {
-        for (gas_type, gas_v) in &self.gas_v {
+        for (key, gas_v) in &self.gas_v {
             let max_value = gas_v
             .iter()
             .filter_map(|&v| v) // discard None
             .filter(|v| !v.is_nan())
             .fold(f64::NEG_INFINITY, f64::max);
 
-            self.max_y.insert(*gas_type, max_value);
+            self.max_y.insert(key.clone(), max_value);
         }
     }
 
     pub fn calculate_min_y(&mut self) {
-        for (gas_type, gas_v) in &self.gas_v {
+        for (key, gas_v) in &self.gas_v {
             let min_value = gas_v
             .iter()
             .filter_map(|&v| v) // discard None
             .filter(|v| !v.is_nan())
             .fold(f64::INFINITY, f64::min);
 
-            self.min_y.insert(*gas_type, min_value);
+            self.min_y.insert(key.clone(), min_value);
         }
     }
 
-    pub fn _calculate_measurement_r(&mut self, gas_type: GasType) {
-        if let Some(gas_v) = self.measurement_gas_v.get(&gas_type) {
+    pub fn _calculate_measurement_r(&mut self, key: GasKey) {
+        if let Some(gas_v) = self.measurement_gas_v.get(&key) {
             // let dt_vv: Vec<f64> =
             //     self.measurement_dt_v.iter().map(|x| x.timestamp() as f64).collect();
 
@@ -766,34 +778,36 @@ impl Cycle {
 
             // Calculate and store r^2
             let r2 = stats::pearson_correlation(&filtered_x, &filtered_y).unwrap_or(0.0).powi(2);
-            self.measurement_r2.insert(gas_type, r2);
+            self.measurement_r2.insert(key, r2);
         }
     }
 
-    pub fn calculate_calc_r(&mut self, gas_type: GasType) {
-        let dt = self.get_calc_dt2(gas_type);
-        let gas = self.get_calc_gas_v(gas_type);
+    pub fn calculate_calc_r(&mut self, key: GasKey) {
+        // let dt = self.get_calc_dt2(&key.clone());
+        // let gas = self.get_calc_gas_v(key.clone());
+        let (dt, gas) = self.get_calc_data2(&key);
 
         let filtered: Vec<(&f64, &f64)> = dt.iter().zip(gas.iter()).collect();
 
         let (x, y): (Vec<f64>, Vec<f64>) = filtered.into_iter().unzip();
 
-        self.calc_r2.insert(gas_type, stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2));
+        self.calc_r2.insert(key, stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2));
     }
 
     pub fn calculate_calc_rs(&mut self) {
-        for gas_type in self.gases.clone() {
-            self.calculate_calc_r(gas_type);
+        for key in self.gases.clone() {
+            self.calculate_calc_r(key);
         }
     }
-    pub fn find_best_r_indices_for_gas(&mut self, gas_type: GasType) {
+    pub fn find_best_r_indices_for_gas(&mut self, key: &GasKey) {
         // Precompute timestamps as float
-        let dt_v: Vec<f64> = self.get_measurement_dt_v2();
+        // let dt_v: Vec<f64> = self.get_measurement_dt_v2(&key);
 
+        let (dt_v, gas_v) = self.get_measurement_data(&key);
         // Precompute timestamp gaps (difference > 1.0 sec)
         let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
 
-        let gas_v = self.get_measurement_gas_v2(gas_type);
+        // let gas_v = self.get_measurement_gas_v2(&key);
 
         if gas_v.len() < self.min_calc_len as usize || dt_v.len() < self.min_calc_len as usize {
             return;
@@ -808,27 +822,36 @@ impl Cycle {
         ) {
             let start_time = dt_v[start];
             let end_time = dt_v[end - 1];
-            self.set_calc_start(gas_type, start_time);
-            self.set_calc_end(gas_type, end_time);
+            self.set_calc_start(&key, start_time);
+            self.set_calc_end(&key, end_time);
         }
     }
-    pub fn find_best_r_indices(&mut self) {
-        // Precompute timestamps as float
-        let dt_v: Vec<f64> = self.get_measurement_dt_v2();
 
-        // Precompute timestamp gaps (difference > 1.0 sec)
-        let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
+    pub fn find_best_r_indices(&mut self) {
+        // precompute timestamps as float
+
+        // precompute timestamp gaps (difference > 1.0 sec)
+        // let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
+
+        // prepare gas value vectors
         let mut gas_vecs = HashMap::new();
-        for gas_type in self.gases.clone() {
-            gas_vecs.insert(gas_type, self.get_measurement_gas_v2(gas_type));
+        let mut dt_vecs = HashMap::new();
+        for key in self.gases.clone() {
+            let (dv, gv) = self.get_measurement_data(&key);
+            // let gv = self.get_measurement_gas_v2(&key);
+            // let dv = self.get_measurement_dt_v2(&key);
+            gas_vecs.insert(key.clone(), gv);
+            dt_vecs.insert(key.clone(), dv);
         }
 
-        // Run analysis in parallel for all gases
+        // run analysis in parallel for all gases
         let results: Vec<_> = self
             .gases
             .iter()
-            .filter_map(|&gas| {
-                let gas_v = gas_vecs.get(&gas).unwrap();
+            .filter_map(|key| {
+                let gas_v = gas_vecs.get(key)?;
+                let dt_v = dt_vecs.get(key)?;
+                let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
 
                 if gas_v.len() < self.min_calc_len as usize
                     || dt_v.len() < self.min_calc_len as usize
@@ -841,38 +864,42 @@ impl Cycle {
                     gas_v,
                     &gaps,
                     self.min_calc_len as usize,
-                    WINDOW_INCREMENT,
+                    WINDOW_INCREMENT, // Assuming this is available
                 )
-                .map(|(start, end, r)| (gas, start, end, r))
+                .map(|(start, end, r)| (key.clone(), start, end, r))
             })
             .collect();
-        for (gas_type, start, end, _) in results {
-            let start = dt_v[start];
-            let end = dt_v[end - 1];
-            self.set_calc_start(gas_type, start);
-            self.set_calc_end(gas_type, end);
+
+        // Apply results
+        for (key, start, end, _) in results {
+            let start_time = dt_vecs.get(&key).unwrap()[start];
+            let end_time = dt_vecs.get(&key).unwrap()[end - 1];
+            println!("{} {:?}", start_time - self.get_start(), key);
+            println!("{} {:?}", end_time - self.get_start(), key);
+            self.set_calc_start(&key, start_time);
+            self.set_calc_end(&key, end_time);
         }
     }
     pub fn get_calc_datas(&mut self) {
-        for &gas_type in &self.gases.clone() {
-            self.get_calc_data(gas_type);
+        for key in &self.gases.clone() {
+            self.get_calc_data(key);
         }
     }
 
     pub fn calculate_measurement_rs2(&mut self) {
-        let dt_vv = self.get_measurement_dt_v2(); // shared, safe
-
-        let results: Vec<(GasType, f64)> = self
+        let results: Vec<(GasKey, f64)> = self
             .gases
             .par_iter()
-            .filter_map(|&gas| {
-                let gas_v = self.get_measurement_gas_v2(gas);
+            .filter_map(|key| {
+                let (dt_vv, gas_v) = self.get_measurement_data(&key);
+                // let gas_v = self.get_measurement_gas_v2(key);
+                // let dt_vv = self.get_measurement_dt_v2(key); // shared, safe
                 if gas_v.len() != dt_vv.len() || gas_v.len() < 5 {
                     return None;
                 }
 
                 let r2 = stats::pearson_correlation(&dt_vv, &gas_v).unwrap_or(0.0).powi(2);
-                Some((gas, r2))
+                Some((key.clone(), r2))
             })
             .collect();
 
@@ -881,9 +908,10 @@ impl Cycle {
         }
     }
     pub fn calculate_measurement_rs(&mut self) {
-        for &gas_type in &self.gases {
-            let gas_v = self.get_measurement_gas_v2(gas_type);
-            let dt_vv = self.get_measurement_dt_v2();
+        for key in &self.gases {
+            let (dt_vv, gas_v) = self.get_measurement_data(&key);
+            // let gas_v = self.get_measurement_gas_v2(key);
+            // let dt_vv = self.get_measurement_dt_v2(key);
 
             // let filtered: Vec<(f64, f64)> = dt_vv.iter().zip(gas_v.iter()).collect();
             let filtered: Vec<(f64, f64)> =
@@ -892,7 +920,7 @@ impl Cycle {
             let (x, y): (Vec<f64>, Vec<f64>) = filtered.into_iter().unzip();
 
             self.measurement_r2
-                .insert(gas_type, stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2));
+                .insert(key.clone(), stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2));
             // }
         }
     }
@@ -914,7 +942,10 @@ impl Cycle {
     }
 
     pub fn check_main_r(&mut self) {
-        if let Some(r2) = self.measurement_r2.get(&self.main_gas) {
+        if let Some(r2) = self
+            .measurement_r2
+            .get(&(GasKey::from((&self.main_gas, self.main_instrument_serial.as_str()))))
+        {
             if *r2 < 0.98 {
                 self.add_error(ErrorCode::LowR);
             } else {
@@ -926,12 +957,14 @@ impl Cycle {
     }
 
     pub fn check_missing(&mut self) {
-        if let Some(values) = self.gas_v.get(&self.main_gas) {
+        if let Some(values) =
+            self.gas_v.get(&(GasKey::from((&self.main_gas, self.main_instrument_serial.as_str()))))
+        {
             let valid_count = values.iter().filter(|v| v.is_some()).count();
             let threshold = self.end_offset as f64 * 0.7;
             let check = (valid_count as f64) < threshold;
-
-            if check {
+            let check2 = values.len() < (self.end_offset as f64 * 0.99) as usize;
+            if check || check2 {
                 self.add_error(ErrorCode::TooFewMeasurements);
             } else {
                 self.remove_error(ErrorCode::TooFewMeasurements);
@@ -949,11 +982,12 @@ impl Cycle {
         }
     }
     pub fn reset_deadbands(&mut self) {
-        for gas in &self.gases {
-            self.deadbands.insert(*gas, 30.);
+        for key in &self.gases {
+            self.deadbands.insert(key.clone(), 30.);
         }
     }
     pub fn init(&mut self, use_best_r: bool) {
+        // println!("Running init");
         self.manual_adjusted = false;
         self.close_lag_s = 0.;
         self.open_lag_s = 0.;
@@ -963,9 +997,12 @@ impl Cycle {
         self.check_missing();
 
         if !self.has_error(ErrorCode::TooManyDiagErrors)
-            && !self.has_error(ErrorCode::TooFewMeasurements)
+            || !self.has_error(ErrorCode::TooFewMeasurements)
         {
-            self.search_open_lag(self.main_gas);
+            self.search_open_lag(GasKey::from((
+                &self.main_gas,
+                self.main_instrument_serial.as_str(),
+            )));
             if use_best_r {
                 self.find_best_r_indices();
             } else {
@@ -978,25 +1015,27 @@ impl Cycle {
             self.calculate_max_y();
             self.calculate_min_y();
             self.check_errors();
+        } else {
         }
     }
 
     pub fn set_calc_ranges(&mut self) {
-        for gas_type in self.gases.clone() {
-            let start =
-                self.get_measurement_start() + self.deadbands.get(&gas_type).unwrap_or(&0.0);
+        for key in self.gases.clone() {
+            let start = self.get_measurement_start() + self.deadbands.get(&key).unwrap_or(&0.0);
             let end = start + self.min_calc_len;
-            self.set_calc_start(gas_type, start);
-            self.set_calc_end(gas_type, end);
+            // println!("cstart idx{}", self.get_start() - start);
+            // println!("cend idx{}", self.get_start() - end);
+
+            self.set_calc_start(&key, start);
+            self.set_calc_end(&key, end);
         }
     }
     pub fn set_calc_ranges_to_best_r(&mut self) {
-        for gas_type in self.gases.clone() {
-            let start =
-                self.get_measurement_start() + self.deadbands.get(&gas_type).unwrap_or(&0.0);
+        for key in self.gases.clone() {
+            let start = self.get_measurement_start() + self.deadbands.get(&key).unwrap_or(&0.0);
             let end = start + self.min_calc_len;
-            self.set_calc_start(gas_type, start);
-            self.set_calc_end(gas_type, end);
+            self.set_calc_start(&key, start);
+            self.set_calc_end(&key, end);
         }
     }
 
@@ -1011,39 +1050,48 @@ impl Cycle {
         self.compute_all_fluxes();
     }
 
-    pub fn update_calc_attributes(&mut self, gas_type: GasType) {
-        // self.get_calc_data(gas_type);
+    pub fn update_calc_attributes(&mut self, key: &GasKey) {
+        // self.get_calc_data(key);
         self.calculate_concentration_at_t0();
-        // self.calculate_calc_r(gas_type);
-        self.compute_single_flux(gas_type);
+        // self.calculate_calc_r(key);
+        self.compute_single_flux(key);
     }
-    pub fn update_measurement_attributes(&mut self, gas_type: GasType) {
+    pub fn update_measurement_attributes(&mut self, key: &GasKey) {
         // self.get_measurement_datas();
         self.calculate_measurement_rs();
-        // self.get_calc_data(gas_type);
+        // self.get_calc_data(key);
         self.calculate_concentration_at_t0();
-        // self.calculate_calc_r(gas_type);
-        self.compute_single_flux(gas_type);
+        // self.calculate_calc_r(key);
+        self.compute_single_flux(key);
     }
 
-    pub fn get_calc_data(&mut self, gas_type: GasType) {
-        if let Some(gas_v) = self.gas_v.get(&gas_type) {
-            let s = (self.calc_range_start.get(&gas_type).unwrap()
-                - self.start_time.timestamp() as f64) as usize;
-            let e = (self.calc_range_end.get(&gas_type).unwrap()
-                - self.start_time.timestamp() as f64) as usize;
+    pub fn get_calc_data(&mut self, key: &GasKey) {
+        if let Some(gas_v) = self.gas_v.get(key) {
+            let s = (self.calc_range_start.get(&key).unwrap() - self.start_time.timestamp() as f64)
+                as usize;
+            let e = (self.calc_range_end.get(&key).unwrap() - self.start_time.timestamp() as f64)
+                as usize;
 
             // Clear previous results
-            self.calc_gas_v.insert(gas_type, gas_v[s..e].to_vec());
-            self.calc_dt_v.insert(gas_type, self.dt_v[s..e].to_vec());
+            self.calc_gas_v.insert(key.clone(), gas_v[s..e].to_vec());
+            self.calc_dt_v.insert(key.clone(), self.dt_v.get(&key.label).unwrap()[s..e].to_vec());
         }
     }
-    pub fn get_measurement_gas_v2(&self, gas_type: GasType) -> Vec<f64> {
+    pub fn get_gas_v(&self, key: &GasKey) -> Vec<f64> {
+        self.gas_v
+            .get(key)
+            .map(|vec| vec.iter().map(|s| s.unwrap_or(f64::NAN)).collect())
+            .unwrap_or_default()
+    }
+    pub fn get_dt_v(&self, key: &GasKey) -> Vec<f64> {
+        self.dt_v.clone().get(&key.clone().label).unwrap().to_vec()
+    }
+    pub fn get_measurement_gas_v2(&self, key: &GasKey) -> Vec<f64> {
         let s = self.get_adjusted_close_i();
         let e = self.get_adjusted_open_i();
         let ret: Vec<f64> = self
             .gas_v
-            .get(&gas_type)
+            .get(key)
             .map(|vec| vec.iter().map(|s| s.unwrap_or(f64::NAN)).collect())
             .unwrap_or_default();
         if s > ret.len() {
@@ -1051,7 +1099,7 @@ impl Cycle {
         }
         ret[s..e].to_vec()
     }
-    pub fn get_measurement_dt_v2(&self) -> Vec<f64> {
+    pub fn get_measurement_dt_v2(&self, key: &GasKey) -> Vec<f64> {
         // let close_time = self.get_adjusted_close() - self.start_time.timestamp() as f64;
         // let open_time = self.get_adjusted_open() - self.start_time.timestamp() as f64;
 
@@ -1059,13 +1107,41 @@ impl Cycle {
         // let e = open_time as usize;
         let s = self.get_adjusted_close_i();
         let e = self.get_adjusted_open_i();
-        if s > self.dt_v.len() {
-            return self.dt_v.clone();
+        let ret = self.dt_v.get(&key.label).unwrap();
+        if s > ret.len() {
+            return ret.to_vec();
         }
-        self.dt_v[s..e].to_vec()
+        ret[s..e].to_vec()
     }
-    // pub fn get_measurement_data(&mut self, gas_type: GasType) {
-    //     if let Some(gas_v) = self.gas_v.get(&gas_type) {
+    pub fn get_measurement_data(&self, key: &GasKey) -> (Vec<f64>, Vec<f64>) {
+        let start_time = self.get_adjusted_close();
+        let end_time = self.get_adjusted_open();
+
+        let dt_vec = match self.dt_v.get(&key.label) {
+            Some(vec) => vec,
+            None => return (vec![], vec![]),
+        };
+
+        let gas_vec = match self.gas_v.get(key) {
+            Some(vec) => vec,
+            None => return (vec![], vec![]),
+        };
+
+        let mut filtered_dt = Vec::new();
+        let mut filtered_gas = Vec::new();
+
+        for (i, &t) in dt_vec.iter().enumerate() {
+            if t >= start_time && t < end_time {
+                filtered_dt.push(t);
+                let value = gas_vec.get(i).copied().unwrap_or(None).unwrap_or(f64::NAN);
+                filtered_gas.push(value);
+            }
+        }
+
+        (filtered_dt, filtered_gas)
+    }
+    // pub fn get_measurement_data(&mut self, key: GasKey) {
+    //     if let Some(gas_v) = self.gas_v.get(&key) {
     //         let close_time = self.get_adjusted_close();
     //         let open_time = self.get_adjusted_open();
     //
@@ -1073,7 +1149,7 @@ impl Cycle {
     //         let e = open_time;
     //         // let e = s + 150.;
     //         // Clear previous results
-    //         self.measurement_gas_v.insert(gas_type, Vec::new());
+    //         self.measurement_gas_v.insert(key, Vec::new());
     //         self.measurement_dt_v.clear();
     //
     //         // Filter and store results in separate vectors
@@ -1083,18 +1159,18 @@ impl Cycle {
     //             .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
     //             .for_each(|(t, d)| {
     //                 self.measurement_dt_v.push(*t);
-    //                 self.measurement_gas_v.get_mut(&gas_type).unwrap().push(*d);
+    //                 self.measurement_gas_v.get_mut(&key).unwrap().push(*d);
     //             });
     //     } else {
-    //         println!("No gas data found for {}", gas_type);
+    //         println!("No gas data found for {}", key);
     //     }
     // }
 
-    // pub fn calculate_slope(&mut self, gas_type: GasType) {
-    //     if let Some(gas_v) = self.calc_gas_v.get(&gas_type) {
+    // pub fn calculate_slope(&mut self, key: GasType) {
+    //     if let Some(gas_v) = self.calc_gas_v.get(&key) {
     //         let time_vec: Vec<f64> = self
     //             .calc_dt_v
-    //             .get(&gas_type)
+    //             .get(&key)
     //             .unwrap()
     //             .iter()
     //             .map(|dt| dt.timestamp() as f64)
@@ -1110,44 +1186,44 @@ impl Cycle {
     //         let (x_vals, y_vals): (Vec<f64>, Vec<f64>) = filtered.into_iter().unzip();
     //
     //         let linreg = stats::LinReg::train(&x_vals, &y_vals);
-    //         self.linfit.insert(gas_type, linreg);
+    //         self.linfit.insert(key, linreg);
     //     } else {
-    //         self.linfit.insert(gas_type, LinReg::default());
+    //         self.linfit.insert(key, LinReg::default());
     //     }
     // }
 
     pub fn compute_all_fluxes(&mut self) {
-        for &gas_type in &self.instrument_model.available_gases() {
-            self.calculate_lin_flux(gas_type);
-            self.calculate_poly_flux(gas_type);
-            self.calculate_roblin_flux(gas_type);
+        for key in &self.gases.clone() {
+            self.calculate_lin_flux(key.clone());
+            self.calculate_poly_flux(key.clone());
+            self.calculate_roblin_flux(key.clone());
         }
     }
-    pub fn compute_single_flux(&mut self, gas: GasType) {
-        self.calculate_lin_flux(gas);
-        self.calculate_poly_flux(gas);
-        self.calculate_roblin_flux(gas);
+    pub fn compute_single_flux(&mut self, key: &GasKey) {
+        self.calculate_lin_flux(key.clone());
+        self.calculate_poly_flux(key.clone());
+        self.calculate_roblin_flux(key.clone());
     }
 
-    // pub fn get_calc_dt(&self, gas_type: GasType) -> Vec<f64> {
-    //     let ret: Vec<f64> = *self.calc_dt_v.get(&gas_type).unwrap_or(&Vec::new());
+    // pub fn get_calc_dt(&self, key: GasType) -> Vec<f64> {
+    //     let ret: Vec<f64> = *self.calc_dt_v.get(&key).unwrap_or(&Vec::new());
     //     ret
     // }
-    pub fn _get_calc_dt2(&self, gas_type: GasType) -> Vec<f64> {
-        let s = (self.get_calc_start(gas_type) - self.start_time.timestamp() as f64) as usize;
-        let e = (self.get_calc_end(gas_type) - self.start_time.timestamp() as f64) as usize;
-        let ret: Vec<f64> = self.dt_v.clone();
+    pub fn _get_calc_dt2(&self, key: GasKey) -> Vec<f64> {
+        let s = (self.get_calc_start(&key) - self.start_time.timestamp() as f64) as usize;
+        let e = (self.get_calc_end(&key) - self.start_time.timestamp() as f64) as usize;
+        let ret: Vec<f64> = self.dt_v.get(&key.label).unwrap().clone();
         if s > ret.len() {
             return ret;
         }
         ret[s..e].to_vec()
     }
-    pub fn _get_calc_gas_v2(&self, gas_type: GasType) -> Vec<f64> {
-        let s = (self.get_calc_start(gas_type) - self.start_time.timestamp() as f64) as usize;
-        let e = (self.get_calc_end(gas_type) - self.start_time.timestamp() as f64) as usize;
+    pub fn _get_calc_gas_v2(&self, key: GasKey) -> Vec<f64> {
+        let s = (self.get_calc_start(&key) - self.start_time.timestamp() as f64) as usize;
+        let e = (self.get_calc_end(&key) - self.start_time.timestamp() as f64) as usize;
         let ret: Vec<f64> = self
             .gas_v
-            .get(&gas_type)
+            .get(&key)
             .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default();
         if s > ret.len() {
@@ -1156,49 +1232,84 @@ impl Cycle {
         }
         ret[s..e].to_vec()
     }
-    pub fn get_calc_dt2(&self, gas_type: GasType) -> Vec<f64> {
-        let s = self.get_calc_start_i(gas_type);
-        let e = self.get_calc_end_i(gas_type);
-        let ret: Vec<f64> = self.get_measurement_dt_v2();
+    pub fn get_calc_dt2(&self, key: &GasKey) -> Vec<f64> {
+        let s = self.get_calc_start_i(key);
+        let e = self.get_calc_end_i(key);
+        let ret = self.get_dt_v(key);
         if s > ret.len() || e > ret.len() {
             return ret;
         }
         ret[s..e].to_vec()
     }
-    pub fn get_calc_gas_v2(&self, gas_type: GasType) -> Vec<f64> {
-        let s = self.get_calc_start_i(gas_type);
-        let e = self.get_calc_end_i(gas_type);
-        let ret: Vec<f64> = self.get_measurement_gas_v2(gas_type);
+    pub fn get_calc_gas_v2(&self, key: &GasKey) -> Vec<f64> {
+        let s = self.get_calc_start_i(key);
+        let e = self.get_calc_end_i(key);
+        let ret = self.get_gas_v(key);
+
         if s > ret.len() {
             return ret;
         }
         ret[s..e].to_vec()
     }
+
+    pub fn get_calc_data2(&self, key: &GasKey) -> (Vec<f64>, Vec<f64>) {
+        let start_time = self.get_calc_start(key);
+        let end_time = self.get_calc_end(key);
+
+        let dt_vec = match self.dt_v.get(&key.label) {
+            Some(vec) => vec,
+            None => return (vec![], vec![]),
+        };
+
+        let gas_vec = match self.gas_v.get(key) {
+            Some(vec) => vec,
+            None => return (vec![], vec![]),
+        };
+
+        let mut filtered_dt = Vec::new();
+        let mut filtered_gas = Vec::new();
+
+        for (i, &t) in dt_vec.iter().enumerate() {
+            if t >= start_time && t < end_time {
+                filtered_dt.push(t);
+                let gas_value = gas_vec.get(i).and_then(|v| *v).unwrap_or(f64::NAN);
+                filtered_gas.push(gas_value);
+            }
+        }
+
+        (filtered_dt, filtered_gas)
+    }
     // pub fn get_measurement_dt_v(&self) -> Vec<f64> {
     //     self.measurement_dt_v.iter().map(|s| s.timestamp() as f64).collect()
     // }
-    pub fn get_measurement_gas_v(&self, gas_type: GasType) -> Vec<f64> {
+    pub fn get_measurement_gas_v(&self, key: GasKey) -> Vec<f64> {
         self.measurement_gas_v
-            .get(&gas_type)
+            .get(&key)
             .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default()
     }
 
-    pub fn get_calc_gas_v(&self, gas_type: GasType) -> Vec<f64> {
+    pub fn get_calc_gas_v(&self, key: GasKey) -> Vec<f64> {
         self.calc_gas_v
-            .get(&gas_type)
+            .get(&key)
             .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default()
     }
 
-    pub fn calculate_lin_flux(&mut self, gas_type: GasType) {
-        let x = self.get_calc_dt2(gas_type);
-        let y = self.get_calc_gas_v2(gas_type);
+    pub fn calculate_lin_flux(&mut self, key: GasKey) {
+        // println!("{:?}", key);
+        // let x = self.get_calc_dt2(&key);
+        // let y = self.get_calc_gas_v2(&key);
+        let (x, y) = self.get_calc_data2(&key);
+        // println!("diff {}", x.first().unwrap() - self.get_start());
+        // println!("y1 {}", self.get_calc_start_i(&key));
+        // println!("y2 {}", self.get_calc_end_i(&key));
+        // println!("diff {}", x.first().unwrap() - self.get_measurement_start());
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
 
-        let ss = self.get_calc_start(gas_type);
-        let ee = self.get_calc_end(gas_type);
+        let ss = self.get_calc_start(&key);
+        let ee = self.get_calc_end(&key);
         // if &ss != s {
         //     println!("bad! s: {} ss: {}", s, ss)
         // } else {
@@ -1214,7 +1325,7 @@ impl Cycle {
         // let pt_count = 300;
         //
         // let x = self.get_measurement_dt_v()[..pt_count].to_vec();
-        // let y = self.get_measurement_gas_v(gas_type)[..pt_count].to_vec();
+        // let y = self.get_measurement_gas_v(key)[..pt_count].to_vec();
         // let s = x.first().unwrap_or(&0.);
         // let e = x.last().unwrap_or(&0.);
 
@@ -1225,7 +1336,7 @@ impl Cycle {
 
         if let Some(data) = LinearFlux::from_data(
             "lin",
-            gas_type,
+            key.gas_type,
             &x,
             &y,
             *s,
@@ -1234,8 +1345,9 @@ impl Cycle {
             self.air_pressure,
             self.chamber_volume,
         ) {
+            // println!("{}", data);
             self.fluxes.insert(
-                (gas_type, FluxKind::Linear),
+                (key, FluxKind::Linear),
                 FluxRecord {
                     model: Box::new(data),
                     is_valid: true, // default to valid unless user invalidates later
@@ -1245,17 +1357,18 @@ impl Cycle {
             // Optionally log: fitting failed
         }
     }
-    pub fn calculate_poly_flux(&mut self, gas_type: GasType) {
+    pub fn calculate_poly_flux(&mut self, key: GasKey) {
         // let x = self.get_measurement_dt_v().to_vec();
-        // let y = self.get_measurement_gas_v(gas_type).to_vec();
-        let x = self.get_calc_dt2(gas_type).to_vec();
-        let y = self.get_calc_gas_v2(gas_type).to_vec();
+        // let y = self.get_measurement_gas_v(key).to_vec();
+        // let x = self.get_calc_dt2(&key).to_vec();
+        // let y = self.get_calc_gas_v2(&key).to_vec();
+        let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
         // let pt_count = 300;
         //
         // let x = self.get_measurement_dt_v()[..pt_count].to_vec();
-        // let y = self.get_measurement_gas_v(gas_type)[..pt_count].to_vec();
+        // let y = self.get_measurement_gas_v(key)[..pt_count].to_vec();
         // let s = x.first().unwrap_or(&0.);
         // let e = x.last().unwrap_or(&0.);
 
@@ -1264,7 +1377,7 @@ impl Cycle {
             // Optional: log or notify
             eprintln!(
                 "Insufficient data for polynomial flux on gas {:?}: x = {}, y = {}",
-                gas_type,
+                key.gas_type,
                 x.len(),
                 y.len()
             );
@@ -1274,7 +1387,7 @@ impl Cycle {
         // Fit and insert if successful
         if let Some(data) = PolyFlux::from_data(
             "poly",
-            gas_type,
+            key.gas_type,
             &x,
             &y,
             *s,
@@ -1283,23 +1396,25 @@ impl Cycle {
             self.air_pressure,
             self.chamber_volume,
         ) {
+            // println!("{}", data);
             self.fluxes.insert(
-                (gas_type, FluxKind::Poly),
+                (key, FluxKind::Poly),
                 FluxRecord { model: Box::new(data), is_valid: true },
             );
         } else {
-            eprintln!("Polynomial regression failed for gas {:?}", gas_type);
+            eprintln!("Polynomial regression failed for gas {:?}", key.gas_type);
         }
     }
-    pub fn calculate_roblin_flux(&mut self, gas_type: GasType) {
-        let x = self.get_calc_dt2(gas_type).to_vec();
-        let y = self.get_calc_gas_v2(gas_type).to_vec();
+    pub fn calculate_roblin_flux(&mut self, key: GasKey) {
+        // let x = self.get_calc_dt2(&key).to_vec();
+        // let y = self.get_calc_gas_v2(&key).to_vec();
+        let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
         // let pt_count = 300;
         //
         // let x = self.get_measurement_dt_v()[..pt_count].to_vec();
-        // let y = self.get_measurement_gas_v(gas_type)[..pt_count].to_vec();
+        // let y = self.get_measurement_gas_v(key)[..pt_count].to_vec();
         // let s = x.first().unwrap_or(&0.);
         // let e = x.last().unwrap_or(&0.);
 
@@ -1310,7 +1425,7 @@ impl Cycle {
 
         if let Some(data) = RobustFlux::from_data(
             "roblin",
-            gas_type,
+            key.gas_type,
             &x,
             &y,
             *s,
@@ -1319,8 +1434,9 @@ impl Cycle {
             self.air_pressure,
             self.chamber_volume,
         ) {
+            // println!("{}", data);
             self.fluxes.insert(
-                (gas_type, FluxKind::RobLin),
+                (key, FluxKind::RobLin),
                 FluxRecord { model: Box::new(data), is_valid: true },
             );
         } else {
@@ -1337,13 +1453,13 @@ impl Cycle {
 
         let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
         let ppb_to_nmol = conversion_factor * 1e-9 * 1e9; // mol → nmol, and ppb = 1e-9
-        let mut converted: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
-        for gas_type in self.gases.clone() {
-            if let Some(values) = self.gas_v.get(&gas_type) {
+        let mut converted: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
+        for key in self.gases.clone() {
+            if let Some(values) = self.gas_v.get(&key) {
                 let new_vals = values.iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
-                converted.insert(gas_type, new_vals);
+                converted.insert(key, new_vals);
             }
-            // if let Some(values) = self.gas_v.get_mut(&gas_type) {
+            // if let Some(values) = self.gas_v.get_mut(&key) {
             //     for value in values.iter_mut().flatten() {
             //         let val = *value *= ppb_to_nmol;
             //     }
@@ -1393,7 +1509,16 @@ impl Cycle {
         ) {
             Ok(gasdata) => {
                 self.gas_v = gasdata.gas;
-                self.dt_v = gasdata.datetime.iter().map(|t| t.timestamp() as f64).collect();
+                // self.dt_v = gasdata.datetime.iter().map(|t| t.timestamp() as f64).collect();
+                self.dt_v = gasdata
+                    .datetime
+                    .iter()
+                    .map(|(serial, dt_list)| {
+                        let timestamps =
+                            dt_list.iter().map(|t| t.timestamp() as f64).collect::<Vec<f64>>();
+                        (serial.clone(), timestamps)
+                    })
+                    .collect();
                 self.diag_v = gasdata.diag;
             },
             Err(e) => {
@@ -1405,22 +1530,22 @@ impl Cycle {
         self.calculate_max_y();
         self.calculate_min_y();
     }
-    pub fn best_flux_by_aic(&self, gas_type: &GasType) -> Option<f64> {
+    pub fn best_flux_by_aic(&self, key: &GasKey) -> Option<f64> {
         let candidates = FluxKind::all();
 
         candidates
             .iter()
-            .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
+            .filter_map(|kind| self.fluxes.get(&(key.clone(), *kind)))
             .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.flux())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(_, flux)| flux.unwrap())
     }
-    pub fn best_model_by_aic(&self, gas_type: &GasType) -> Option<FluxKind> {
+    pub fn best_model_by_aic(&self, key: &GasKey) -> Option<FluxKind> {
         let candidates = FluxKind::all();
 
         candidates
             .iter()
-            .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
+            .filter_map(|kind| self.fluxes.get(&(key.clone(), *kind)))
             .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.fit_id())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(_, fit_id)| fit_id)
@@ -1428,28 +1553,28 @@ impl Cycle {
 
     pub fn is_valid_by_threshold(
         &self,
-        gas_type: GasType,
+        key: GasKey,
         kind: FluxKind,
         p_val_thresh: f64,
         r2_thresh: f64,
         rmse_thresh: f64,
         t0_thresh: f64,
     ) -> bool {
-        let p_val = self.fluxes.get(&(gas_type, kind)).unwrap().model.p_value().unwrap_or(0.0);
-        let r2 = self.measurement_r2.get(&gas_type).unwrap_or(&0.0);
-        let rmse = self.fluxes.get(&(gas_type, kind)).unwrap().model.rmse().unwrap_or(0.0);
-        let t0 = self.t0_concentration.get(&gas_type).unwrap_or(&0.0);
+        let p_val = self.fluxes.get(&(key.clone(), kind)).unwrap().model.p_value().unwrap_or(0.0);
+        let r2 = self.measurement_r2.get(&key.clone()).unwrap_or(&0.0);
+        let rmse = self.fluxes.get(&(key.clone(), kind)).unwrap().model.rmse().unwrap_or(0.0);
+        let t0 = self.t0_concentration.get(&key.clone()).unwrap_or(&0.0);
         p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh
     }
 
-    pub fn mark_flux_invalid(&mut self, gas: GasType, kind: FluxKind) {
-        if let Some(record) = self.fluxes.get_mut(&(gas, kind)) {
+    pub fn mark_flux_invalid(&mut self, key: GasKey, kind: FluxKind) {
+        if let Some(record) = self.fluxes.get_mut(&(key, kind)) {
             record.is_valid = false;
         }
     }
 
-    pub fn mark_flux_valid(&mut self, gas: GasType, kind: FluxKind) {
-        if let Some(record) = self.fluxes.get_mut(&(gas, kind)) {
+    pub fn mark_flux_valid(&mut self, key: GasKey, kind: FluxKind) {
+        if let Some(record) = self.fluxes.get_mut(&(key, kind)) {
             record.is_valid = true;
         }
     }
@@ -1535,6 +1660,8 @@ impl CycleBuilder {
             id: 0,
             chamber_id: chamber,
             start_time: start,
+            main_instrument_model: InstrumentType::LI7810,
+            main_instrument_serial: String::new(),
             instrument_model: InstrumentType::LI7810,
             instrument_serial: String::new(),
             project_name: String::new(),
@@ -1567,7 +1694,7 @@ impl CycleBuilder {
             measurement_range_start: 0.,
             measurement_range_end: 0.,
             diag_v: vec![],
-            dt_v: vec![],
+            dt_v: HashMap::new(),
             gas_v: HashMap::new(),
             gas_v_mole: HashMap::new(),
             calc_gas_v: HashMap::new(),
@@ -1597,6 +1724,8 @@ impl CycleBuilder {
         Ok(Cycle {
             id: 0,
             chamber_id: chamber,
+            main_instrument_model: InstrumentType::LI7810,
+            main_instrument_serial: String::new(),
             instrument_model: InstrumentType::LI7810,
             instrument_serial: String::new(),
             min_calc_len,
@@ -1630,7 +1759,7 @@ impl CycleBuilder {
             measurement_range_start: 0.,
             measurement_range_end: 0.,
             diag_v: vec![],
-            dt_v: vec![],
+            dt_v: HashMap::new(),
             gas_v: HashMap::new(),
             gas_v_mole: HashMap::new(),
             calc_gas_v: HashMap::new(),
@@ -1683,7 +1812,7 @@ pub fn insert_fluxes_ignore_duplicates(
 pub fn insert_flux_results(
     conn: &mut Connection,
     cycle_id: i64,
-    fluxes: HashMap<(GasType, FluxKind), FluxRecord>,
+    fluxes: HashMap<(GasKey, FluxKind), FluxRecord>,
 ) -> rusqlite::Result<(usize, usize)> {
     let mut inserted = 0;
     let mut skipped = 0;
@@ -1768,20 +1897,20 @@ fn execute_history_insert(
     cycle: &Cycle,
     project: &String,
 ) -> Result<()> {
-    for gas_type in cycle.instrument_model.available_gases() {
-        let linear = cycle.fluxes.get(&(gas_type, FluxKind::Linear));
-        let polynomial = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
-        let robustlinear = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
+    for key in cycle.gases.clone() {
+        let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
+        let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
+        let robustlinear = cycle.fluxes.get(&(key.clone(), FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
         let poly = polynomial.map(|m| m.model.as_ref());
         let roblin = robustlinear.map(|m| m.model.as_ref());
         // NOTE: for a specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
-        let deadband = cycle.deadbands.get(&gas_type);
+        let deadband = cycle.deadbands.get(&key);
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
-            eprintln!("Skipping gas {:?}: no models available", gas_type);
+            eprintln!("Skipping gas {:?}: no models available", key);
             continue;
         }
 
@@ -1789,10 +1918,12 @@ fn execute_history_insert(
             archived_at,
             cycle.start_time.timestamp(),
             cycle.chamber_id,
+            cycle.main_instrument_model.to_string(),
+            cycle.main_instrument_serial,
             cycle.instrument_model.to_string(),
             cycle.instrument_serial,
             cycle.main_gas.as_int(),
-            gas_type.as_int(),
+            key.gas_type.as_int(),
             project,
             cycle.close_offset,
             cycle.open_offset,
@@ -1811,8 +1942,12 @@ fn execute_history_insert(
             cycle.manual_adjusted,
             cycle.manual_valid,
             deadband,
-            cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
-            cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
+            cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
+            cycle
+                .measurement_r2
+                .get(&(GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))))
+                .copied()
+                .unwrap_or(0.0),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -1861,30 +1996,38 @@ fn execute_history_insert(
 }
 
 fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
-    for gas_type in cycle.instrument_model.available_gases() {
-        let linear = cycle.fluxes.get(&(gas_type, FluxKind::Linear));
-        let polynomial = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
-        let robustlinear = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
+    for key in cycle.gases.clone() {
+        let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
+        let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
+        let robustlinear = cycle.fluxes.get(&(key.clone(), FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
         let poly = polynomial.map(|m| m.model.as_ref());
         let roblin = robustlinear.map(|m| m.model.as_ref());
         // NOTE: for a specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
-        let deadband = cycle.deadbands.get(&gas_type);
+        let deadband = cycle.deadbands.get(&key);
+        let measurement_r2 = cycle.measurement_r2.get(&key);
+        let instrument_model = if key.label.contains("TG20") {
+            InstrumentType::LI7820
+        } else {
+            InstrumentType::LI7810
+        };
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
-            eprintln!("Skipping gas {:?}: no models available", gas_type);
+            eprintln!("Skipping gas {:?}: no models available", key);
             continue;
         }
 
         stmt.execute(params![
             cycle.start_time.timestamp(),
             cycle.chamber_id,
-            cycle.instrument_model.to_string(),
-            cycle.instrument_serial,
+            cycle.main_instrument_model.to_string(),
+            cycle.main_instrument_serial.to_string(),
+            instrument_model.to_string(),
+            key.label.to_owned(),
             cycle.main_gas.as_int(),
-            gas_type.as_int(),
+            key.gas_type.as_int(),
             project,
             cycle.close_offset,
             cycle.open_offset,
@@ -1903,8 +2046,13 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.manual_adjusted,
             cycle.manual_valid,
             deadband,
-            cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
-            cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
+            cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
+            measurement_r2,
+            // cycle
+            //     .measurement_r2
+            //     .get(&(GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))))
+            //     .copied()
+            //     .unwrap_or(0.0),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -1952,28 +2100,31 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
     Ok(())
 }
 fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
-    for gas_type in cycle.instrument_model.available_gases() {
-        let linear = cycle.fluxes.get(&(gas_type, FluxKind::Linear));
-        let polynomial = cycle.fluxes.get(&(gas_type, FluxKind::Poly));
-        let robustlinear = cycle.fluxes.get(&(gas_type, FluxKind::RobLin));
+    for key in cycle.gases.clone() {
+        let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
+        let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
+        let robustlinear = cycle.fluxes.get(&(key.clone(), FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
         let poly = polynomial.map(|m| m.model.as_ref());
         let roblin = robustlinear.map(|m| m.model.as_ref());
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
-        let deadband = cycle.deadbands.get(&gas_type);
+        let deadband = cycle.deadbands.get(&key);
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
-            eprintln!("Skipping gas {:?}: no models available", gas_type);
+            eprintln!("Skipping gas {:?}: no models available", key);
             continue;
         }
 
+        // FIXME: instrument model will be wrong, need to build a struct for the key..
         stmt.execute(params![
             cycle.start_time.timestamp(),
             cycle.chamber_id,
+            cycle.main_instrument_model.to_string(),
+            cycle.main_instrument_serial,
             cycle.instrument_model.to_string(),
             cycle.instrument_serial,
             cycle.main_gas.as_int(),
-            gas_type.as_int(),
+            key.gas_type.as_int(),
             project,
             cycle.close_offset,
             cycle.open_offset,
@@ -1992,8 +2143,12 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.manual_adjusted,
             cycle.manual_valid,
             deadband,
-            cycle.t0_concentration.get(&gas_type).copied().unwrap_or(0.0),
-            cycle.measurement_r2.get(&cycle.main_gas).copied().unwrap_or(1.0),
+            cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
+            cycle
+                .measurement_r2
+                .get(&(GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))))
+                .copied()
+                .unwrap_or(1.0),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2062,6 +2217,7 @@ pub fn load_cycles(
     let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
     let column_index: HashMap<String, usize> =
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
+    let mut serials: HashSet<String> = HashSet::new();
 
     let mut rows = stmt.query(params![project.name, start, end])?;
 
@@ -2069,22 +2225,32 @@ pub fn load_cycles(
         let deadband = row.get(*column_index.get("deadband").unwrap())?;
         let start_time: i64 = row.get(*column_index.get("start_time").unwrap())?;
         let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
+        serials.insert(instrument_serial.clone());
         let project_id: String = row.get(*column_index.get("project_id").unwrap())?;
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
+        let main_model_string: String =
+            row.get(*column_index.get("main_instrument_model").unwrap())?;
+        let main_instrument_serial: String =
+            row.get(*column_index.get("main_instrument_serial").unwrap())?;
+
         let key = CycleKey {
             start_time,
-            instrument_serial: instrument_serial.clone(),
+            instrument_serial: main_instrument_serial.clone(),
             project_id: project_id.clone(),
             chamber_id: chamber_id.clone(),
         };
+        let main_instrument_model = InstrumentType::from_str(&main_model_string);
+
         let model_string: String = row.get(*column_index.get("instrument_model").unwrap())?;
         let instrument_model = InstrumentType::from_str(&model_string);
-        let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
+
         let start_timestamp: i64 = row.get(*column_index.get("start_time").unwrap())?;
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
 
         let main_gas_i = row.get(*column_index.get("main_gas").unwrap())?;
         let main_gas = GasType::from_int(main_gas_i).unwrap();
+        let gas_i = row.get(*column_index.get("gas").unwrap())?;
+        let gas = GasType::from_int(gas_i).unwrap();
         let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
         if let Some(prev_date) = date.clone() {
@@ -2124,261 +2290,303 @@ pub fn load_cycles(
             override_valid = Some(is_valid);
         }
 
-        let mut dt_v = Vec::new();
-        let mut diag_v = Vec::new();
-        let mut gas_v = HashMap::new();
+        let dt_v = HashMap::new();
+        let diag_v = Vec::new();
+        let gases = Vec::new();
+        let gas_v = HashMap::new();
         let measurement_dt_v = Vec::new();
         let measurement_diag_v = Vec::new();
         let measurement_gas_v = HashMap::new();
-        let mut min_y = HashMap::new();
-        let mut max_y = HashMap::new();
-        let mut deadbands = HashMap::new();
-        let mut t0_concentration = HashMap::new();
-        let mut measurement_r2 = HashMap::new();
+        let min_y = HashMap::new();
+        let max_y = HashMap::new();
+        let deadbands = HashMap::new();
+        let t0_concentration = HashMap::new();
+        let measurement_r2 = HashMap::new();
         let measurement_range_start =
             start_time.timestamp() as f64 + close_offset as f64 + close_lag_s + open_lag_s;
         let measurement_range_end =
             start_time.timestamp() as f64 + open_offset as f64 + close_lag_s + open_lag_s;
 
         if let Some(gas_data_day) = gas_data.get(&day) {
-            for (i, gas) in instrument_model.available_gases().iter().enumerate() {
-                if let Some(g_values) = gas_data_day.gas.get(gas) {
-                    let (meas_dt, meas_vals) = filter_data_in_range(
-                        &gas_data_day.datetime,
-                        g_values,
-                        start_time.timestamp() as f64,
-                        end_time.timestamp() as f64,
-                    );
-                    let (_, diag_vals) = filter_diag_data(
-                        &gas_data_day.datetime,
-                        &gas_data_day.diag,
-                        start_time.timestamp() as f64,
-                        end_time.timestamp() as f64,
-                    );
-                    if i == 0 {
-                        dt_v = meas_dt;
-                        diag_v = diag_vals.to_vec();
-                    }
-                    gas_v.insert(*gas, meas_vals.clone());
-                    max_y.insert(*gas, calculate_max_y_from_vec(&meas_vals));
-                    min_y.insert(*gas, calculate_min_y_from_vec(&meas_vals));
-                    let target =
-                        close_offset + close_lag_s as i64 + open_lag_s as i64 + deadband as i64;
+            let serial = instrument_serial.clone();
+            // for (serial, dt_values) in &gas_data_day.datetime {
+            //     for (i, gas) in InstrumentType::from_str(
+            //         &gas_data_day.model_key.get(serial).unwrap().to_string(),
+            //     )
+            //     .available_gases()
+            //     .iter()
+            //     .enumerate()
+            //     {
+            let gas_key = GasKey::from((&gas, serial.as_str()));
+            let dt_values = gas_data_day.datetime.get(&serial.clone()).unwrap();
+            // let g_values = gas_data_day.gas.get(&gas_key.clone()).unwrap();
 
-                    deadbands.insert(*gas, deadband);
+            let cycle = cycle_map.entry(key.clone()).or_insert_with(|| Cycle {
+                id: 0, // you might get this from elsewhere
+                chamber_id: chamber_id.clone(),
+                main_instrument_model, // Set properly if stored
+                main_instrument_serial,
+                instrument_model, // Set properly if stored
+                instrument_serial: instrument_serial.clone(),
+                project_name,
+                start_time,
+                air_temperature,
+                air_pressure,
+                chamber_volume,
+                error_code,
+                is_valid,
+                gas_is_valid: HashMap::new(),
+                override_valid,
+                manual_valid,
+                main_gas,
+                close_offset,
+                open_offset,
+                end_offset,
+                open_lag_s,
+                close_lag_s,
+                deadbands,
+                end_lag_s,
+                start_lag_s,
+                max_idx: 0.0,
+                gases,
+                calc_range_start: HashMap::new(),
+                calc_range_end: HashMap::new(),
+                manual_adjusted,
+                min_y,
+                max_y,
+                flux: HashMap::new(),
+                linfit: HashMap::new(),
+                measurement_range_start,
+                measurement_range_end,
+                fluxes: HashMap::new(),
+                measurement_r2,
+                calc_r2: HashMap::new(),
+                dt_v,
+                calc_dt_v: HashMap::new(),
+                measurement_dt_v,
+                gas_v,
+                gas_v_mole: HashMap::new(),
+                calc_gas_v: HashMap::new(),
+                measurement_gas_v,
+                measurement_diag_v,
+                t0_concentration,
+                diag_v,
+                min_calc_len,
+            });
+            if let Some(g_values) = gas_data_day.gas.get(&gas_key) {
+                // println!("data for: {:?}", gas_key);
+                let (meas_dt, meas_vals) = filter_data_in_range(
+                    &dt_values,
+                    &g_values,
+                    start_time.timestamp() as f64,
+                    end_time.timestamp() as f64,
+                );
 
-                    let t0 = meas_vals[target as usize].unwrap();
-                    t0_concentration.insert(*gas, t0);
-                    measurement_r2.insert(*gas, m_r2);
+                if meas_vals.is_empty() {
+                    continue;
                 }
-                if i == 0 {
-                    let (_, diag_vals) = filter_diag_data(
-                        &gas_data_day.datetime,
-                        &gas_data_day.diag,
-                        start_time.timestamp() as f64,
-                        end_time.timestamp() as f64,
-                    );
-                    diag_v = diag_vals;
+
+                let target =
+                    close_offset + close_lag_s as i64 + open_lag_s as i64 + deadband as i64;
+                // println!("INSERTING {:?} for serial {}", gas, serial);
+
+                cycle.dt_v.insert(serial.clone(), meas_dt);
+                cycle.gas_v.insert(gas_key.clone(), meas_vals.clone());
+                let t0 = meas_vals.get(target as usize).unwrap_or(&Some(0.));
+                cycle.t0_concentration.insert(gas_key.clone(), t0.unwrap());
+
+                let (_, diag_vals) = filter_diag_data(
+                    &dt_values,
+                    &gas_data_day.diag,
+                    start_time.timestamp() as f64,
+                    end_time.timestamp() as f64,
+                );
+                cycle.diag_v = diag_vals;
+
+                if !cycle.gases.contains(&gas_key) {
+                    cycle.gases.push(gas_key.clone());
+                    // println!("pushed : {:?}", gas_key);
                 }
+
+                cycle.max_y.insert(gas_key.clone(), calculate_max_y_from_vec(&meas_vals));
+                cycle.min_y.insert(gas_key.clone(), calculate_min_y_from_vec(&meas_vals));
+                cycle.measurement_r2.insert(gas_key.clone(), m_r2);
+                cycle.deadbands.insert(gas_key.clone(), deadband);
             }
-        }
-        // Get or insert a new Cycle
-        let cycle = cycle_map.entry(key.clone()).or_insert_with(|| Cycle {
-            id: 0, // you might get this from elsewhere
-            chamber_id: chamber_id.clone(),
-            instrument_model: InstrumentType::default(), // Set properly if stored
-            instrument_serial: instrument_serial.clone(),
-            project_name,
-            start_time,
-            air_temperature,
-            air_pressure,
-            chamber_volume,
-            error_code,
-            is_valid,
-            gas_is_valid: HashMap::new(),
-            override_valid,
-            manual_valid,
-            main_gas,
-            close_offset,
-            open_offset,
-            end_offset,
-            open_lag_s,
-            close_lag_s,
-            deadbands,
-            end_lag_s,
-            start_lag_s,
-            max_idx: 0.0,
-            gases: vec![],
-            calc_range_start: HashMap::new(),
-            calc_range_end: HashMap::new(),
-            manual_adjusted,
-            min_y,
-            max_y,
-            flux: HashMap::new(),
-            linfit: HashMap::new(),
-            measurement_range_start,
-            measurement_range_end,
-            fluxes: HashMap::new(),
-            measurement_r2,
-            calc_r2: HashMap::new(),
-            dt_v,
-            calc_dt_v: HashMap::new(),
-            measurement_dt_v,
-            gas_v,
-            gas_v_mole: HashMap::new(),
-            calc_gas_v: HashMap::new(),
-            measurement_gas_v,
-            measurement_diag_v,
-            t0_concentration,
-            diag_v,
-            min_calc_len,
-        });
 
-        // Now add gas-specific data
-        let gas_type = GasType::from_int(row.get(*column_index.get("gas").unwrap())?).unwrap();
-
-        if let (
-            Ok(flux),
-            Ok(r2),
-            Ok(adjusted_r2),
-            Ok(intercept),
-            Ok(slope),
-            Ok(sigma),
-            Ok(p_value),
-            Ok(aic),
-            Ok(rmse),
-            Ok(calc_start),
-            Ok(calc_end),
-        ) = (
-            row.get(*column_index.get("lin_flux").unwrap()),
-            row.get(*column_index.get("lin_r2").unwrap()),
-            row.get(*column_index.get("lin_adj_r2").unwrap()),
-            row.get(*column_index.get("lin_intercept").unwrap()),
-            row.get(*column_index.get("lin_slope").unwrap()),
-            row.get(*column_index.get("lin_sigma").unwrap()),
-            row.get(*column_index.get("lin_p_value").unwrap()),
-            row.get(*column_index.get("lin_aic").unwrap()),
-            row.get(*column_index.get("lin_rmse").unwrap()),
-            row.get(*column_index.get("lin_range_start").unwrap()),
-            row.get(*column_index.get("lin_range_end").unwrap()),
-        ) {
-            cycle.calc_range_start.insert(gas_type, calc_start);
-            cycle.calc_range_end.insert(gas_type, calc_end + 1.);
-            let lin = LinearFlux {
-                fit_id: "linear".to_string(),
-                gas_type,
-                flux,
-                r2,
-                adjusted_r2,
-                model: LinReg::from_val(intercept, slope),
-                sigma,
-                p_value,
-                aic,
-                rmse,
-                range_start: calc_start,
-                range_end: calc_end,
-            };
-            cycle.fluxes.insert(
-                (gas_type, FluxKind::Linear),
-                FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
-            );
-        }
-        if let (
-            Ok(flux),
-            Ok(r2),
-            Ok(adjusted_r2),
-            Ok(intercept),
-            Ok(slope),
-            Ok(sigma),
-            Ok(aic),
-            Ok(rmse),
-            Ok(calc_start),
-            Ok(calc_end),
-        ) = (
-            row.get(*column_index.get("roblin_flux").unwrap()),
-            row.get(*column_index.get("roblin_r2").unwrap()),
-            row.get(*column_index.get("roblin_adj_r2").unwrap()),
-            row.get(*column_index.get("roblin_intercept").unwrap()),
-            row.get(*column_index.get("roblin_slope").unwrap()),
-            row.get(*column_index.get("roblin_sigma").unwrap()),
-            row.get(*column_index.get("roblin_aic").unwrap()),
-            row.get(*column_index.get("roblin_rmse").unwrap()),
-            row.get(*column_index.get("roblin_range_start").unwrap()),
-            row.get(*column_index.get("roblin_range_end").unwrap()),
-        ) {
-            cycle.calc_range_start.insert(gas_type, calc_start);
-            cycle.calc_range_end.insert(gas_type, calc_end + 1.);
-            let lin = RobustFlux {
-                fit_id: "roblin".to_string(),
-                gas_type,
-                flux,
-                r2,
-                adjusted_r2,
-                model: RobReg::from_val(intercept, slope),
-                sigma,
-                aic,
-                rmse,
-                range_start: calc_start,
-                range_end: calc_end,
-            };
-            cycle.fluxes.insert(
-                (gas_type, FluxKind::RobLin),
-                FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
-            );
-        }
-        if let (
-            Ok(flux),
-            Ok(r2),
-            Ok(adjusted_r2),
-            Ok(sigma),
-            Ok(aic),
-            Ok(rmse),
-            Ok(a0),
-            Ok(a1),
-            Ok(a2),
-            Ok(calc_start),
-            Ok(calc_end),
-        ) = (
-            row.get(*column_index.get("poly_flux").unwrap()),
-            row.get(*column_index.get("poly_r2").unwrap()),
-            row.get(*column_index.get("poly_adj_r2").unwrap()),
-            row.get(*column_index.get("poly_sigma").unwrap()),
-            row.get(*column_index.get("poly_aic").unwrap()),
-            row.get(*column_index.get("poly_rmse").unwrap()),
-            row.get(*column_index.get("poly_a0").unwrap()),
-            row.get(*column_index.get("poly_a1").unwrap()),
-            row.get(*column_index.get("poly_a2").unwrap()),
-            row.get(*column_index.get("poly_range_start").unwrap()),
-            row.get(*column_index.get("poly_range_end").unwrap()),
-        ) {
-            cycle.calc_range_start.insert(gas_type, calc_start);
-            cycle.calc_range_end.insert(gas_type, calc_end + 1.);
-            let lin = PolyFlux {
-                fit_id: "linear".to_string(),
-                gas_type,
-                flux,
-                r2,
-                adjusted_r2,
-                model: PolyReg::from_coeffs(a0, a1, a2),
-                sigma,
-                aic,
-                rmse,
-                range_start: calc_start,
-                range_end: calc_end,
-                x_offset: calc_start,
-            };
-            cycle.fluxes.insert(
-                (gas_type, FluxKind::Poly),
-                FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
-            );
-        }
-
-        if !cycle.gases.contains(&gas_type) {
-            cycle.gases.push(gas_type);
+            let gk = gas_key.clone();
+            // println!("getting models for: {:?}", gk);
+            if let (
+                Ok(flux),
+                Ok(r2),
+                Ok(adjusted_r2),
+                Ok(intercept),
+                Ok(slope),
+                Ok(sigma),
+                Ok(p_value),
+                Ok(aic),
+                Ok(rmse),
+                Ok(calc_start),
+                Ok(calc_end),
+                Ok(gas_i),
+                Ok(instrument_serial),
+            ) = (
+                row.get(*column_index.get("lin_flux").unwrap()),
+                row.get(*column_index.get("lin_r2").unwrap()),
+                row.get(*column_index.get("lin_adj_r2").unwrap()),
+                row.get(*column_index.get("lin_intercept").unwrap()),
+                row.get(*column_index.get("lin_slope").unwrap()),
+                row.get(*column_index.get("lin_sigma").unwrap()),
+                row.get(*column_index.get("lin_p_value").unwrap()),
+                row.get(*column_index.get("lin_aic").unwrap()),
+                row.get(*column_index.get("lin_rmse").unwrap()),
+                row.get(*column_index.get("lin_range_start").unwrap()),
+                row.get(*column_index.get("lin_range_end").unwrap()),
+                row.get(*column_index.get("gas").unwrap()),
+                row.get(*column_index.get("instrument_serial").unwrap()),
+            ) {
+                let gas_type = GasType::from_int(gas_i).unwrap();
+                let serial: String = instrument_serial;
+                let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                cycle.calc_range_start.insert(gk.clone(), calc_start);
+                cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
+                let lin = LinearFlux {
+                    fit_id: "linear".to_string(),
+                    gas_type: gk.gas_type,
+                    flux,
+                    r2,
+                    adjusted_r2,
+                    model: LinReg::from_val(intercept, slope),
+                    sigma,
+                    p_value,
+                    aic,
+                    rmse,
+                    range_start: calc_start,
+                    range_end: calc_end,
+                };
+                // println!("{}", lin);
+                cycle.fluxes.insert(
+                    (gk.clone(), FluxKind::Linear),
+                    FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
+                );
+            }
+            if let (
+                Ok(flux),
+                Ok(r2),
+                Ok(adjusted_r2),
+                Ok(intercept),
+                Ok(slope),
+                Ok(sigma),
+                Ok(aic),
+                Ok(rmse),
+                Ok(calc_start),
+                Ok(calc_end),
+                Ok(gas_i),
+                Ok(instrument_serial),
+            ) = (
+                row.get(*column_index.get("roblin_flux").unwrap()),
+                row.get(*column_index.get("roblin_r2").unwrap()),
+                row.get(*column_index.get("roblin_adj_r2").unwrap()),
+                row.get(*column_index.get("roblin_intercept").unwrap()),
+                row.get(*column_index.get("roblin_slope").unwrap()),
+                row.get(*column_index.get("roblin_sigma").unwrap()),
+                row.get(*column_index.get("roblin_aic").unwrap()),
+                row.get(*column_index.get("roblin_rmse").unwrap()),
+                row.get(*column_index.get("roblin_range_start").unwrap()),
+                row.get(*column_index.get("roblin_range_end").unwrap()),
+                row.get(*column_index.get("gas").unwrap()),
+                row.get(*column_index.get("instrument_serial").unwrap()),
+            ) {
+                let gas_type = GasType::from_int(gas_i).unwrap();
+                if gas_type != gk.clone().gas_type {
+                    continue;
+                }
+                let serial: String = instrument_serial;
+                let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                cycle.calc_range_start.insert(gk.clone(), calc_start);
+                cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
+                let lin = RobustFlux {
+                    fit_id: "roblin".to_string(),
+                    gas_type: gk.gas_type,
+                    flux,
+                    r2,
+                    adjusted_r2,
+                    model: RobReg::from_val(intercept, slope),
+                    sigma,
+                    aic,
+                    rmse,
+                    range_start: calc_start,
+                    range_end: calc_end,
+                };
+                // println!("{}", lin);
+                cycle.fluxes.insert(
+                    (gk.clone(), FluxKind::RobLin),
+                    FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
+                );
+            }
+            if let (
+                Ok(flux),
+                Ok(r2),
+                Ok(adjusted_r2),
+                Ok(sigma),
+                Ok(aic),
+                Ok(rmse),
+                Ok(a0),
+                Ok(a1),
+                Ok(a2),
+                Ok(calc_start),
+                Ok(calc_end),
+                Ok(gas_i),
+                Ok(instrument_serial),
+            ) = (
+                row.get(*column_index.get("poly_flux").unwrap()),
+                row.get(*column_index.get("poly_r2").unwrap()),
+                row.get(*column_index.get("poly_adj_r2").unwrap()),
+                row.get(*column_index.get("poly_sigma").unwrap()),
+                row.get(*column_index.get("poly_aic").unwrap()),
+                row.get(*column_index.get("poly_rmse").unwrap()),
+                row.get(*column_index.get("poly_a0").unwrap()),
+                row.get(*column_index.get("poly_a1").unwrap()),
+                row.get(*column_index.get("poly_a2").unwrap()),
+                row.get(*column_index.get("poly_range_start").unwrap()),
+                row.get(*column_index.get("poly_range_end").unwrap()),
+                row.get(*column_index.get("gas").unwrap()),
+                row.get(*column_index.get("instrument_serial").unwrap()),
+            ) {
+                let gas_type = GasType::from_int(gas_i).unwrap();
+                if gas_type != gk.gas_type {
+                    continue;
+                }
+                let serial: String = instrument_serial;
+                let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                cycle.calc_range_start.insert(gk.clone(), calc_start);
+                cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
+                let lin = PolyFlux {
+                    fit_id: "linear".to_string(),
+                    gas_type: gk.gas_type,
+                    flux,
+                    r2,
+                    adjusted_r2,
+                    model: PolyReg::from_coeffs(a0, a1, a2),
+                    sigma,
+                    aic,
+                    rmse,
+                    range_start: calc_start,
+                    range_end: calc_end,
+                    x_offset: calc_start,
+                };
+                // println!("{}", lin);
+                cycle.fluxes.insert(
+                    (gk, FluxKind::Poly),
+                    FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
+                );
+                // }
+            }
         }
     }
     let mut cycles: Vec<Cycle> = cycle_map.into_values().collect();
     cycles.sort_by_key(|c| c.start_time);
+    // cycles.iter().for_each(|c| println!("{:?}", c.gas_v.keys()));
     if cycles.is_empty() {
         return Err(rusqlite::Error::QueryReturnedNoRows);
     }
@@ -2536,6 +2744,7 @@ pub fn calculate_max_y_from_vec(values: &[Option<f64>]) -> f64 {
 pub fn calculate_min_y_from_vec(values: &[Option<f64>]) -> f64 {
     values.iter().filter_map(|&v| v).filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min)
 }
+
 pub fn process_cycles(
     timev: &TimeData,
     sorted_data: &HashMap<String, GasData>,
@@ -2543,13 +2752,12 @@ pub fn process_cycles(
     volume_data: &VolumeData,
     project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) -> Result<Vec<Option<Cycle>>, Box<dyn error::Error + Send + Sync>> {
-    // println!("Processing cycles");
+) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>> {
     let mut cycle_vec = Vec::new();
-    let mut no_data_for_day = false;
-    let mut last_date = chrono::offset::Utc::now().format("%Y-%m-%d").to_string();
-    let mut processed_cycles: u32 = 0;
+
     for (chamber, start, close, open, end, _) in timev.iter() {
+        let day = start.format("%Y-%m-%d").to_string();
+
         let mut cycle = CycleBuilder::new()
             .chamber_id(chamber.to_owned())
             .start_time(*start)
@@ -2559,87 +2767,114 @@ pub fn process_cycles(
             .project_name(project.name.to_owned())
             .min_calc_len(project.min_calc_len)
             .build()?;
-        let st = cycle.start_time;
-        let day = st.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
-        if no_data_for_day && last_date == day {
-            continue;
-        } else {
-            no_data_for_day = false;
+
+        let mut found_data = false;
+
+        for (data_day, cur_data) in sorted_data.iter() {
+            if data_day != &day {
+                continue;
+            }
+
+            for (serial, datetimes) in &cur_data.datetime {
+                if datetimes.is_empty()
+                    || start < &datetimes[0]
+                    || start > datetimes.last().unwrap()
+                {
+                    continue;
+                }
+
+                // Find the first datetime >= start
+                let si_time = match datetimes.iter().find(|&&t| t >= *start) {
+                    Some(&t) => t.timestamp(),
+                    None => continue,
+                };
+
+                // Compute end time window
+                let ei_time = si_time + *end;
+
+                // Collect matching indices
+                let matching_indices: Vec<usize> = datetimes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &t)| t.timestamp() >= si_time && t.timestamp() < ei_time)
+                    .map(|(i, _)| i)
+                    .collect();
+
+                if matching_indices.is_empty() {
+                    continue;
+                }
+
+                // Insert timestamp vector
+                let dt_slice: Vec<f64> =
+                    matching_indices.iter().map(|&i| datetimes[i].timestamp() as f64).collect();
+                cycle.dt_v.insert(serial.clone(), dt_slice);
+
+                // Insert diag vector once (shared across instruments for now)
+                if cycle.diag_v.is_empty() {
+                    cycle.diag_v = matching_indices.iter().map(|&i| cur_data.diag[i]).collect();
+                }
+
+                // Set model and serial
+                cycle.instrument_serial = serial.clone();
+                cycle.instrument_model = *cur_data.model_key.get(serial).unwrap();
+
+                // Insert gas values
+                for (key, gas_values) in &cur_data.gas {
+                    if &key.label != serial {
+                        continue;
+                    }
+
+                    if cur_data
+                        .model_key
+                        .get(&key.label)
+                        .unwrap()
+                        .available_gases()
+                        .contains(&key.gas_type)
+                    {
+                        let gas_slice: Vec<Option<f64>> = matching_indices
+                            .iter()
+                            .filter_map(|&i| gas_values.get(i).copied())
+                            .collect();
+                        cycle.gas_v.insert(key.clone(), gas_slice);
+                    }
+                }
+
+                found_data = true;
+            }
         }
 
-        last_date = day.clone();
+        if found_data {
+            cycle.gases = cycle.gas_v.keys().cloned().collect();
+            cycle.main_gas = project.main_gas.unwrap();
+            cycle.main_instrument_serial = project.instrument_serial.clone();
+            cycle.main_instrument_model = project.instrument;
 
-        if let Some(cur_data) = sorted_data.get(&start.format("%Y-%m-%d").to_string()) {
-            processed_cycles += 1;
-            // cur_data is ordered, so we can check last and first timestamp to skip cycles
-            // with no data
-            if start < &cur_data.datetime[0] || start > cur_data.datetime.last().unwrap() {
-                continue;
-            }
-            // let si = (cycle.start_time.timestamp() - cur_data.datetime.first().unwrap().timestamp())
-            //     as usize;
+            let target = (*start + chrono::TimeDelta::seconds(*close)).timestamp();
 
-            let mut si = 0;
-            for (i, t) in cur_data.datetime.iter().enumerate() {
-                if t >= &cycle.start_time {
-                    si = i;
-                    break;
-                }
-            }
-            let ei = si + *end as usize - 1;
-            if si == 0 || (si >= cur_data.datetime.len() - 1 || ei >= cur_data.datetime.len()) {
-                continue;
-            }
-            cycle.dt_v =
-                cur_data.datetime[si..ei].to_vec().iter().map(|t| t.timestamp() as f64).collect();
-            for (gas_type, gas_values) in &cur_data.gas {
-                cycle.gas_v.insert(*gas_type, gas_values[si..ei].to_vec());
-            }
-            cycle.diag_v = cur_data.diag[si..ei].to_vec();
-
-            let gases: Vec<_> = cur_data.gas.keys().cloned().collect(); // Collect first
-            cycle.gases = gases.clone();
-            cycle.instrument_model = InstrumentType::from_str(&cur_data.instrument_model.clone());
-            cycle.instrument_serial = cur_data.instrument_serial.clone();
-
-            let target =
-                (cycle.start_time + chrono::TimeDelta::seconds(cycle.close_offset)).timestamp();
-            let (temp, pressure) = match meteo_data.get_nearest(target) {
-                Some((temp, pressure)) => (temp, pressure),
-                None => (10.0, 1000.0),
-            };
+            // Add meteo data
+            let (temp, pressure) = meteo_data.get_nearest(target).unwrap_or((10.0, 1000.0));
             cycle.air_temperature = temp;
             cycle.air_pressure = pressure;
 
-            let volume =
+            // Add volume data
+            cycle.chamber_volume =
                 volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
-            cycle.chamber_volume = volume;
-            for gas in gases {
-                cycle.deadbands.insert(gas, project.deadband);
+
+            // Add deadbands
+            for gas in &cycle.gases {
+                cycle.deadbands.insert(gas.clone(), project.deadband);
             }
-            if project.mode == Mode::BestPearsonsR {
-                cycle.init(true);
-            } else {
-                cycle.init(false);
-            }
-            if cycle.dt_v.is_empty() {
-                let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(format!(
-                    "{}",
-                    cycle.start_time
-                ))));
-                // progress_sender.send(ProcessEvent::NoGasData(format!("{}", cycle.start_time)));
-                cycle_vec.push(None);
-            } else {
-                cycle_vec.push(Some(cycle));
-            }
+
+            // Initialize model
+            cycle.init(project.mode == Mode::BestPearsonsR);
+
+            cycle_vec.push(Some(cycle));
         } else {
-            no_data_for_day = true;
-            progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(
-                start.format("%Y-%m-%d").to_string(),
-            )))?;
-            continue;
+            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(day)));
+            cycle_vec.push(None);
         }
     }
+
     Ok(cycle_vec)
 }
 #[cfg(test)]
@@ -2724,12 +2959,12 @@ mod tests {
     }
 
     impl DummyCycle {
-        pub fn best_flux_by_aic(&self, gas_type: &GasType) -> Option<f64> {
+        pub fn best_flux_by_aic(&self, key: &GasType) -> Option<f64> {
             let candidates = [FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin];
 
             candidates
                 .iter()
-                .filter_map(|kind| self.fluxes.get(&(*gas_type, *kind)))
+                .filter_map(|kind| self.fluxes.get(&(*key, *kind)))
                 .filter_map(|m| m.aic().map(|aic| (aic, m.flux())))
                 .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(_, flux)| flux.unwrap())

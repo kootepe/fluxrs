@@ -1,34 +1,36 @@
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
     pub const CHAMBER_ID: usize = 1;
-    pub const INSTRUMENT_MODEL: usize = 2;
-    pub const INSTRUMENT_SERIAL: usize = 3;
-    pub const MAIN_GAS: usize = 4;
-    pub const GAS: usize = 5;
-    pub const PROJECT_ID: usize = 6;
-    pub const CLOSE_OFFSET: usize = 7;
-    pub const OPEN_OFFSET: usize = 8;
-    pub const END_OFFSET: usize = 9;
-    pub const OPEN_LAG_S: usize = 10;
-    pub const CLOSE_LAG_S: usize = 11;
-    pub const END_LAG_S: usize = 12;
-    pub const START_LAG_S: usize = 13;
-    pub const MIN_CALC_LEN: usize = 14;
-    pub const AIR_PRESSURE: usize = 15;
-    pub const AIR_TEMPERATURE: usize = 16;
-    pub const CHAMBER_VOLUME: usize = 17;
-    pub const ERROR_CODE: usize = 18;
-    pub const IS_VALID: usize = 19;
-    pub const MANUAL_ADJUSTED: usize = 20;
-    pub const MANUAL_VALID: usize = 21;
-    pub const T0_CONC: usize = 22;
-    pub const MEASUREMENT_R2: usize = 22;
-    pub const FLUX: usize = 24;
-    pub const R2: usize = 25;
-    pub const INTERCEPT: usize = 26;
-    pub const SLOPE: usize = 27;
-    pub const CALC_START: usize = 28;
-    pub const CALC_END: usize = 29;
+    pub const MAIN_INSTRUMENT_MODEL: usize = 2;
+    pub const MAIN_INSTRUMENT_SERIAL: usize = 3;
+    pub const INSTRUMENT_MODEL: usize = 4;
+    pub const INSTRUMENT_SERIAL: usize = 5;
+    pub const MAIN_GAS: usize = 6;
+    pub const GAS: usize = 7;
+    pub const PROJECT_ID: usize = 8;
+    pub const CLOSE_OFFSET: usize = 9;
+    pub const OPEN_OFFSET: usize = 10;
+    pub const END_OFFSET: usize = 11;
+    pub const OPEN_LAG_S: usize = 12;
+    pub const CLOSE_LAG_S: usize = 13;
+    pub const END_LAG_S: usize = 14;
+    pub const START_LAG_S: usize = 15;
+    pub const MIN_CALC_LEN: usize = 16;
+    pub const AIR_PRESSURE: usize = 17;
+    pub const AIR_TEMPERATURE: usize = 18;
+    pub const CHAMBER_VOLUME: usize = 19;
+    pub const ERROR_CODE: usize = 20;
+    pub const IS_VALID: usize = 21;
+    pub const MANUAL_ADJUSTED: usize = 22;
+    pub const MANUAL_VALID: usize = 23;
+    pub const T0_CONC: usize = 24;
+    pub const MEASUREMENT_R2: usize = 25;
+    pub const FLUX: usize = 26;
+    pub const R2: usize = 27;
+    pub const INTERCEPT: usize = 28;
+    pub const SLOPE: usize = 29;
+    pub const CALC_START: usize = 30;
+    pub const CALC_END: usize = 31;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -58,6 +60,8 @@ pub const OTHER_COLS: &[&str] = &[
 pub const FLUXES_COLUMNS: &[&str] = &[
     "start_time",
     "chamber_id",
+    "main_instrument_model",
+    "main_instrument_serial",
     "instrument_model",
     "instrument_serial",
     "main_gas",
@@ -206,6 +210,8 @@ pub fn create_flux_table() -> String {
     "CREATE TABLE IF NOT EXISTS fluxes (
             start_time INTEGER NOT NULL,
             chamber_id TEXT NOT NULL,
+            main_instrument_model TEXT NOT NULL,
+            main_instrument_serial TEXT NOT NULL,
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
             main_gas INTEGER NOT NULL,
@@ -276,6 +282,8 @@ pub fn create_flux_history_table() -> String {
     "CREATE TABLE IF NOT EXISTS flux_history (
             archived_at TEXT NOT NULL,
 
+            main_instrument_model TEXT NOT NULL,
+            main_instrument_serial TEXT NOT NULL,
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
             chamber_id TEXT NOT NULL,
