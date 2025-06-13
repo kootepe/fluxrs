@@ -160,6 +160,10 @@ impl InstrumentType {
             "LI-7820" => InstrumentType::LI7820,
             "LI7810" => InstrumentType::LI7810,
             "LI7820" => InstrumentType::LI7820,
+            "li-7810" => InstrumentType::LI7810,
+            "li-7820" => InstrumentType::LI7820,
+            "li7810" => InstrumentType::LI7810,
+            "li7820" => InstrumentType::LI7820,
             _ => InstrumentType::Other,
         }
     }
@@ -223,7 +227,11 @@ pub struct InstrumentConfig {
     pub time_source: TimeSourceKind,
     pub time_fmt: Option<String>,
 }
-
+impl fmt::Display for InstrumentConfig {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}, {}", self.model, self.name,)
+    }
+}
 impl InstrumentConfig {
     pub fn li7810() -> Self {
         Self {
@@ -237,7 +245,7 @@ impl InstrumentConfig {
             gas_cols: vec!["CO2".to_string(), "CH4".to_string(), "H2O".to_string()],
             flux_cols: vec!["CO2".to_string(), "CH4".to_string()],
             diag_col: "DIAG".to_string(),
-            has_header: true,
+            has_header: false,
             available_gases: vec![GasType::CO2, GasType::CH4, GasType::H2O],
             time_source: TimeSourceKind::SecondsAndNanos,
             time_fmt: None,
@@ -255,7 +263,7 @@ impl InstrumentConfig {
             gas_cols: vec!["N2O".to_owned(), "H2O".to_owned()],
             flux_cols: vec!["N2O".to_owned()],
             diag_col: "DIAG".to_owned(),
-            has_header: true,
+            has_header: false,
             available_gases: vec![GasType::N2O, GasType::H2O],
             time_source: TimeSourceKind::SecondsAndNanos,
             time_fmt: None,
@@ -271,9 +279,16 @@ impl InstrumentConfig {
             .from_reader(file);
 
         let mut instrument_serial = String::new();
+        let mut instrument_model = String::new();
 
         if let Some(result) = rdr.records().next() {
+            instrument_model = result?.get(1).unwrap_or("").to_string();
+        }
+        if let Some(result) = rdr.records().next() {
             instrument_serial = result?.get(1).unwrap_or("").to_string();
+        }
+        if instrument_model != self.model {
+            return Err("Given instrument model and file instrument model don't match.".into());
         }
 
         for _ in 0..self.skiprows {
@@ -281,8 +296,9 @@ impl InstrumentConfig {
         }
 
         let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
-        let mut diag: Vec<i64> = Vec::new();
+        // let mut diag: Vec<i64> = Vec::new();
         let mut datetime_map: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
+        let mut diag_map: HashMap<String, Vec<i64>> = HashMap::new();
         let mut header = csv::StringRecord::new();
 
         if let Some(result) = rdr.records().next() {
@@ -309,6 +325,7 @@ impl InstrumentConfig {
 
         for record in rdr.records().skip(self.skip_after_header) {
             let record = record?;
+            // println!("{:?}", record);
 
             for (&gas_type, &idx) in &gas_indices {
                 let value = record.get(idx).unwrap_or("NaN").parse::<f64>().unwrap_or(f64::NAN);
@@ -318,7 +335,7 @@ impl InstrumentConfig {
             }
 
             if let Ok(val) = record.get(idx_diag).unwrap_or("0").parse::<i64>() {
-                diag.push(val);
+                diag_map.entry(instrument_serial.clone()).or_default().push(val);
             }
 
             let timestamp = match self.time_source {
@@ -344,7 +361,8 @@ impl InstrumentConfig {
 
         // Sort timestamps and align data accordingly
         let mut datetime_sorted: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
-        let mut diag_sorted: Vec<i64> = Vec::new();
+        let mut diag_sorted: HashMap<String, Vec<i64>> = HashMap::new();
+        // let mut diag_sorted: Vec<i64> = Vec::new();
         let mut sorted_gas_data: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
 
         if let Some(dt_list) = datetime_map.get(&instrument_serial) {
@@ -353,8 +371,12 @@ impl InstrumentConfig {
 
             datetime_sorted
                 .insert(instrument_serial.clone(), indices.iter().map(|&i| dt_list[i]).collect());
+            diag_sorted.insert(
+                instrument_serial.clone(),
+                indices.iter().map(|&i| diag_map.get(&instrument_serial).unwrap()[i]).collect(),
+            );
 
-            diag_sorted = indices.iter().map(|&i| diag[i]).collect();
+            // diag_sorted = indices.iter().map(|&i| diag[i]).collect();
 
             for (&gas_type, values) in &gas_data {
                 let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();

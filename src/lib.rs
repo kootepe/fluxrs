@@ -19,6 +19,7 @@ use std::process;
 use tokio::sync::mpsc;
 
 pub mod app_plotting;
+pub mod cmd;
 mod config;
 pub mod constants;
 mod csv_parse;
@@ -132,51 +133,10 @@ impl Flux {
 //     grouped_data
 // }
 
-pub struct Config {
-    pub gas_path: String,
-    pub time_path: String,
-    pub db_path: Option<String>,
-    pub start: Option<String>,
-    pub end: Option<String>,
-    pub R_LIM: f64,
-}
-
-impl Config {
-    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
-        const R_LIM: f64 = 0.999;
-        args.next(); // Skip the first argument (program name)
-
-        let mut gas_path = String::new();
-        let mut time_path = String::new();
-        let mut db_path: Option<String> = None;
-        let mut start: Option<String> = None;
-        let mut end: Option<String> = None;
-
-        while let Some(arg) = args.next() {
-            match arg.as_str() {
-                "-db" => {
-                    db_path = args.next();
-                },
-                "-s" => {
-                    start = args.next();
-                },
-                "-e" => {
-                    end = args.next();
-                },
-                _ if gas_path.is_empty() => gas_path = arg.clone(),
-                _ if time_path.is_empty() => time_path = arg.clone(),
-                _ => {}, // Ignore unknown arguments
-            }
-        }
-
-        Ok(Config { gas_path, time_path, db_path, start, end, R_LIM })
-    }
-}
-
 fn insert_cycles(
     conn: &mut Connection,
     cycles: &TimeData,
-    project: String,
+    project: &String,
 ) -> Result<(usize, usize)> {
     let close_vec = &cycles.close_offset;
     let open_vec = &cycles.open_offset;

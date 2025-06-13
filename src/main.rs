@@ -2,22 +2,10 @@ use std::env;
 use std::path::Path;
 use std::process;
 
+use fluxrs::cmd::Config;
 use fluxrs::myapp;
-use fluxrs::Config;
 
 fn main() -> eframe::Result {
-    // fn main() -> Result<()> {
-    let inputs = env::args();
-    let config = Config::build(inputs).unwrap_or_else(|err| {
-        println!("Parsing problem {err}");
-        process::exit(1)
-    });
-
-    // NOTE: I dont think this error will ever happen since they are being handled in run?
-    // if let Err(e) = fluxrs::run(config) {
-    //     println!("App error: {e}.")
-    // }
-
     if !Path::new("fluxrs.db").exists() {
         match fluxrs::query::initiate_tables() {
             Ok(_) => println!("Successfully initiated db tables"),
@@ -36,6 +24,20 @@ fn main() -> eframe::Result {
             Err(e) => println!("Err:\n {}", e),
         }
     }
+
+    let inputs = env::args();
+    if inputs.len() > 1 {
+        let mut config = Config::build(inputs).unwrap_or_else(|err| {
+            println!("Parsing problem {err}");
+            process::exit(1)
+        });
+        config.run();
+    }
+
+    // NOTE: I dont think this error will ever happen since they are being handled in run?
+    // if let Err(e) = fluxrs::run(config) {
+    //     println!("App error: {e}.")
+    // }
 
     // let mut data = fluxrs::run(config).unwrap();
 

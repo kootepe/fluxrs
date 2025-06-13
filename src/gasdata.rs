@@ -20,11 +20,9 @@ pub struct GasData {
     pub instrument_model: String,
     pub instrument_serial: String,
     pub model_key: HashMap<String, InstrumentType>,
-    // pub datetime: Vec<DateTime<Utc>>,
     pub datetime: HashMap<(String), Vec<DateTime<Utc>>>,
-    // pub gas: HashMapnew(),
     pub gas: HashMap<GasKey, Vec<Option<f64>>>,
-    pub diag: Vec<i64>,
+    pub diag: HashMap<(String), Vec<i64>>,
 }
 // impl fmt::Debug for GasData {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -77,13 +75,15 @@ impl GasData {
             model_key: HashMap::new(),
             datetime: HashMap::new(),
             gas: HashMap::new(),
-            diag: Vec::new(),
+            diag: HashMap::new(),
         }
     }
     pub fn any_col_invalid(&self) -> bool {
-        // Check if all values in any vector are equal to the error value
+        // Check if any gas vector has all values as None
         let gas_invalid = self.gas.values().any(|v| v.iter().all(|&x| x.is_none()));
-        let diag_invalid = self.diag.iter().all(|&x| x == ERROR_INT);
+
+        // Check if any diag vector has all values equal to ERROR_INT
+        let diag_invalid = self.diag.values().any(|v| v.iter().all(|&x| x == ERROR_INT));
 
         gas_invalid || diag_invalid
     }
@@ -202,7 +202,7 @@ pub fn query_gas2(
             model_key: HashMap::new(),
             datetime: HashMap::new(),
             gas: HashMap::new(),
-            diag: Vec::new(),
+            diag: HashMap::new(),
         });
 
         entry.instrument_model = model.clone();
@@ -223,7 +223,7 @@ pub fn query_gas2(
         }
         // entry.datetime.push(datetime);
         entry.datetime.entry(serial.clone()).or_default().push(datetime);
-        entry.diag.push(diag);
+        entry.diag.entry(serial.clone()).or_default().push(diag);
     }
 
     Ok(grouped_data)
@@ -282,7 +282,7 @@ pub fn query_gas(
             model_key: HashMap::new(),
             datetime: HashMap::new(),
             gas: HashMap::new(),
-            diag: Vec::new(),
+            diag: HashMap::new(),
         });
         // let entry =
         //     grouped_data.entry((date_key.clone(), serial.clone())).or_insert_with(|| GasData {
@@ -292,7 +292,7 @@ pub fn query_gas(
         //         model_key: HashMap::new(),
         //         datetime: HashMap::new(),
         //         gas: HashMap::new(),
-        //         diag: Vec::new(),
+        //         diag: HashMap::new(),
         //     });
 
         entry.instrument_model = model.clone();
@@ -311,7 +311,7 @@ pub fn query_gas(
         }
         // entry.datetime.push(datetime);
         entry.datetime.entry(serial.clone()).or_default().push(datetime);
-        entry.diag.push(diag);
+        entry.diag.entry(serial.clone()).or_default().push(diag);
     }
 
     Ok(grouped_data)
@@ -363,7 +363,7 @@ pub fn query_gas_all(
         model_key: HashMap::new(),
         datetime: HashMap::new(),
         gas: HashMap::new(),
-        diag: Vec::new(),
+        diag: HashMap::new(),
     };
 
     for row in rows {
@@ -392,7 +392,7 @@ pub fn query_gas_all(
 
         // entry.datetime.push(datetime);
         entry.datetime.entry(serial.clone()).or_default().push(datetime);
-        entry.diag.push(diag);
+        entry.diag.entry(serial.clone()).or_default().push(diag);
     }
 
     Ok(entry)
@@ -427,21 +427,7 @@ pub fn insert_measurements(
             println!("Warning: Missing data for gas {:?}", gas);
         }
     }
-    // let ch4_vec = all_gas.gas.get(&(GasType::CH4, all_gas.instrument_serial.clone())).unwrap();
-    // let co2_vec = all_gas.gas.get(&(GasType::CO2, all_gas.instrument_serial.clone())).unwrap();
-    // let h2o_vec = all_gas.gas.get(&(GasType::H2O, all_gas.instrument_serial.clone())).unwrap();
     let data_len = datetime_vec.get(&all_gas.instrument_serial.clone()).unwrap().len();
-    // if !gas_map.values().all(|v| v.len() == data_len) || diag_vec.len() != data_len {
-    //     println!("Error: Mismatched data lengths in input vectors");
-    //     return Err(rusqlite::Error::InvalidQuery);
-    // }
-    // if datetime_vec.len() != ch4_vec.len()
-    //     || datetime_vec.len() != co2_vec.len()
-    //     || datetime_vec.len() != h2o_vec.len()
-    // {
-    //     println!("Error: Mismatched data lengths");
-    //     return Err(rusqlite::Error::InvalidQuery); // Ensure equal-length data
-    // }
 
     let tx = conn.transaction()?;
     let mut duplicates = 0;
@@ -454,7 +440,7 @@ pub fn insert_measurements(
     let available_gases = instrument.available_gases();
     let mut gas_keys = vec![];
     for (idx, gas) in available_gases.iter().enumerate() {
-        columns.push(format!("{:?}", gas).to_lowercase()); // assumes gas types match DB column names
+        columns.push(format!("{}", gas).to_lowercase()); // assumes gas types match DB column names
         placeholders.push(format!("?{}", idx + 2)); // next placeholders
         gas_keys.push(gas); // to get values during loop
     }
@@ -480,69 +466,39 @@ pub fn insert_measurements(
 
     println!("Pushing data!");
     for i in 0..data_len {
-        let mut values: Vec<&dyn rusqlite::ToSql> = Vec::new();
-        values.push(
-            &datetime_vec.get(&all_gas.instrument_serial).unwrap()[i] as &dyn rusqlite::ToSql,
-        );
-        for gas in &gas_keys {
-            values.push(gas_map.get(gas).unwrap()[i].as_ref().unwrap() as &dyn rusqlite::ToSql);
+        let mut check_stmt = tx
+        .prepare("SELECT 1 FROM measurements WHERE datetime = ?1 AND instrument_serial = ?2 AND project_id = ?3")?;
+        let mut rows = check_stmt.query(params![
+            datetime_vec.get(&all_gas.instrument_serial).unwrap()[i],
+            all_gas.instrument_serial,
+            project.name
+        ])?;
+
+        if rows.next()?.is_some() {
+            // If a duplicate exists, log it
+            duplicates += 1;
+        } else {
+            // If no duplicate, insert the new record
+            let mut values: Vec<&dyn rusqlite::ToSql> = Vec::new();
+            values.push(
+                &datetime_vec.get(&all_gas.instrument_serial).unwrap()[i] as &dyn rusqlite::ToSql,
+            );
+            for gas in &gas_keys {
+                values.push(gas_map.get(gas).unwrap()[i].as_ref().unwrap() as &dyn rusqlite::ToSql);
+            }
+            values.push(
+                &diag_vec.get(&all_gas.instrument_serial).unwrap()[i] as &dyn rusqlite::ToSql,
+            );
+
+            // Add fixed fields
+            values.push(&all_gas.instrument_serial);
+            values.push(&all_gas.instrument_model);
+            values.push(&project.name);
+
+            stmt.execute(params_from_iter(values))?;
+            inserted += 1;
         }
-
-        // Add fixed fields
-        values.push(&diag_vec[i]);
-        values.push(&all_gas.instrument_serial);
-        values.push(&all_gas.instrument_model);
-        values.push(&project.name);
-
-        stmt.execute(params_from_iter(values))?;
-        inserted += 1;
     }
-    // Prepare the statement for insertion
-    // let mut stmt = tx.prepare(
-    //     "INSERT OR IGNORE INTO measurements (datetime, ch4, co2, h2o, diag, instrument_serial, instrument_model, project_id)
-    //      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-    // )?;
-    //
-    // println!("Pushing data!");
-    // for i in 0..datetime_vec.len() {
-    //     // Check for duplicates first
-    //     // let mut check_stmt = tx
-    //     //     .prepare("SELECT 1 FROM measurements WHERE datetime = ?1 AND instrument_serial = ?2 AND project_id = ?3")?;
-    //     // let mut rows =
-    //     //     check_stmt.query(params![datetime_vec[i], all_gas.instrument_serial, project])?;
-    //     stmt.execute(params![
-    //         datetime_vec[i],           //   Individual timestamp
-    //         ch4_vec[i],                //   Individual CH4 value
-    //         co2_vec[i],                //   Individual CO2 value
-    //         h2o_vec[i],                //   Individual H2O value
-    //         diag_vec[i],               //   Individual diag value
-    //         all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
-    //         all_gas.instrument_model,  // Example: Instrument model
-    //         project
-    //     ])?;
-    //     inserted += 1;
-    // if rows.next()?.is_some() {
-    //     // If a duplicate exists, log it
-    //     duplicates += 1;
-    //     // println!(
-    //     //     "Warning: Duplicate record found for datetime: {} and instrument_serial: {}",
-    //     //     datetime_vec[i], all_gas.instrument_serial
-    //     // );
-    // } else {
-    //     // If no duplicate, insert the new record
-    //     stmt.execute(params![
-    //         datetime_vec[i],           //   Individual timestamp
-    //         ch4_vec[i],                //   Individual CH4 value
-    //         co2_vec[i],                //   Individual CO2 value
-    //         h2o_vec[i],                //   Individual H2O value
-    //         diag_vec[i],               //   Individual diag value
-    //         all_gas.instrument_serial, // Example: Serial number (Replace with actual value)
-    //         all_gas.instrument_model,  // Example: Instrument model
-    //         project
-    //     ])?;
-    //     inserted += 1;
-    // }
-    // }
 
     drop(stmt);
     tx.commit()?;

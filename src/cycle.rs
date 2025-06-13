@@ -103,7 +103,7 @@ pub struct Cycle {
     pub measurement_diag_v: Vec<i64>,
     pub t0_concentration: HashMap<GasKey, f64>,
 
-    pub diag_v: Vec<i64>,
+    pub diag_v: HashMap<String, Vec<i64>>,
     pub min_calc_len: f64,
 }
 
@@ -302,7 +302,7 @@ impl Cycle {
         }
     }
     pub fn set_calc_end(&mut self, key: &GasKey, value: f64) {
-        let range_max = self.get_adjusted_open() - self.start_time.timestamp() as f64;
+        let range_max = self.get_adjusted_open();
         // the calc area cant go beyond the measurement area
         if value > range_max {
             self.calc_range_end.insert(key.clone(), range_max);
@@ -716,7 +716,13 @@ impl Cycle {
     }
     pub fn check_diag(&mut self) {
         let total_count = self.diag_v.len();
-        let nonzero_count = self.diag_v.iter().filter(|&&x| x != 0).count();
+        let nonzero_count = self
+            .diag_v
+            .get(&self.main_instrument_serial)
+            .unwrap()
+            .iter()
+            .filter(|&&x| x != 0)
+            .count();
 
         // Check if more than 50% of the values are nonzero
         let check = nonzero_count as f64 / total_count as f64 > 0.5;
@@ -1693,7 +1699,7 @@ impl CycleBuilder {
             measurement_r2: HashMap::new(),
             measurement_range_start: 0.,
             measurement_range_end: 0.,
-            diag_v: vec![],
+            diag_v: HashMap::new(),
             dt_v: HashMap::new(),
             gas_v: HashMap::new(),
             gas_v_mole: HashMap::new(),
@@ -1758,7 +1764,7 @@ impl CycleBuilder {
             measurement_r2: HashMap::new(),
             measurement_range_start: 0.,
             measurement_range_end: 0.,
-            diag_v: vec![],
+            diag_v: HashMap::new(),
             dt_v: HashMap::new(),
             gas_v: HashMap::new(),
             gas_v_mole: HashMap::new(),
@@ -2015,8 +2021,10 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
 
         // Skip row if neither model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
-            eprintln!("Skipping gas {:?}: no models available", key);
+            eprintln!("Skipping gas {} {}: no models available", key, cycle.start_time);
             continue;
+        } else {
+            eprintln!("Pushed {} {}", key, cycle.start_time);
         }
 
         stmt.execute(params![
@@ -2291,7 +2299,7 @@ pub fn load_cycles(
         }
 
         let dt_v = HashMap::new();
-        let diag_v = Vec::new();
+        let diag_v = HashMap::new();
         let gases = Vec::new();
         let gas_v = HashMap::new();
         let measurement_dt_v = Vec::new();
@@ -2319,6 +2327,7 @@ pub fn load_cycles(
             //     {
             let gas_key = GasKey::from((&gas, serial.as_str()));
             let dt_values = gas_data_day.datetime.get(&serial.clone()).unwrap();
+            let diag_values = gas_data_day.diag.get(&serial.clone()).unwrap();
             // let g_values = gas_data_day.gas.get(&gas_key.clone()).unwrap();
 
             let cycle = cycle_map.entry(key.clone()).or_insert_with(|| Cycle {
@@ -2397,11 +2406,11 @@ pub fn load_cycles(
 
                 let (_, diag_vals) = filter_diag_data(
                     &dt_values,
-                    &gas_data_day.diag,
+                    &diag_values,
                     start_time.timestamp() as f64,
                     end_time.timestamp() as f64,
                 );
-                cycle.diag_v = diag_vals;
+                cycle.diag_v.insert(serial.clone(), diag_vals);
 
                 if !cycle.gases.contains(&gas_key) {
                     cycle.gases.push(gas_key.clone());
@@ -2782,6 +2791,7 @@ pub fn process_cycles(
                 {
                     continue;
                 }
+                let diags = &cur_data.diag.get(serial).unwrap();
 
                 // Find the first datetime >= start
                 let si_time = match datetimes.iter().find(|&&t| t >= *start) {
@@ -2810,9 +2820,13 @@ pub fn process_cycles(
                 cycle.dt_v.insert(serial.clone(), dt_slice);
 
                 // Insert diag vector once (shared across instruments for now)
-                if cycle.diag_v.is_empty() {
-                    cycle.diag_v = matching_indices.iter().map(|&i| cur_data.diag[i]).collect();
-                }
+
+                let diag_slice: Vec<i64> =
+                    matching_indices.iter().filter_map(|&i| diags.get(i).copied()).collect();
+                cycle.diag_v.insert(serial.clone(), diag_slice);
+                // if cycle.diag_v.is_empty() {
+                //     cycle.diag_v = matching_indices.iter().map(|&i| cur_data.diag[i]).collect();
+                // }
 
                 // Set model and serial
                 cycle.instrument_serial = serial.clone();

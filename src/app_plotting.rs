@@ -460,15 +460,13 @@ impl ValidationApp {
             }
             if let Some(data) = cycle.gas_v.get(&key) {
                 let dt_v = &cycle.dt_v.get(&key.label).unwrap();
-                // println!("{:?}", dt_v);
-                // println!("{:?}", data);
-                let diag_values = &cycle.diag_v;
+                let diag_v = &cycle.diag_v.get(&key.label).unwrap();
 
                 let mut normal_points = Vec::new();
                 let mut highlighted_points = Vec::new();
 
                 for ((x, val_opt), &diag) in
-                    dt_v.iter().copied().zip(data.iter().copied()).zip(diag_values.iter())
+                    dt_v.iter().copied().zip(data.iter().copied()).zip(diag_v.iter())
                 {
                     if let Some(y) = val_opt {
                         if diag != 0 {

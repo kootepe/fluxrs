@@ -142,9 +142,6 @@ pub async fn query_cycles_async(
     end: DateTime<Utc>,
     project: Project,
 ) -> Result<TimeData> {
-    // let start_ts = start.timestamp();
-    // let end_ts = end.timestamp();
-
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
         query_cycles(&conn, start, end, project.name)

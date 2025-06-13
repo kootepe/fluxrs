@@ -40,6 +40,54 @@ impl fmt::Display for Project {
     }
 }
 
+impl Project {
+    pub fn load(db_path: Option<String>, name: &String) -> Option<Project> {
+        let mut conn = Connection::open("fluxrs.db").ok()?;
+        if db_path.is_some() {
+            conn = Connection::open(db_path.unwrap()).ok()?;
+        }
+
+        let result: Result<(String, String, String, usize, f64, f64, u8), _> = conn.query_row(
+            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode FROM projects WHERE project_id = ?",
+            [name],
+            |row| Ok((
+                row.get(0)?, // project_id
+                row.get(1)?, // instrument_serial
+                row.get(2)?, // instrument_model
+                row.get(3)?, // main_gas
+                row.get(4)?, // deadband
+                row.get(5)?, // min_calc_len
+                row.get(6)?, // mode
+            )),
+        );
+
+        let (
+            project_id,
+            instrument_serial,
+            instrument_string,
+            gas_i,
+            deadband,
+            min_calc_len,
+            mode_i,
+        ) = result.ok()?;
+
+        let main_gas = GasType::from_int(gas_i);
+        let mode = Mode::from_int(mode_i)?;
+        let instrument = InstrumentType::from_str(&instrument_string);
+
+        Some(Project {
+            name: project_id,
+            instrument,
+            instrument_serial,
+            main_gas,
+            deadband,
+            min_calc_len,
+            mode,
+            upload_from: None,
+        })
+    }
+}
+
 pub struct ProjectApp {
     pub project: Option<Project>,
     all_projects: Vec<Project>,

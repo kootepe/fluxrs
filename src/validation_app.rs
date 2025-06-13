@@ -26,7 +26,7 @@ use crate::Cycle;
 use crate::EqualLen;
 use tokio::sync::mpsc;
 
-use eframe::egui::{Color32, Context, Stroke, Ui};
+use eframe::egui::{Color32, Context, Label, Stroke, TextWrapMode, Ui};
 use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
@@ -50,6 +50,16 @@ pub enum DataType {
     Cycle,
     Meteo,
     Volume,
+}
+impl fmt::Display for DataType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            DataType::Gas => write!(f, "Gas Data"),
+            DataType::Cycle => write!(f, "Cycle data"),
+            DataType::Meteo => write!(f, "Meteo data"),
+            DataType::Volume => write!(f, "Volume data"),
+        }
+    }
 }
 // logs which item on the plot is being dragged
 pub enum Adjuster {
@@ -2223,27 +2233,27 @@ impl ValidationApp {
                                     upload_gas_data_async(
                                         path_list,
                                         &mut conn,
-                                        project_clone,
+                                        &project_clone,
                                         progress_sender,
                                     )
                                 },
                                 DataType::Cycle => upload_cycle_data_async(
                                     path_list,
                                     &mut conn,
-                                    project_clone,
-                                    log_messages,
+                                    &project_clone,
+                                    progress_sender,
                                 ),
                                 DataType::Meteo => upload_meteo_data_async(
                                     path_list,
                                     &mut conn,
-                                    project_clone,
-                                    log_messages,
+                                    &project_clone,
+                                    progress_sender,
                                 ),
                                 DataType::Volume => upload_volume_data_async(
                                     path_list,
                                     &mut conn,
-                                    project_clone,
-                                    log_messages,
+                                    &project_clone,
+                                    progress_sender,
                                 ),
                             }
                         }
@@ -2462,9 +2472,9 @@ impl ValidationApp {
             let mut lin_aic_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_lin_aic_enabled(gas))).collect();
 
-            let min_width = 100.;
+            let min_width = 150.;
             ui.vertical(|ui| {
-                ui.label("Linear model plots");
+                ui.add(Label::new("Linear model plots").wrap_mode(TextWrapMode::Truncate));
                 ui.group(|ui| {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
@@ -2558,7 +2568,7 @@ impl ValidationApp {
                 });
             });
         } else {
-            ui.label("No current cycle available to select gases from.");
+            ui.label("No cycles.");
         }
     }
     pub fn render_roblin_plot_selection(&mut self, ui: &mut egui::Ui) {
@@ -2576,9 +2586,9 @@ impl ValidationApp {
             let mut roblin_aic_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_roblin_aic_enabled(gas))).collect();
 
-            let min_width = 100.;
+            let min_width = 150.;
             ui.vertical(|ui| {
-                ui.label("Robust linear model plots");
+                ui.add(Label::new("RobLin model plots").wrap_mode(TextWrapMode::Truncate));
                 ui.group(|ui| {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
@@ -2656,7 +2666,7 @@ impl ValidationApp {
                 });
             });
         } else {
-            ui.label("No current cycle available to select gases from.");
+            ui.label("No cycles.");
         }
     }
     pub fn render_poly_plot_selection(&mut self, ui: &mut egui::Ui) {
@@ -2674,10 +2684,10 @@ impl ValidationApp {
             let mut poly_aic_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_poly_aic_enabled(gas))).collect();
 
-            let min_width = 100.;
+            let min_width = 150.;
             ui.vertical(|ui| {
                 ui.group(|ui| {
-                    ui.label("Poly model plots");
+                    ui.add(Label::new("Poly model plots").wrap_mode(TextWrapMode::Truncate));
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Flux");
@@ -2754,7 +2764,7 @@ impl ValidationApp {
                 });
             });
         } else {
-            ui.label("No current cycle available to select gases from.");
+            ui.label("No cycles.");
         }
     }
 }
@@ -3228,7 +3238,7 @@ fn render_recalculate_ui(
 pub fn upload_gas_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: Project,
+    project: &Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
@@ -3244,10 +3254,11 @@ pub fn upload_gas_data_async(
                 InstrumentType::Other => None,
             };
         }
-        match instrument.unwrap().read_data_file(path) {
+        match instrument.clone().unwrap().read_data_file(path) {
             Ok(data) => {
                 if data.validate_lengths() && !data.any_col_invalid() {
                     let rows = data.datetime.len();
+                    println!("Loaded: {} from {}", path.to_string_lossy(), instrument.unwrap());
                     match insert_measurements(conn, &data, &project) {
                         Ok((count, duplicates)) => {
                             let _ = progress_sender
@@ -3256,6 +3267,7 @@ pub fn upload_gas_data_async(
                                 progress_sender.send(ProcessEvent::Query(QueryEvent::InitEnded));
                         },
                         Err(e) => {
+                            println!("{}", e);
                             let _ = progress_sender
                                 .send(ProcessEvent::Insert(InsertEvent::Fail(format!("{}", e))));
                         },
@@ -3276,15 +3288,12 @@ pub fn upload_gas_data_async(
         }
     }
 }
-fn upload_cycle_data_async(
+pub fn upload_cycle_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: Project,
-    log_messages: Arc<Mutex<VecDeque<String>>>,
+    project: &Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    let mut log_msgs = log_messages.lock().unwrap();
-    log_msgs.push_front("Uploading cycle data...".to_string());
-
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
@@ -3298,36 +3307,41 @@ fn upload_cycle_data_async(
                     all_times.open_offset.extend(res.open_offset);
                     all_times.end_offset.extend(res.end_offset);
 
-                    log_msgs.push_front(format!("Successfully read {:?}", path));
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
+                        path.to_string_lossy().to_string(),
+                    )));
                 } else {
-                    log_msgs.push_front(format!("Skipped file {:?}: Invalid data length", path));
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                        path.to_string_lossy().to_string(),
+                        "Skipped, invalid data length".to_owned(),
+                    )));
                 }
             },
             Err(e) => {
-                log_msgs.push_front(format!("Failed to read file {:?}: {}", path, e));
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                    path.to_string_lossy().to_string(),
+                    "Failed to read file {:?}: {}".to_owned(),
+                )));
             },
         }
     }
-    match insert_cycles(conn, &all_times, project.name) {
+    match insert_cycles(conn, &all_times, &project.name) {
         Ok((row_count, duplicates)) => {
-            log_msgs.push_front(format!(
-                "Successfully inserted {} rows into DB. Skipped {}.",
-                row_count, duplicates
-            ));
+            let _ = progress_sender
+                .send(ProcessEvent::Insert(InsertEvent::OkSkip(row_count, duplicates)));
         },
         Err(e) => {
-            log_msgs.push_front(format!("Failed to insert cycle data to db.Error {}", e));
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(e.to_string())));
         },
     }
 }
 
-fn upload_meteo_data_async(
+pub fn upload_meteo_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: Project,
-    log_messages: Arc<Mutex<VecDeque<String>>>,
+    project: &Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    let mut log_msgs = log_messages.lock().unwrap();
     let mut meteos = MeteoData::default();
     for path in &selected_paths {
         match csv_parse::read_meteo_csv(path) {
@@ -3338,27 +3352,29 @@ fn upload_meteo_data_async(
                 meteos.temperature.extend(res.temperature);
             },
             Err(e) => {
-                log_msgs.push_front(format!("Failed to read file {:?}: {}", path, e));
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                    path.to_string_lossy().to_string(),
+                    "Skipped, invalid data length".to_owned(),
+                )));
             },
         }
     }
     match insert_meteo_data(conn, &project.name, &meteos) {
         Ok(row_count) => {
-            log_msgs.push_front(format!("Successfully inserted {} rows into DB.", row_count));
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(row_count)));
         },
         Err(e) => {
-            log_msgs.push_front(format!("Failed to insert cycle data to db.Error {}", e));
+            let msg = format!("Failed to insert cycle data to db.Error {}", e);
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
         },
     }
-    log_msgs.push_front("Uploading meteo data...".to_string());
 }
-fn upload_volume_data_async(
+pub fn upload_volume_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
-    project: Project,
-    log_messages: Arc<Mutex<VecDeque<String>>>,
+    project: &Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    let mut log_msgs = log_messages.lock().unwrap();
     let mut volumes = VolumeData::default();
     for path in &selected_paths {
         match csv_parse::read_volume_csv(path) {
@@ -3369,19 +3385,22 @@ fn upload_volume_data_async(
                 volumes.volume.extend(res.volume);
             },
             Err(e) => {
-                log_msgs.push_front(format!("Failed to read file {:?}: {}", path, e));
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                    path.to_string_lossy().to_string(),
+                    "Failed to read file {:?}: {}".to_owned(),
+                )));
             },
         }
     }
     match insert_volume_data(conn, &project.name, &volumes) {
         Ok(row_count) => {
-            log_msgs.push_front(format!("Successfully inserted {} rows into DB.", row_count));
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(row_count)));
         },
         Err(e) => {
-            log_msgs.push_front(format!("Failed to insert cycle data to db.Error {}", e));
+            let msg = format!("Failed to insert cycle data to db.Error {}", e);
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
         },
     }
-    log_msgs.push_front("Uploading meteo data...".to_string());
 }
 pub fn keybind_triggered(event: &egui::Event, keybinds: &KeyBindings, action: Action) -> bool {
     matches!(event,

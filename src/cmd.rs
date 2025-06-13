@@ -1,0 +1,449 @@
+use crate::gasdata::query_gas_async;
+use crate::instruments::InstrumentType;
+use crate::meteodata::query_meteo_async;
+use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::project_app::Project;
+use crate::timedata::query_cycles_async;
+use crate::validation_app::run_processing_dynamic;
+use crate::validation_app::{
+    upload_cycle_data_async, upload_gas_data_async, upload_meteo_data_async,
+    upload_volume_data_async, DataType,
+};
+use crate::volumedata::query_volume_async;
+use chrono::format::ParseError;
+use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{NaiveDateTime, TimeZone};
+use glob::glob;
+use rusqlite::{Connection, Result};
+use std::collections::VecDeque;
+use std::error::Error;
+use std::fs;
+use std::path::PathBuf;
+use std::process;
+// use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+
+type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
+
+pub struct Config {
+    pub project: Option<String>,
+    pub paths: Option<String>,
+    pub file_type: Option<DataType>,
+    pub use_newest: bool,
+    pub initiate_data: bool,
+    pub instrument: Option<InstrumentType>,
+    pub db_path: Option<String>,
+    pub start: Option<DateTime<Utc>>,
+    pub end: Option<DateTime<Utc>>,
+}
+
+impl Config {
+    pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
+        println!("Running build");
+        args.next(); // Skip the first argument (program name)
+
+        let mut project: Option<String> = None;
+        let mut paths: Option<String> = None;
+        let mut file_type: Option<DataType> = None;
+        let mut db_path: Option<String> = None;
+        let mut instrument: Option<InstrumentType> = None;
+        let mut start: Option<DateTime<Utc>> = None;
+        let mut end: Option<DateTime<Utc>> = None;
+        let mut use_newest = false;
+        let mut initiate_data = false;
+
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--create-project" => {},
+                // project name from db
+                "-p" => {
+                    project = args.next();
+                },
+                "--project" => {
+                    if project.is_some() {
+                        println!("Project already set.")
+                    } else {
+                        project = args.next();
+                    }
+                },
+                "-db" => {
+                    db_path = args.next();
+                },
+                // start_time
+                "-s" => {
+                    if let Some(arg) = args.next() {
+                        match parse_datetime(&arg) {
+                            Ok(dt) => {
+                                println!("Parsed: {} -> {}", arg, dt);
+                                start = Some(dt);
+                            },
+                            Err(e) => eprintln!("Failed to parse '{}': {:?}", arg, e),
+                        }
+                    } else {
+                        eprintln!("Expected a datetime string after '-s'");
+                        process::exit(1)
+                    }
+                },
+
+                // end_time
+                "-e" => {
+                    if let Some(arg) = args.next() {
+                        match parse_datetime(&arg) {
+                            Ok(dt) => {
+                                println!("Parsed: {} -> {}", arg, dt);
+                                end = Some(dt);
+                            },
+                            Err(e) => eprintln!("Failed to parse '{}': {:?}", arg, e),
+                        }
+                    } else {
+                        eprintln!("Expected a datetime string after '-e'");
+                        process::exit(1)
+                    }
+                },
+                // start init
+                "-i" => {
+                    instrument =
+                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
+                },
+                "--instrument" => {
+                    instrument =
+                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
+                },
+                // start init
+                "--init" => {
+                    initiate_data = true;
+                },
+                // use newest
+                "-n" => {
+                    use_newest = true;
+                },
+                "-newest" => {
+                    use_newest = true;
+                },
+                // cycle data path
+                // -t for time
+                "-t" => {
+                    paths = args.next();
+                    file_type = Some(DataType::Cycle);
+                },
+                // gas data path
+                // -g for gas
+                "-g" => {
+                    paths = args.next();
+                    file_type = Some(DataType::Gas);
+                },
+                // volume data path
+                // -v for volume
+                "-v" => {
+                    paths = args.next();
+                    file_type = Some(DataType::Volume);
+                },
+                //  meteo data path
+                // -m for meteo
+                "-m" => {
+                    paths = args.next();
+                    file_type = Some(DataType::Meteo);
+                },
+                _ => {}, // Ignore unknown arguments
+            }
+        }
+
+        Ok(Config {
+            project,
+            paths,
+            file_type,
+            db_path,
+            instrument,
+            start,
+            end,
+            use_newest,
+            initiate_data,
+        })
+    }
+    pub fn run(&self) {
+        if let Some(project_name) = &self.project {
+            if let Some(mut project) = Project::load(self.db_path.clone(), project_name) {
+                project.upload_from = self.instrument;
+                println!("Loaded project: {}", project);
+                if let Some(file_type) = &self.file_type {
+                    let files = get_file_paths(self.paths.as_ref().unwrap(), self.use_newest);
+                    let (progress_sender, mut progress_receiver) =
+                        mpsc::unbounded_channel::<ProcessEvent>();
+                    let mut conn = match Connection::open("fluxrs.db") {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            eprintln!("Failed to open database: {}", e);
+                            return;
+                        },
+                    };
+
+                    let progress_thread = std::thread::spawn(move || {
+                        while let Some(event) = progress_receiver.blocking_recv() {
+                            handle_progress_messages(event);
+                        }
+                    });
+                    let sender_clone = progress_sender.clone();
+                    match file_type {
+                        DataType::Gas => {
+                            if !files.is_empty() {
+                                upload_gas_data_async(files, &mut conn, &project, sender_clone);
+                            } else {
+                                println!("No files found with {}", self.paths.as_ref().unwrap(),)
+                            }
+                        },
+                        DataType::Cycle => {
+                            if !files.is_empty() {
+                                upload_cycle_data_async(files, &mut conn, &project, sender_clone);
+                            } else {
+                                println!("No files found with {}", self.paths.as_ref().unwrap(),)
+                            }
+                        },
+                        DataType::Meteo => {
+                            if !files.is_empty() {
+                                upload_meteo_data_async(files, &mut conn, &project, sender_clone);
+                            } else {
+                                println!("No files found with {}", self.paths.as_ref().unwrap(),)
+                            }
+                        },
+                        DataType::Volume => {
+                            if !files.is_empty() {
+                                upload_volume_data_async(files, &mut conn, &project, sender_clone);
+                            } else {
+                                println!("No files found with {}", self.paths.as_ref().unwrap(),)
+                            }
+                        },
+                    }
+                    drop(progress_sender);
+                    let _ = progress_thread.join();
+                }
+                if self.initiate_data {
+                    let conn = match Connection::open("fluxrs.db") {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            eprintln!("Failed to open database: {}", e);
+                            return;
+                        },
+                    };
+
+                    let start_date = self
+                        .start
+                        .unwrap_or_else(|| get_newest_measurement_day(&conn).unwrap_or_default());
+                    let end_date = self.end.unwrap_or(Utc::now());
+
+                    let arc_conn = Arc::new(Mutex::new(conn));
+                    // let sender = self.task_done_sender.clone();
+                    let (sender, _task_done_receiver) = std::sync::mpsc::channel();
+                    let (progress_sender, mut progress_receiver) = mpsc::unbounded_channel();
+
+                    // let progress_receiver = Some(progress_receiver);
+                    // handle_progress_messages(progress_receiver);
+
+                    let proj = project;
+                    let runtime =
+                        tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+
+                    let progress_receiver_thread = std::thread::spawn(move || {
+                        while let Some(msg) = progress_receiver.blocking_recv() {
+                            handle_progress_messages(msg);
+                        }
+                    });
+
+                    let handle = runtime.spawn(async move {
+                        let cycles_result = query_cycles_async(
+                            arc_conn.clone(),
+                            start_date,
+                            end_date,
+                            proj.clone(),
+                        )
+                        .await;
+                        println!("gas ");
+                        let gas_result =
+                            query_gas_async(arc_conn.clone(), start_date, end_date, proj.clone())
+                                .await;
+                        println!("meteteo");
+                        let meteo_result =
+                            query_meteo_async(arc_conn.clone(), start_date, end_date, proj.clone())
+                                .await;
+                        println!("vol");
+                        let volume_result = query_volume_async(
+                            arc_conn.clone(),
+                            start_date,
+                            end_date,
+                            proj.clone(),
+                        )
+                        .await;
+
+                        match (cycles_result, gas_result, meteo_result, volume_result) {
+                            (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
+                                let _ = progress_sender
+                                    .send(ProcessEvent::Query(QueryEvent::QueryComplete));
+                                if !times.start_time.is_empty() && !gas_data.is_empty() {
+                                    run_processing_dynamic(
+                                        times,
+                                        gas_data,
+                                        meteo_data,
+                                        volume_data,
+                                        proj.clone(),
+                                        arc_conn.clone(),
+                                        progress_sender,
+                                    )
+                                    .await;
+                                    let _ = sender.send(());
+                                } else {
+                                    // let _ = progress_sender.send(ProcessEvent::Query(
+                                    //     QueryEvent::NoGasData("No data available".into()),
+                                    // ));
+                                    let _ = progress_sender.send(ProcessEvent::Done(Err(
+                                        "No data available.".to_owned(),
+                                    )));
+                                }
+                            },
+                            e => eprintln!("Failed to query database: {:?}", e),
+                        }
+                    });
+                    runtime.block_on(handle).unwrap();
+                    let _ = progress_receiver_thread.join();
+                }
+            } else {
+                println!("No project found with name: {}", project_name)
+            }
+        } else {
+            println!("No project name given")
+        }
+        process::exit(0)
+    }
+
+    pub fn read_file(&self) {}
+}
+
+fn get_file_paths(pattern: &str, use_newest: bool) -> Vec<PathBuf> {
+    let entries: Vec<PathBuf> =
+        glob(pattern).expect("Failed to read glob pattern").filter_map(Result::ok).collect();
+
+    if use_newest {
+        entries
+            .into_iter()
+            .filter_map(|path| {
+                let modified = fs::metadata(&path).ok()?.modified().ok()?;
+                Some((path, modified))
+            })
+            .max_by_key(|&(_, time)| time)
+            .map(|(path, _)| vec![path])
+            .unwrap_or_default()
+    } else {
+        entries
+    }
+}
+
+pub fn get_newest_measurement_day(conn: &Connection) -> Option<DateTime<Utc>> {
+    let timestamp: Option<i64> =
+        conn.query_row("SELECT MAX(start_time) FROM fluxes", [], |row| row.get(0)).ok()?;
+
+    if let Some(time) = timestamp {
+        let naive = DateTime::from_timestamp(time, 0).unwrap();
+        return Some(naive);
+    } else {
+        return None;
+    }
+}
+
+fn parse_datetime(input: &str) -> Result<DateTime<Utc>, Box<dyn Error>> {
+    // Try ISO 8601 (e.g. "2024-06-12T14:20:00Z")
+    if let Ok(dt) = DateTime::parse_from_rfc3339(input) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+
+    // Try RFC 2822 (e.g. "Wed, 12 Jun 2024 14:20:00 +0000")
+    if let Ok(dt) = DateTime::parse_from_rfc2822(input) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+
+    // Try common custom format without timezone (e.g. "2024-06-12 14:20:00")
+    let formats = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y-%m-%d",
+        "%d-%m-%Y %H:%M:%S",
+        "%m/%d/%Y %H:%M:%S",
+    ];
+
+    if let Ok(naive_date) = NaiveDate::parse_from_str(input, "%Y-%m-%d") {
+        let naive_dt = naive_date.and_hms_opt(0, 0, 0).unwrap();
+        return Ok(Utc.from_utc_datetime(&naive_dt));
+    }
+
+    Err("Could not parse datetime".into())
+}
+pub fn handle_progress_messages(msg: ProcessEvent) {
+    match msg {
+        ProcessEvent::Query(query_event) => match query_event {
+            QueryEvent::InitStarted => {},
+            QueryEvent::InitEnded => {},
+            QueryEvent::QueryComplete => {
+                println!("Finished queries.");
+            },
+            QueryEvent::NoGasData(start_time) => {
+                println!("No gas data found for cycle at {}", start_time);
+            },
+            QueryEvent::NoGasDataDay(day) => {
+                println!("No gas data found for day {}", day);
+            },
+        },
+
+        ProcessEvent::Progress(progress_event) => match progress_event {
+            ProgressEvent::Rows(current, total) => {
+                // self.cycles_state = Some((current, total));
+                // self.cycles_progress += current;
+            },
+            ProgressEvent::Day(date) => {
+                println!("Loaded cycles from {}", date);
+            },
+            ProgressEvent::NoGas(msg) => {
+                println!("Gas missing: {}", msg);
+            },
+        },
+
+        ProcessEvent::Read(read_event) => match read_event {
+            ReadEvent::File(filename) => {
+                println!("Read file: {}", filename);
+            },
+            ReadEvent::FileRows(filename, rows) => {
+                println!("Read file: {} with {} rows", filename, rows);
+            },
+            ReadEvent::FileFail(filename, e) => {
+                println!("Failed to read file {}, error: {}", filename, e);
+            },
+        },
+
+        ProcessEvent::Insert(insert_event) => match insert_event {
+            InsertEvent::Ok(rows) => {
+                println!("Inserted {} rows", rows);
+            },
+            InsertEvent::OkSkip(rows, duplicates) => {
+                println!("Inserted {} rows, skipped {} duplicates.", rows, duplicates);
+            },
+            InsertEvent::Fail(e) => {
+                println!("Failed to insert rows: {}", e);
+            },
+        },
+
+        // ProcessEvent::Error(e) | ProcessEvent::NoGasError(e) => {
+        //     self.log_messages.push_front(format!("Error: {}", e));
+        // },
+        ProcessEvent::Done(result) => {
+            match result {
+                Ok(()) => {
+                    println!("All processing finished.");
+                },
+                Err(e) => {
+                    println!("Processing finished with error: {}", e);
+                },
+            }
+            // self.cycles_progress = 0;
+            // self.init_in_progress = false;
+            // self.init_enabled = true;
+            // self.query_in_progress = false;
+        },
+    }
+}
