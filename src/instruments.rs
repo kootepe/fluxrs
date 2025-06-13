@@ -36,11 +36,7 @@ impl FromStr for GasType {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "CH4" => Ok(GasType::CH4),
-            "CO2" => Ok(GasType::CO2),
-            "H2O" => Ok(GasType::H2O),
-            "N2O" => Ok(GasType::N2O),
+        match s.to_ascii_lowercase().as_str() {
             "ch4" => Ok(GasType::CH4),
             "co2" => Ok(GasType::CO2),
             "h2o" => Ok(GasType::H2O),

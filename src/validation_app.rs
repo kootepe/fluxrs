@@ -24,6 +24,7 @@ use crate::timedata::{query_cycles_async, TimeData};
 use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::Cycle;
 use crate::EqualLen;
+use std::str::FromStr;
 use tokio::sync::mpsc;
 
 use eframe::egui::{Color32, Context, Label, Stroke, TextWrapMode, Ui};
@@ -77,6 +78,18 @@ pub enum Mode {
     BestPearsonsR,
 }
 
+impl FromStr for Mode {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "bestr" => Ok(Mode::AfterDeadband),
+            "pearsons" => Ok(Mode::BestPearsonsR),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Default for Mode {
     fn default() -> Self {
         Self::BestPearsonsR
@@ -107,7 +120,14 @@ impl std::fmt::Display for Mode {
         }
     }
 }
-
+impl std::fmt::Debug for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::AfterDeadband => write!(f, "After Deadband"),
+            Mode::BestPearsonsR => write!(f, "Best Pearson's R"),
+        }
+    }
+}
 type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
 type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
 

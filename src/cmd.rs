@@ -1,10 +1,10 @@
 use crate::gasdata::query_gas_async;
-use crate::instruments::InstrumentType;
+use crate::instruments::{GasType, InstrumentType};
 use crate::meteodata::query_meteo_async;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::project_app::Project;
 use crate::timedata::query_cycles_async;
-use crate::validation_app::run_processing_dynamic;
+use crate::validation_app::{run_processing_dynamic, Mode};
 use crate::validation_app::{
     upload_cycle_data_async, upload_gas_data_async, upload_meteo_data_async,
     upload_volume_data_async, DataType,
@@ -24,6 +24,7 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
+use std::fmt;
 type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
 
 pub struct Config {
@@ -36,9 +37,43 @@ pub struct Config {
     pub db_path: Option<String>,
     pub start: Option<DateTime<Utc>>,
     pub end: Option<DateTime<Utc>>,
-}
 
+    // Extra for project creation
+    pub create_project: bool,
+    pub name: Option<String>,
+    pub instrument_serial: Option<String>,
+    pub main_gas: Option<GasType>,
+    pub deadband: Option<f64>,
+    pub min_calc_len: Option<f64>,
+    pub mode: Option<Mode>,
+}
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // let len: usize = self.measurement_dt_v.len();
+        write!(
+            f,
+            "{:?} {:?} {:?} {:?} {:?} {:?}",
+            self.name,
+            self.instrument_serial,
+            self.main_gas,
+            self.deadband,
+            self.min_calc_len,
+            self.mode
+        )
+    }
+}
 impl Config {
+    pub fn print_proj(&self) {
+        println!(
+            "{:?} {:?} {:?} {:?} {:?} {:?}",
+            self.name,
+            self.instrument_serial,
+            self.main_gas,
+            self.deadband,
+            self.min_calc_len,
+            self.mode
+        );
+    }
     pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
         println!("Running build");
         args.next(); // Skip the first argument (program name)
@@ -53,9 +88,63 @@ impl Config {
         let mut use_newest = false;
         let mut initiate_data = false;
 
+        let mut create_project = false;
+        let mut name = None;
+        let mut instrument_serial = None;
+        let mut main_gas = None;
+        let mut deadband = None;
+        let mut min_calc_len = None;
+        let mut mode = None;
+
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--create-project" => {},
+                "--help" => {
+                    print_help();
+                    process::exit(0);
+                },
+                "-h" => {
+                    print_help();
+                    process::exit(0);
+                },
+                "--create-project" => {
+                    create_project = true;
+                    name = args.next();
+                },
+                "--serial" => {
+                    instrument_serial = args.next();
+                },
+                "--main-gas" => {
+                    if let Some(gas_str) = args.next() {
+                        match gas_str.parse::<GasType>() {
+                            Ok(gas) => main_gas = Some(gas),
+                            Err(_) => {
+                                eprintln!("Invalid gas type: '{}'", gas_str);
+                                process::exit(1);
+                            },
+                        }
+                    } else {
+                        eprintln!("Expected a gas type after '--main-gas'");
+                        process::exit(1);
+                    }
+                    // if let Some(gas_str) = args.next() {
+                    //     main_gas = gas_str.parse::<GasType>().ok();
+                    // }
+                },
+                "--deadband" => {
+                    if let Some(db) = args.next() {
+                        deadband = db.parse().ok();
+                    }
+                },
+                "--min-calc-len" => {
+                    if let Some(mcl) = args.next() {
+                        min_calc_len = mcl.parse().ok();
+                    }
+                },
+                "--mode" => {
+                    if let Some(m) = args.next() {
+                        mode = m.parse::<Mode>().ok();
+                    }
+                },
                 // project name from db
                 "-p" => {
                     project = args.next();
@@ -150,6 +239,7 @@ impl Config {
         }
 
         Ok(Config {
+            create_project,
             project,
             paths,
             file_type,
@@ -159,9 +249,60 @@ impl Config {
             end,
             use_newest,
             initiate_data,
+            instrument_serial,
+            name,
+            main_gas,
+            deadband,
+            min_calc_len,
+            mode,
         })
     }
     pub fn run(&self) {
+        if self.create_project {
+            if let (
+                Some(name),
+                Some(inst),
+                Some(serial),
+                Some(main_gas),
+                Some(deadband),
+                Some(min_calc_len),
+                Some(mode),
+            ) = (
+                &self.name,
+                &self.instrument,
+                &self.instrument_serial,
+                self.main_gas,
+                self.deadband,
+                self.min_calc_len,
+                &self.mode,
+            ) {
+                let project = Project {
+                    name: name.clone(),
+                    instrument: *inst,
+                    instrument_serial: serial.clone(),
+                    main_gas: Some(main_gas),
+                    deadband,
+                    min_calc_len,
+                    mode: *mode,
+                    upload_from: None,
+                };
+
+                // Save it — implement this however your Project system works
+                match Project::save(self.db_path.clone(), &project) {
+                    Ok(_) => {
+                        println!("Project '{}' created successfully.", name);
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to create project '{}': {}", name, e);
+                    },
+                }
+                return;
+            } else {
+                eprintln!("Missing fields for project creation.");
+                println!("{:?}", self);
+                process::exit(1);
+            }
+        }
         if let Some(project_name) = &self.project {
             if let Some(mut project) = Project::load(self.db_path.clone(), project_name) {
                 project.upload_from = self.instrument;
@@ -446,4 +587,40 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             // self.query_in_progress = false;
         },
     }
+}
+
+fn print_help() {
+    println!(
+        r#"Usage: fluxrs [OPTIONS]
+
+Data Upload and Project Management Tool
+
+General Options:
+  -p, --project <NAME>         Project name (required for most actions)
+  -db <PATH>                   Path to SQLite database (default: fluxrs.db)
+  -s <START_DATETIME>          Start datetime in RFC3339 (e.g. 2024-01-01T00:00:00Z)
+  -e <END_DATETIME>            End datetime in RFC3339 (e.g. 2024-01-02T00:00:00Z)
+  -i, --instrument <TYPE>      Instrument type (e.g. licor, picarro)
+  --init                       Initiate processing after upload
+  -n, -newest                  Use newest available date as start
+
+File Upload:
+  -t <PATH>                    Upload cycle data from path
+  -g <PATH>                    Upload gas data from path
+  -v <PATH>                    Upload volume data from path
+  -m <PATH>                    Upload meteo data from path
+
+Project Creation:
+  --create-project             Create a new project (must be used with below)
+  --serial <SERIAL>            Instrument serial number
+  --main-gas <TYPE>            Main gas (e.g. CO2, CH4, etc.)
+  --deadband <VALUE>           Deadband threshold (e.g. 0.1)
+  --min-calc-len <VALUE>       Minimum calculation duration (e.g. 5.0)
+  --mode <MODE>                Mode (e.g. dynamic, static)
+  --upload-from <TYPE>         Source instrument for upload
+
+Misc:
+  --help                       Print this help message
+"#
+    );
 }

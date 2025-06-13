@@ -86,6 +86,28 @@ impl Project {
             upload_from: None,
         })
     }
+    pub fn save(db_path: Option<String>, project: &Project) -> Result<()> {
+        let db_path = db_path.unwrap_or_else(|| "fluxrs.db".to_string());
+        let conn = Connection::open(db_path)?;
+
+        conn.execute(
+            "INSERT OR IGNORE INTO projects (
+                project_id, instrument_model, instrument_serial, main_gas, deadband, min_calc_len, mode, current
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                project.name,
+                project.instrument.to_string(),
+                project.instrument_serial,
+                project.main_gas.unwrap().as_int(),
+                project.deadband,
+                project.min_calc_len,
+                project.mode.as_int(),
+                0,
+            ],
+        )?;
+
+        Ok(())
+    }
 }
 
 pub struct ProjectApp {
