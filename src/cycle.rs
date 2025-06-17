@@ -715,9 +715,7 @@ impl Cycle {
                 .map(|(idx, _)| start_index + idx);
 
             if let Some(idx) = max_idx {
-                if let Some(peak_time) =
-                    self.dt_v.get(&self.main_instrument_serial).unwrap().get(idx)
-                {
+                if let Some(peak_time) = self.dt_v.get(&key.label).unwrap().get(idx) {
                     self.open_lag_s =
                         peak_time - (self.start_time.timestamp() + self.open_offset) as f64;
 
