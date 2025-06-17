@@ -211,19 +211,22 @@ pub fn query_gas2(
 
         // Dynamically assign each gas value
 
-        for gas in &available_gases {
-            let idx = gas.as_int();
-            if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
-                entry
-                    .gas
-                    .entry(GasKey::from((gas, serial.as_str())))
-                    .or_default()
-                    .push(Some(gas_val));
-            }
-        }
-        // entry.datetime.push(datetime);
         entry.datetime.entry(serial.clone()).or_default().push(datetime);
         entry.diag.entry(serial.clone()).or_default().push(diag);
+        for gas in &available_gases {
+            let idx = gas.as_int();
+            let gas_key = GasKey::from((gas, serial.as_str()));
+
+            // Ensure a vector exists for this gas_key
+            let gas_vec = entry.gas.entry(gas_key).or_default();
+
+            // Push the value or None
+            if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
+                gas_vec.push(Some(gas_val));
+            } else {
+                gas_vec.push(None);
+            }
+        }
     }
 
     Ok(grouped_data)
@@ -299,19 +302,23 @@ pub fn query_gas(
         entry.instrument_serial = serial.clone();
         entry.model_key.insert(serial.clone(), instrument_type);
 
-        for gas in &available_gases {
-            let idx = gas.as_int();
-            if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
-                entry
-                    .gas
-                    .entry(GasKey::from((gas, serial.as_str())))
-                    .or_default()
-                    .push(Some(gas_val));
-            }
-        }
-        // entry.datetime.push(datetime);
         entry.datetime.entry(serial.clone()).or_default().push(datetime);
         entry.diag.entry(serial.clone()).or_default().push(diag);
+
+        for gas in &available_gases {
+            let idx = gas.as_int();
+            let gas_key = GasKey::from((gas, serial.as_str()));
+
+            // Ensure a vector exists for this gas_key
+            let gas_vec = entry.gas.entry(gas_key).or_default();
+
+            // Push the value or None
+            if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
+                gas_vec.push(Some(gas_val));
+            } else {
+                gas_vec.push(None);
+            }
+        }
     }
 
     Ok(grouped_data)
@@ -322,7 +329,6 @@ pub fn query_gas_all(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     project: String,
-    instrument_serial: String,
 ) -> Result<GasData> {
     println!("Querying gas data");
 
@@ -330,31 +336,28 @@ pub fn query_gas_all(
         "SELECT datetime, co2, ch4, h2o, n2o, diag, instrument_serial, instrument_model
          FROM measurements
          WHERE datetime BETWEEN ?1 AND ?2
-         AND project_id = ?3 AND instrument_serial = ?4
-         ORDER BY datetime",
+         AND project_id = ?3
+         ORDER BY instrument_serial, datetime",
     )?;
 
-    let rows = stmt.query_map(
-        params![start.timestamp(), end.timestamp(), project, instrument_serial],
-        |row| {
-            let datetime_unix: i64 = row.get(0)?;
-            let diag: i64 = row.get(5)?;
-            let instrument_serial: Option<String> = row.get(6)?;
-            let instrument_model: Option<String> = row.get(7)?;
+    let rows = stmt.query_map(params![start.timestamp(), end.timestamp(), project], |row| {
+        let datetime_unix: i64 = row.get(0)?;
+        let diag: i64 = row.get(5)?;
+        let instrument_serial: Option<String> = row.get(6)?;
+        let instrument_model: Option<String> = row.get(7)?;
 
-            // Collect gas values into a vector in matching order
-            let gas_values = vec![
-                row.get::<_, Option<f64>>(1)?, // co2
-                row.get::<_, Option<f64>>(2)?, // ch4
-                row.get::<_, Option<f64>>(3)?, // h2o
-                row.get::<_, Option<f64>>(4)?, // n2o
-            ];
+        let utc_datetime: DateTime<Utc> =
+            chrono::DateTime::from_timestamp(datetime_unix, 0).unwrap().to_utc();
+        // Collect gas values into a vector in matching order
+        let gas_values = vec![
+            row.get::<_, Option<f64>>(1)?, // co2
+            row.get::<_, Option<f64>>(2)?, // ch4
+            row.get::<_, Option<f64>>(3)?, // h2o
+            row.get::<_, Option<f64>>(4)?, // n2o
+        ];
 
-            let utc_datetime = chrono::DateTime::from_timestamp(datetime_unix, 0).unwrap().to_utc();
-
-            Ok((utc_datetime, gas_values, diag, instrument_serial, instrument_model))
-        },
-    )?;
+        Ok((utc_datetime, gas_values, diag, instrument_serial, instrument_model))
+    })?;
 
     let mut entry = GasData {
         header: StringRecord::new(),
