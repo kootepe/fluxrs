@@ -11,11 +11,10 @@ use crate::validation_app::{
 };
 use crate::volumedata::query_volume_async;
 use chrono::format::ParseError;
+use chrono::TimeZone;
 use chrono::{DateTime, NaiveDate, Utc};
-use chrono::{NaiveDateTime, TimeZone};
 use glob::glob;
 use rusqlite::{Connection, Result};
-use std::collections::VecDeque;
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
@@ -407,15 +406,12 @@ impl Config {
                             proj.clone(),
                         )
                         .await;
-                        println!("gas ");
                         let gas_result =
                             query_gas_async(arc_conn.clone(), start_date, end_date, proj.clone())
                                 .await;
-                        println!("meteteo");
                         let meteo_result =
                             query_meteo_async(arc_conn.clone(), start_date, end_date, proj.clone())
                                 .await;
-                        println!("vol");
                         let volume_result = query_volume_async(
                             arc_conn.clone(),
                             start_date,
@@ -493,9 +489,9 @@ pub fn get_newest_measurement_day(conn: &Connection) -> Option<DateTime<Utc>> {
 
     if let Some(time) = timestamp {
         let naive = DateTime::from_timestamp(time, 0).unwrap();
-        return Some(naive);
+        Some(naive)
     } else {
-        return None;
+        None
     }
 }
 
@@ -541,7 +537,7 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
                 println!("No gas data found for cycle at {}", start_time);
             },
             QueryEvent::NoGasDataDay(day) => {
-                println!("No gas data found for day {}", day);
+                // println!("No gas data found for day {}", day);
             },
         },
 
