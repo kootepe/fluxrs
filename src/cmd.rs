@@ -10,7 +10,6 @@ use crate::validation_app::{
     upload_volume_data_async, DataType,
 };
 use crate::volumedata::query_volume_async;
-use chrono::format::ParseError;
 use chrono::TimeZone;
 use chrono::{DateTime, NaiveDate, Utc};
 use glob::glob;
@@ -24,7 +23,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 use std::fmt;
-type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
 
 pub struct Config {
     pub project: Option<String>,
