@@ -296,7 +296,7 @@ impl Config {
                         eprintln!("Failed to create project '{}': {}", name, e);
                     },
                 }
-                return;
+                process::exit(0)
             } else {
                 eprintln!("Missing fields for project creation.");
                 println!("{:?}", self);
@@ -447,7 +447,8 @@ impl Config {
                     let _ = progress_receiver_thread.join();
                 }
             } else {
-                println!("No project found with name: {}", project_name)
+                println!("No project found with name: {}", project_name);
+                process::exit(0)
             }
         } else {
             println!("No project name given")
