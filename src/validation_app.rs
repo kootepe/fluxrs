@@ -83,8 +83,9 @@ impl FromStr for Mode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
-            "bestr" => Ok(Mode::AfterDeadband),
+            "deadband" => Ok(Mode::AfterDeadband),
             "pearsons" => Ok(Mode::BestPearsonsR),
+            "bestr" => Ok(Mode::BestPearsonsR),
             _ => Err(()),
         }
     }
