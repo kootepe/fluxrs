@@ -265,12 +265,16 @@ impl Cycle {
         (self.open_offset as f64 + self.open_lag_s) as usize
     }
     pub fn get_adjusted_close(&self) -> f64 {
-        self.get_start() + self.close_offset as f64 + self.open_lag_s + self.close_lag_s
+        self.start_time.timestamp() as f64
+            + self.close_offset as f64
+            + self.open_lag_s
+            + self.close_lag_s
+        // self.get_start() + self.close_offset as f64 + self.open_lag_s + self.close_lag_s
         // let idx = (self.close_offset as f64 + self.open_lag_s + self.close_lag_s) as usize;
         // self.dt_v[idx]
     }
     pub fn get_adjusted_open(&self) -> f64 {
-        self.get_start() + self.open_offset as f64 + self.open_lag_s
+        self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
         // let idx = (self.open_offset as f64 + self.open_lag_s) as usize;
         // self.dt_v[idx]
     }
