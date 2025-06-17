@@ -1,4 +1,5 @@
 use egui::Key;
+use egui::Key::*;
 use serde::{Deserialize, Serialize};
 
 use std::collections::HashMap;
@@ -13,6 +14,7 @@ pub enum Action {
     ZoomToMeasurement,
     ResetCycle,
     SearchLag,
+    SearchLagPrevious,
     IncrementLag,
     DecrementLag,
     IncrementDeadband,
@@ -54,6 +56,7 @@ impl fmt::Display for Action {
             Action::ZoomToMeasurement => write!(f, "Zoom To Measurement"),
             Action::ResetCycle => write!(f, "Reset Cycle"),
             Action::SearchLag => write!(f, "Search Lag"),
+            Action::SearchLagPrevious => write!(f, "Search Lag From Previous"),
             Action::IncrementLag => write!(f, "Increment Lag"),
             Action::DecrementLag => write!(f, "Decrement Lag"),
             Action::IncrementDeadband => write!(f, "Increment Deadband"),
@@ -90,46 +93,54 @@ impl fmt::Display for Action {
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyBindings {
-    bindings: HashMap<Action, Key>,
+    bindings: HashMap<Action, KeyBind>,
 }
 
 impl Default for KeyBindings {
     fn default() -> Self {
         let mut bindings = HashMap::new();
-        bindings.insert(Action::NextCycle, Key::ArrowRight);
-        bindings.insert(Action::PreviousCycle, Key::ArrowLeft);
-        bindings.insert(Action::ZoomToMeasurement, Key::Z);
-        bindings.insert(Action::ResetCycle, Key::R);
-        bindings.insert(Action::SearchLag, Key::S);
-        bindings.insert(Action::IncrementLag, Key::ArrowUp);
-        bindings.insert(Action::DecrementLag, Key::ArrowDown);
-        bindings.insert(Action::ToggleValidity, Key::I);
-        bindings.insert(Action::ToggleBad, Key::B);
-        bindings.insert(Action::ToggleShowValids, Key::Q);
-        bindings.insert(Action::ToggleShowInvalids, Key::W);
-        bindings.insert(Action::ToggleShowBad, Key::E);
-        bindings.insert(Action::ToggleShowSettings, Key::F1);
-        bindings.insert(Action::ToggleShowLegend, Key::F2);
-        bindings.insert(Action::ToggleShowDetails, Key::F3);
-        bindings.insert(Action::TogglePlotWidthsWindow, Key::F4);
+        let no_mods = |key| KeyBind { key, ctrl: false, shift: false, alt: false };
+        bindings.insert(Action::NextCycle, no_mods(ArrowRight));
+        bindings.insert(Action::PreviousCycle, no_mods(ArrowLeft));
+        bindings.insert(Action::ZoomToMeasurement, no_mods(Z));
+        bindings.insert(Action::ResetCycle, no_mods(R));
+        bindings.insert(Action::SearchLagPrevious, no_mods(S));
+        bindings.insert(Action::SearchLag, no_mods(L));
+        bindings.insert(Action::IncrementLag, no_mods(ArrowUp));
+        bindings.insert(Action::DecrementLag, no_mods(ArrowDown));
+        bindings.insert(Action::ToggleValidity, no_mods(I));
+        bindings.insert(Action::ToggleBad, no_mods(B));
+        bindings.insert(Action::ToggleShowValids, no_mods(Q));
+        bindings.insert(Action::ToggleShowInvalids, no_mods(W));
+        bindings.insert(Action::ToggleShowBad, no_mods(E));
+        bindings.insert(Action::ToggleShowSettings, no_mods(F1));
+        bindings.insert(Action::ToggleShowLegend, no_mods(F2));
+        bindings.insert(Action::ToggleShowDetails, no_mods(F3));
+        bindings.insert(Action::TogglePlotWidthsWindow, no_mods(F4));
+        bindings
+            .insert(Action::SearchLag, KeyBind { key: L, ctrl: true, shift: false, alt: false });
         Self { bindings }
     }
 }
 impl KeyBindings {
-    pub fn set(&mut self, action: Action, new_key: Key) {
-        self.bindings.retain(|_, &mut k| k != new_key);
-        self.bindings.insert(action, new_key);
+    pub fn set(&mut self, action: Action, new_bind: KeyBind) {
+        self.bindings.retain(|_, &mut k| k != new_bind);
+        self.bindings.insert(action, new_bind);
     }
+
     pub fn remove(&mut self, action: &Action) {
         self.bindings.remove(action);
     }
-    pub fn key_for(&self, action: Action) -> Option<Key> {
+    pub fn key_for(&self, action: Action) -> Option<KeyBind> {
         self.bindings.get(&action).copied()
     }
 
     pub fn action_triggered(&self, action: Action, input: &egui::InputState) -> bool {
-        if let Some(&key) = self.bindings.get(&action) {
-            input.key_pressed(key)
+        if let Some(&bind) = self.bindings.get(&action) {
+            input.key_pressed(bind.key)
+                && input.modifiers.ctrl == bind.ctrl
+                && input.modifiers.shift == bind.shift
+                && input.modifiers.alt == bind.alt
         } else {
             false
         }
@@ -145,15 +156,34 @@ impl KeyBindings {
         Ok(parsed)
     }
 
-    pub fn to_runtime(&self) -> HashMap<Action, egui::Key> {
+    pub fn to_runtime(&self) -> HashMap<Action, KeyBind> {
         self.bindings.iter().map(|(a, k)| (*a, *k)).collect()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct KeyBind {
     pub key: Key,
     pub ctrl: bool,
     pub shift: bool,
     pub alt: bool,
+}
+impl fmt::Display for KeyBind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut parts: Vec<String> = Vec::new();
+
+        if self.ctrl {
+            parts.push("Ctrl".to_string());
+        }
+        if self.shift {
+            parts.push("Shift".to_string());
+        }
+        if self.alt {
+            parts.push("Alt".to_string());
+        }
+
+        parts.push(format!("{:?}", self.key)); // Own the String, no borrowing
+
+        write!(f, "{}", parts.join("+"))
+    }
 }

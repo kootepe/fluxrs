@@ -28,10 +28,12 @@ impl eframe::App for MyApp {
 
                 ui.input(|i| {
                     for event in &i.raw.events {
+                        let modifiers = i.modifiers;
                         if keybind_triggered(
                             event,
                             &self.main_app.validation_panel.keybinds,
                             Action::ToggleShowSettings,
+                            modifiers,
                         ) {
                             self.show_settings = !self.show_settings;
                         }

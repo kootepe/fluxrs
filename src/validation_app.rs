@@ -678,60 +678,96 @@ impl ValidationApp {
 
         if !ui.ctx().wants_keyboard_input() {
             ui.input(|i| {
+                let modifiers = i.modifiers;
                 for event in &i.raw.events {
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowInvalids) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::ToggleShowInvalids,
+                        modifiers,
+                    ) {
                         self.show_invalids = !self.show_invalids;
                         show_invalids_clicked = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowValids) {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowValids, modifiers)
+                    {
                         self.show_valids = !self.show_valids;
                         show_valids_clicked = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowBad) {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowBad, modifiers) {
                         self.show_bad = !self.show_bad;
                         show_bad = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowLegend) {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowLegend, modifiers)
+                    {
                         self.show_legend = !self.show_legend;
                     }
-
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleValidity) {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleValidity, modifiers) {
                         toggle_valid = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::NextCycle) {
+                    if keybind_triggered(event, &self.keybinds, Action::NextCycle, modifiers) {
                         next_clicked = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::PreviousCycle) {
+                    if keybind_triggered(event, &self.keybinds, Action::PreviousCycle, modifiers) {
                         prev_clicked = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleBad) {
+                    if keybind_triggered(event, &self.keybinds, Action::ToggleBad, modifiers) {
                         mark_bad = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::TogglePlotWidthsWindow) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::TogglePlotWidthsWindow,
+                        modifiers,
+                    ) {
                         self.show_plot_widths = !self.show_plot_widths;
                     }
-
-                    if keybind_triggered(event, &self.keybinds, Action::ZoomToMeasurement) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::ZoomToMeasurement,
+                        modifiers,
+                    ) {
                         if self.zoom_to_measurement == 2 {
                             self.zoom_to_measurement = 0
                         } else {
                             self.zoom_to_measurement += 1;
                         }
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ResetCycle) {
+                    if keybind_triggered(event, &self.keybinds, Action::ResetCycle, modifiers) {
                         reset_cycle = true;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowDetails) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::ToggleShowDetails,
+                        modifiers,
+                    ) {
                         self.show_cycle_details = !self.show_cycle_details
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowResiduals) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::ToggleShowResiduals,
+                        modifiers,
+                    ) {
                         self.show_residuals = !self.show_residuals
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowStandResiduals) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::ToggleShowStandResiduals,
+                        modifiers,
+                    ) {
                         self.show_standardized_residuals = !self.show_standardized_residuals
                     }
 
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleCH4Validity) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::ToggleCH4Validity,
+                        modifiers,
+                    ) {
                         if let Some(current_cycle) =
                             self.cycle_nav.current_cycle_mut(&mut self.cycles)
                         {
@@ -743,73 +779,27 @@ impl ValidationApp {
                             self.mark_dirty();
                         }
                     }
-                    // if keybind_triggered(event, &self.keybinds, Action::ToggleCO2Validity) {
-                    //     if let Some(current_cycle) =
-                    //         self.cycle_nav.current_cycle_mut(&mut self.cycles)
-                    //     {
-                    //         for ((g, _), record) in current_cycle.fluxes.iter_mut() {
-                    //             if *g == GasType::CO2 {
-                    //                 record.is_valid = !record.is_valid;
-                    //             }
-                    //         }
-                    //         self.mark_dirty();
-                    //     }
-                    // }
-                    // if keybind_triggered(event, &self.keybinds, Action::ToggleH2OValidity) {
-                    //     if let Some(current_cycle) =
-                    //         self.cycle_nav.current_cycle_mut(&mut self.cycles)
-                    //     {
-                    //         for ((g, _), record) in current_cycle.fluxes.iter_mut() {
-                    //             if *g == GasType::H2O {
-                    //                 record.is_valid = !record.is_valid;
-                    //             }
-                    //         }
-                    //         self.mark_dirty();
-                    //     }
-                    // }
-                    // if keybind_triggered(event, &self.keybinds, Action::ToggleN2OValidity) {
-                    //     if let Some(current_cycle) =
-                    //         self.cycle_nav.current_cycle_mut(&mut self.cycles)
-                    //     {
-                    //         for ((g, _), record) in current_cycle.fluxes.iter_mut() {
-                    //             if *g == GasType::N2O {
-                    //                 record.is_valid = !record.is_valid;
-                    //             }
-                    //         }
-                    //         self.mark_dirty();
-                    //     }
-                    // }
-                    if keybind_triggered(event, &self.keybinds, Action::IncrementDeadband) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::IncrementDeadband,
+                        modifiers,
+                    ) {
                         self.mark_dirty();
                         self.increment_deadband(1.);
                         self.update_plots();
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::DecrementDeadband) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::DecrementDeadband,
+                        modifiers,
+                    ) {
                         self.mark_dirty();
                         self.increment_deadband(-1.);
                         self.update_plots();
                     }
-                    // if keybind_triggered(event, &self.keybinds, Action::IncrementCH4Deadband) {
-                    //     self.mark_dirty();
-                    //     self.increment_deadband_gas(GasType::CH4, 1.);
-                    //     self.update_plots();
-                    // }
-                    // if keybind_triggered(event, &self.keybinds, Action::DecrementCH4Deadband) {
-                    //     self.mark_dirty();
-                    //     self.increment_deadband_gas(GasType::CH4, -1.);
-                    //     self.update_plots();
-                    // }
-                    // if keybind_triggered(event, &self.keybinds, Action::IncrementCO2Deadband) {
-                    //     self.mark_dirty();
-                    //     self.increment_deadband_gas(GasType::CO2, 1.);
-                    //     self.update_plots();
-                    // }
-                    // if keybind_triggered(event, &self.keybinds, Action::DecrementCO2Deadband) {
-                    //     self.mark_dirty();
-                    //     self.increment_deadband_gas(GasType::CO2, -1.);
-                    //     self.update_plots();
-                    // }
-                    if keybind_triggered(event, &self.keybinds, Action::DecrementLag) {
+                    if keybind_triggered(event, &self.keybinds, Action::DecrementLag, modifiers) {
                         self.mark_dirty();
                         if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
                             self.increment_open_lag(-1.);
@@ -822,7 +812,7 @@ impl ValidationApp {
                         }
                         self.update_plots();
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::IncrementLag) {
+                    if keybind_triggered(event, &self.keybinds, Action::IncrementLag, modifiers) {
                         self.mark_dirty();
                         if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
                             self.increment_open_lag(1.);
@@ -836,7 +826,22 @@ impl ValidationApp {
                         self.update_plots();
                     }
 
-                    if keybind_triggered(event, &self.keybinds, Action::SearchLag) {
+                    if keybind_triggered(event, &self.keybinds, Action::SearchLag, modifiers) {
+                        self.mark_dirty();
+                        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                            cycle.search_new_open_lag(GasKey::from((
+                                &cycle.main_gas,
+                                cycle.instrument_serial.as_str(),
+                            )));
+                            // cycle.search_open_lag(GasKey::from((
+                            //     &cycle.main_gas,
+                            //     cycle.instrument_serial.as_str(),
+                            // )));
+                            self.update_plots();
+                        }
+                    }
+
+                    if keybind_triggered(event, &self.keybinds, Action::SearchLag, modifiers) {
                         if let Some(current_visible_idx) = self.cycle_nav.current_index() {
                             if current_visible_idx > 0 {
                                 let chamber_id =
@@ -3422,9 +3427,20 @@ pub fn upload_volume_data_async(
         },
     }
 }
-pub fn keybind_triggered(event: &egui::Event, keybinds: &KeyBindings, action: Action) -> bool {
-    matches!(event,
-        egui::Event::Key { key, pressed: true, .. }
-        if Some(*key) == keybinds.key_for(action)
-    )
+
+pub fn keybind_triggered(
+    event: &egui::Event,
+    keybinds: &KeyBindings,
+    action: Action,
+    modifiers: egui::Modifiers,
+) -> bool {
+    if let Some(expected) = keybinds.key_for(action) {
+        if let egui::Event::Key { key, pressed: true, .. } = event {
+            return *key == expected.key
+                && modifiers.ctrl == expected.ctrl
+                && modifiers.shift == expected.shift
+                && modifiers.alt == expected.alt;
+        }
+    }
+    false
 }

@@ -1,4 +1,4 @@
-use crate::keybinds::{Action, KeyBindings};
+use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::project_app::{Project, ProjectApp};
 use crate::validation_app::{TableApp, ValidationApp};
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
@@ -245,6 +245,7 @@ impl MainApp {
                     Action::PreviousCycle,
                     Action::ZoomToMeasurement,
                     Action::ResetCycle,
+                    Action::SearchLagPrevious,
                     Action::SearchLag,
                     Action::IncrementLag,
                     Action::DecrementLag,
@@ -278,7 +279,7 @@ impl MainApp {
                     }
                     ui.label(format!("{}:", action));
                     if let Some(key) = self.validation_panel.keybinds.key_for(action) {
-                        ui.label(format!("{:?}", key));
+                        ui.label(format!("{}", key));
                     } else {
                         ui.label("Unbound");
                     }
@@ -297,29 +298,33 @@ impl MainApp {
                 }
             });
         });
+
         if let Some(action) = self.validation_panel.awaiting_rebind {
-            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.validation_panel.awaiting_rebind = None; // cancel
-            } else {
-                // Accept the first key press (excluding Esc)
-                if let Some(key_event) = ui.input(|i| {
-                    i.raw.events.iter().find_map(|event| {
-                        if let egui::Event::Key { key, pressed: true, .. } = event {
-                            // Filter out Escape (already handled)
-                            if *key != egui::Key::Escape {
-                                Some(*key)
-                            } else {
-                                None
-                            }
+            // if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            //     self.validation_panel.awaiting_rebind = None; // cancel
+            // } else {
+            if let Some((key, modifiers)) = ui.input(|i| {
+                i.raw.events.iter().find_map(|event| {
+                    if let egui::Event::Key { key, pressed: true, .. } = event {
+                        if *key != egui::Key::Escape {
+                            Some((*key, i.modifiers))
                         } else {
                             None
                         }
-                    })
-                }) {
-                    self.validation_panel.keybinds.set(action, key_event);
-                    self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
-                    self.validation_panel.awaiting_rebind = None;
-                }
+                    } else {
+                        None
+                    }
+                })
+            }) {
+                let keybind = KeyBind {
+                    key,
+                    ctrl: modifiers.ctrl,
+                    shift: modifiers.shift,
+                    alt: modifiers.alt,
+                };
+                self.validation_panel.keybinds.set(action, keybind);
+                self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
+                self.validation_panel.awaiting_rebind = None;
             }
         }
     }
