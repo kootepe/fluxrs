@@ -52,8 +52,9 @@ impl fmt::Debug for Config {
         // let len: usize = self.measurement_dt_v.len();
         write!(
             f,
-            "{:?} {:?} {:?} {:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
             self.name,
+            self.instrument,
             self.instrument_serial,
             self.main_gas,
             self.deadband,
