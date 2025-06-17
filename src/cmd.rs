@@ -601,8 +601,9 @@ General Options:
   -s <START_DATETIME>          Start datetime in RFC3339 (e.g. 2024-01-01T00:00:00Z)
   -e <END_DATETIME>            End datetime in RFC3339 (e.g. 2024-01-02T00:00:00Z)
   -i, --instrument <TYPE>      Instrument type (e.g. licor, picarro)
-  --init                       Initiate processing after upload
   -n, -newest                  Use newest available date as start
+  --upload-from <TYPE>         Source instrument for upload eg. li7810, li7820
+  --init                       Initiate processing after upload
 
 File Upload:
   -t <PATH>                    Upload cycle data from path
@@ -614,13 +615,12 @@ Project Creation:
   --create-project             Create a new project (must be used with below)
   --serial <SERIAL>            Instrument serial number
   --main-gas <TYPE>            Main gas (e.g. CO2, CH4, etc.)
-  --deadband <VALUE>           Deadband threshold (e.g. 0.1)
-  --min-calc-len <VALUE>       Minimum calculation duration (e.g. 5.0)
-  --mode <MODE>                Mode (e.g. dynamic, static)
-  --upload-from <TYPE>         Source instrument for upload
+  --deadband <VALUE>           Deadband threshold in secods (e.g. 0.1)
+  --min-calc-len <VALUE>       Minimum calculation duration in seconds (e.g. 5.0)
+  --mode <MODE>                Mode (e.g. bestr, deadband)
 
 Misc:
-  --help                       Print this help message
+  -h, --help                       Print this help message
 "#
     );
 }
