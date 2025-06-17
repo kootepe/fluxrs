@@ -866,12 +866,10 @@ impl ValidationApp {
             c.manual_adjusted = false;
             c.close_lag_s = 0.;
             c.open_lag_s = 0.;
-            c.reset_deadbands();
-            if c.end_lag_s != 0. || c.start_lag_s != 0. {
-                c.end_lag_s = 0.;
-                c.start_lag_s = 0.;
-                c.reload_gas_data();
-            }
+            c.reset_deadbands(self.selected_project.as_ref().unwrap().deadband);
+            c.end_lag_s = 0.;
+            c.start_lag_s = 0.;
+            c.reload_gas_data();
             c.check_diag();
             c.check_missing();
 
@@ -1645,8 +1643,8 @@ impl ValidationApp {
                                     self.set_all_calc_range_to_best_r();
                                 }
                                 if self.mode_after_deadband() && delta < 0.0 {
-                                    self.increment_calc_start(&key, delta);
-                                    self.increment_calc_end(&key, delta);
+                                    self.increment_calc_start(key, delta);
+                                    self.increment_calc_end(key, delta);
                                 }
                             }
                         }
@@ -1674,7 +1672,7 @@ impl ValidationApp {
                                 self.set_all_calc_range_to_best_r();
                             }
                             if self.mode_after_deadband() && delta < 0.0 {
-                                self.increment_calc_start(&key, delta);
+                                self.increment_calc_start(key, delta);
                                 // self.increment_calc_end(gas_type, delta);
                             }
                         }
@@ -1688,17 +1686,17 @@ impl ValidationApp {
             if dragging_polygon {
                 self.mark_dirty();
                 self.cycle_nav.update_current_cycle(&mut self.cycles, |cycle| {
-                    cycle.update_calc_attributes(&key);
+                    cycle.update_calc_attributes(key);
                 })
             }
             if dragging_lag {
                 self.mark_dirty();
                 self.cycle_nav.update_current_cycle(&mut self.cycles, |cycle| {
-                    cycle.update_measurement_attributes(&key);
+                    cycle.update_measurement_attributes(key);
                 })
             };
 
-            self.control_zoom(plot_ui, &key);
+            self.control_zoom(plot_ui, key);
         }
     }
     pub fn handle_drag_polygon(&mut self, plot_ui: &mut PlotUi, is_left: bool, key: &GasKey) {
