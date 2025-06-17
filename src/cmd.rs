@@ -376,6 +376,10 @@ impl Config {
                         .start
                         .unwrap_or_else(|| get_newest_measurement_day(&conn).unwrap_or_default());
                     let end_date = self.end.unwrap_or(Utc::now());
+                    if start_date > end_date {
+                        eprintln!("Start time can't be after end time.");
+                    }
+                    println!("Initiating from {} to {}", start_date, end_date);
 
                     let arc_conn = Arc::new(Mutex::new(conn));
                     // let sender = self.task_done_sender.clone();
