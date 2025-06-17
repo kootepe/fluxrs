@@ -115,11 +115,7 @@ pub fn query_cycles(
             let end_offset: i64 = row.get(4)?;
             let project_id: String = row.get(5)?;
 
-            let start_time = DateTime::<Utc>::from_utc(
-                NaiveDateTime::from_timestamp_opt(start_timestamp, 0).expect("Invalid timestamp"),
-                Utc,
-            );
-
+            let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
             times.chamber_id.push(chamber_id);
             times.start_time.push(start_time);
             times.close_offset.push(close_offset);
