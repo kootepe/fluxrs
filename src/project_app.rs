@@ -86,10 +86,19 @@ impl Project {
             upload_from: None,
         })
     }
-    pub fn save(db_path: Option<String>, project: &Project) -> Result<()> {
+    pub fn save(
+        db_path: Option<String>,
+        project: &Project,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let db_path = db_path.unwrap_or_else(|| "fluxrs.db".to_string());
         let conn = Connection::open(db_path)?;
+        // Check if project name already exists
+        let mut stmt = conn.prepare("SELECT 1 FROM projects WHERE project_id = ?1")?;
+        let mut rows = stmt.query(params![project.name])?;
 
+        if rows.next()?.is_some() {
+            return Err("Project already exists.".into());
+        }
         conn.execute(
             "INSERT OR IGNORE INTO projects (
                 project_id, instrument_model, instrument_serial, main_gas, deadband, min_calc_len, mode, current
