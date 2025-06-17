@@ -1000,17 +1000,17 @@ impl Cycle {
             self.is_valid = true
         }
     }
-    pub fn reset_deadbands(&mut self) {
+    pub fn reset_deadbands(&mut self, deadband: f64) {
         for key in &self.gases {
-            self.deadbands.insert(key.clone(), 30.);
+            self.deadbands.insert(key.clone(), deadband);
         }
     }
-    pub fn init(&mut self, use_best_r: bool) {
+    pub fn init(&mut self, use_best_r: bool, deadband: f64) {
         // println!("Running init");
         self.manual_adjusted = false;
         self.close_lag_s = 0.;
         self.open_lag_s = 0.;
-        self.reset_deadbands();
+        self.reset_deadbands(deadband);
 
         self.check_diag();
         self.check_missing();
