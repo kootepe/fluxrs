@@ -1509,7 +1509,7 @@ impl Cycle {
                 return;
             },
         };
-        let end = match DateTime::from_timestamp(self.get_end() as i64, 0) {
+        let end = match DateTime::from_timestamp(self.get_end() as i64 - 1, 0) {
             Some(dt) => dt,
             None => {
                 eprintln!("Invalid end timestamp for cycle");
@@ -1517,13 +1517,7 @@ impl Cycle {
             },
         };
 
-        match query_gas_all(
-            &conn,
-            start,
-            end,
-            self.project_name.clone(),
-            self.instrument_serial.clone(),
-        ) {
+        match query_gas_all(&conn, start, end, self.project_name.clone()) {
             Ok(gasdata) => {
                 self.gas_v = gasdata.gas;
                 // self.dt_v = gasdata.datetime.iter().map(|t| t.timestamp() as f64).collect();
@@ -2891,7 +2885,7 @@ pub fn process_cycles(
             }
 
             // Initialize model
-            cycle.init(project.mode == Mode::BestPearsonsR);
+            cycle.init(project.mode == Mode::BestPearsonsR, project.deadband);
 
             cycle_vec.push(Some(cycle));
         } else {
