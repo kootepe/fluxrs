@@ -146,7 +146,15 @@ impl Config {
                         mode = m.parse::<Mode>().ok();
                     }
                 },
-                // project name from db
+
+                "-i" => {
+                    instrument =
+                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
+                },
+                "--instrument" => {
+                    instrument =
+                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
+                },
                 "-p" => {
                     project = args.next();
                 },
@@ -157,6 +165,7 @@ impl Config {
                         project = args.next();
                     }
                 },
+                // project name from db
                 "-db" => {
                     db_path = args.next();
                 },
@@ -192,14 +201,6 @@ impl Config {
                     }
                 },
                 // start init
-                "-i" => {
-                    instrument =
-                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
-                },
-                "--instrument" => {
-                    instrument =
-                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
-                },
                 // start init
                 "--init" => {
                     initiate_data = true;
@@ -235,7 +236,10 @@ impl Config {
                     paths = args.next();
                     file_type = Some(DataType::Meteo);
                 },
-                _ => {}, // Ignore unknown arguments
+                // Ignore unknown arguments
+                _ => {
+                    println!("Unknown argument: {}", arg)
+                },
             }
         }
 
