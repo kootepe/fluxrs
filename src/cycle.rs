@@ -322,6 +322,16 @@ impl Cycle {
         }
         self.reload_gas_data();
     }
+    pub fn set_end_lag_s(&mut self, new_lag: f64) {
+        let old_lag = self.end_lag_s;
+        self.end_lag_s = new_lag;
+        if self.get_adjusted_open() > self.get_end() {
+            self.end_lag_s = old_lag;
+            println!("Can't remove data from the measurement.");
+            return;
+        }
+        self.reload_gas_data();
+    }
     pub fn calculate_concentration_at_t0(&mut self) {
         for key in self.gases.clone() {
             // let gas_v = self.get_measurement_gas_v2(&key);
@@ -333,17 +343,6 @@ impl Cycle {
                 self.t0_concentration.insert(key, t0);
             }
         }
-    }
-
-    pub fn set_end_lag_s(&mut self, new_lag: f64) {
-        let old_lag = self.end_lag_s;
-        self.end_lag_s = new_lag;
-        if self.get_adjusted_open() > self.get_end() {
-            self.end_lag_s = old_lag;
-            println!("Can't remove data from the measurement.");
-            return;
-        }
-        self.reload_gas_data();
     }
 
     pub fn get_deadband(&self, key: &GasKey) -> f64 {
@@ -439,11 +438,21 @@ impl Cycle {
         self.calculate_measurement_rs();
         self.compute_all_fluxes();
     }
+
     pub fn set_open_lag(&mut self, new_lag: f64) {
         self.open_lag_s = new_lag;
 
         self.adjust_calc_range_all();
 
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
+
+    pub fn search_new_open_lag(&mut self, key: GasKey) {
+        self.search_open_lag(key);
+
+        self.adjust_calc_range_all();
         self.check_errors();
         self.calculate_measurement_rs();
         self.compute_all_fluxes();
