@@ -515,13 +515,16 @@ fn parse_datetime(input: &str) -> Result<DateTime<Utc>, Box<dyn Error>> {
         "%Y-%m-%d %H:%M:%S",
         "%Y/%m/%d %H:%M:%S",
         "%Y-%m-%d",
+        "%Y-%m",
         "%d-%m-%Y %H:%M:%S",
         "%m/%d/%Y %H:%M:%S",
     ];
 
-    if let Ok(naive_date) = NaiveDate::parse_from_str(input, "%Y-%m-%d") {
-        let naive_dt = naive_date.and_hms_opt(0, 0, 0).unwrap();
-        return Ok(Utc.from_utc_datetime(&naive_dt));
+    for fmt in formats {
+        if let Ok(naive_date) = NaiveDate::parse_from_str(input, fmt) {
+            let naive_dt = naive_date.and_hms_opt(0, 0, 0).unwrap();
+            return Ok(Utc.from_utc_datetime(&naive_dt));
+        }
     }
 
     Err("Could not parse datetime".into())
