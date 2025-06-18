@@ -328,12 +328,12 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            start_date: NaiveDate::from_ymd_opt(2024, 9, 1)
+            start_date: NaiveDate::from_ymd_opt(2022, 8, 14)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_utc(),
-            end_date: NaiveDate::from_ymd_opt(2024, 9, 13)
+            end_date: NaiveDate::from_ymd_opt(2024, 8, 30)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
@@ -834,15 +834,16 @@ impl ValidationApp {
                                 &cycle.main_gas,
                                 cycle.instrument_serial.as_str(),
                             )));
-                            // cycle.search_open_lag(GasKey::from((
-                            //     &cycle.main_gas,
-                            //     cycle.instrument_serial.as_str(),
-                            // )));
                             self.update_plots();
                         }
                     }
 
-                    if keybind_triggered(event, &self.keybinds, Action::SearchLag, modifiers) {
+                    if keybind_triggered(
+                        event,
+                        &self.keybinds,
+                        Action::SearchLagPrevious,
+                        modifiers,
+                    ) {
                         if let Some(current_visible_idx) = self.cycle_nav.current_index() {
                             if current_visible_idx > 0 {
                                 let chamber_id =
@@ -3046,21 +3047,17 @@ pub async fn run_processing_dynamic(
         // Fill up active tasks
         while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
             let chunk = time_chunks.pop_front().unwrap();
-            let dates: HashSet<_> =
-                chunk.start_time.iter().map(|dt| dt.format("%Y-%m-%d").to_string()).collect();
-
             let mut chunk_gas_data = HashMap::new();
+            let mut missing_dates = Vec::new();
 
-            for (key, day_data) in gas_data_arc.iter() {
-                if dates.contains(key) {
-                    chunk_gas_data.insert(key.clone(), day_data.clone());
+            for dt in &chunk.start_time {
+                let date_str = dt.format("%Y-%m-%d").to_string();
+                if let Some(data) = gas_data_arc.get(&date_str) {
+                    chunk_gas_data.insert(date_str, data.clone());
+                } else {
+                    missing_dates.push(date_str);
                 }
             }
-            // for date in &dates {
-            //     if let Some(day_data) = gas_data_arc.get(date) {
-            //         chunk_gas_data.insert(date.clone(), day_data.clone());
-            //     }
-            // }
 
             let meteo = meteo_data.clone();
             let volume = volume_data.clone();
