@@ -426,7 +426,7 @@ impl Cycle {
     //     }
     // }
     pub fn set_deadband(&mut self, key: &GasKey, deadband: f64) {
-        self.deadbands.insert(key.clone(), deadband);
+        self.deadbands.insert(key.clone(), deadband.max(0.));
         self.adjust_calc_range_all_deadband();
 
         self.check_errors();
