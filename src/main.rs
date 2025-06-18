@@ -10,7 +10,10 @@ fn main() -> eframe::Result {
     if !Path::new("fluxrs.db").exists() {
         match fluxrs::query::initiate_tables() {
             Ok(_) => println!("Successfully initiated db tables"),
-            Err(e) => println!("Err:\n {}", e),
+            Err(e) => {
+                println!("Err:\n {}", e);
+                process::exit(1)
+            },
         }
     } else {
         match fluxrs::query::migrate_db() {
@@ -22,7 +25,10 @@ fn main() -> eframe::Result {
             Ok(5) => println!("Successfully migrated to db version 5"),
             Ok(6) => println!("Successfully migrated to db version 6"),
             Ok(_) => println!("Unknown success code."),
-            Err(e) => println!("Err:\n {}", e),
+            Err(e) => {
+                println!("Err:\n {}", e);
+                process::exit(1)
+            },
         }
     }
 
