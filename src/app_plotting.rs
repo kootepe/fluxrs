@@ -938,7 +938,26 @@ impl ValidationApp {
             cycle.calc_range_start.insert(key.clone(), new_value);
         }
     }
-
+    pub fn decrement_calc_starts(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            for key in cycle.gases.clone() {
+                let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
+                let new_value = s - x;
+                cycle.calc_range_start.insert(key.clone(), new_value);
+            }
+        }
+    }
+    pub fn decrement_calc_ends(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            for key in cycle.gases.clone() {
+                let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
+                let new_value = s - x;
+                cycle.calc_range_end.insert(key.clone(), new_value);
+            }
+        }
+    }
     pub fn increment_calc_start(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
@@ -970,6 +989,18 @@ impl ValidationApp {
                 let deadband = cycle.deadbands.get(&gas).unwrap_or(&0.0);
                 cycle.set_deadband(&gas, deadband + x);
             }
+        }
+    }
+    pub fn increment_deadband_and_start(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_deadband_and_start(x);
+        }
+    }
+    pub fn increment_deadband_constant_calc(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_deadband_constant_calc(x);
         }
     }
     pub fn increment_open_lag(&mut self, x: f64) {
@@ -1636,16 +1667,18 @@ impl ValidationApp {
                             steps
                         };
 
-                        if delta != 0.0 {
-                            if can_move || (!can_move && delta < 0.0) {
-                                self.increment_close_lag(delta);
-                                if self.mode_pearsons() {
-                                    self.set_all_calc_range_to_best_r();
-                                }
-                                if self.mode_after_deadband() && delta < 0.0 {
-                                    self.increment_calc_start(key, delta);
-                                    self.increment_calc_end(key, delta);
-                                }
+                        let is_moving = delta != 0.0;
+                        let can_move_left_after_adjust = !can_move && delta < 0.0;
+
+                        if is_moving && (can_move || can_move_left_after_adjust) {
+                            // if delta != 0.0 && (can_move || (!can_move && delta < 0.0)) {
+                            self.increment_close_lag(delta);
+                            if self.mode_pearsons() {
+                                self.set_all_calc_range_to_best_r();
+                            }
+                            if self.mode_after_deadband() && delta < 0.0 {
+                                self.increment_calc_start(key, delta);
+                                self.increment_calc_end(key, delta);
                             }
                         }
                     }
@@ -1673,7 +1706,7 @@ impl ValidationApp {
                             }
                             if self.mode_after_deadband() && delta < 0.0 {
                                 self.increment_calc_start(key, delta);
-                                // self.increment_calc_end(gas_type, delta);
+                                self.increment_calc_end(key, delta);
                             }
                         }
                     }

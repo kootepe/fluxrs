@@ -433,6 +433,42 @@ impl Cycle {
         self.calculate_measurement_rs();
         self.compute_all_fluxes();
     }
+    pub fn set_deadband_constant_calc(&mut self, x: f64) {
+        for key in self.gases.clone() {
+            let deadband = self.deadbands.get(&key).unwrap_or(&0.0);
+            let new_db = deadband + x;
+            self.deadbands.insert(key.clone(), new_db.max(0.));
+
+            let s = self.get_calc_start(&key);
+            let new_s = s + x;
+            self.calc_range_start.insert(key.clone(), new_s);
+
+            let e = self.get_calc_end(&key);
+            let new_e = e + x;
+            self.calc_range_end.insert(key.clone(), new_e);
+        }
+        self.adjust_calc_range_all();
+
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
+    pub fn set_deadband_and_start(&mut self, x: f64) {
+        for key in self.gases.clone() {
+            let deadband = self.deadbands.get(&key).unwrap_or(&0.0);
+            let new_db = deadband + x;
+            self.deadbands.insert(key.clone(), new_db.max(0.));
+            let s = self.get_calc_start(&key);
+            let new_s = s + x;
+
+            self.calc_range_start.insert(key.clone(), new_s);
+        }
+        self.adjust_calc_range_all();
+
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.compute_all_fluxes();
+    }
     pub fn set_close_lag(&mut self, new_lag: f64) {
         self.close_lag_s = new_lag;
 
@@ -703,6 +739,7 @@ impl Cycle {
     pub fn search_open_lag(&mut self, key: GasKey) -> Option<f64> {
         if let Some(gas_v) = self.gas_v.get(&key) {
             let len = gas_v.len();
+            println!("{}", len);
             if len < 120 {
                 return None;
             }
@@ -2388,34 +2425,56 @@ pub fn load_cycles(
                 min_calc_len,
             });
             if let Some(g_values) = gas_data_day.gas.get(&gas_key) {
-                // println!("data for: {:?}", gas_key);
+                let start_target = start_time.timestamp() + start_lag_s as i64;
+                let end_target = end_time.timestamp() + end_lag_s as i64;
+
+                let matching_indices: Vec<usize> = dt_values
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, &t)| t.timestamp() >= start_target && t.timestamp() < end_target)
+                    .map(|(i, _)| i)
+                    .collect();
                 let (meas_dt, meas_vals) = filter_data_in_range(
-                    &dt_values,
-                    &g_values,
-                    start_time.timestamp() as f64,
-                    end_time.timestamp() as f64,
+                    dt_values,
+                    g_values,
+                    start_target as f64,
+                    end_target as f64,
                 );
+                // let (_, diag_vals) = filter_diag_data(
+                //     dt_values,
+                //     diag_values,
+                //     start_target as f64,
+                //     end_target as f64,
+                // );
+
+                println!("{}", day);
+                println!("dt: {}", dt_values.len());
+                println!("gv: {}", g_values.len());
+                println!("di: {}", diag_values.len());
+                let diag_slice: Vec<i64> =
+                    matching_indices.iter().filter_map(|&i| diag_values.get(i).copied()).collect();
+                let gas_slice: Vec<Option<f64>> =
+                    matching_indices.iter().filter_map(|&i| g_values.get(i).copied()).collect();
+                let dt_slice: Vec<f64> =
+                    matching_indices.iter().map(|&i| dt_values[i].timestamp() as f64).collect();
 
                 if meas_vals.is_empty() {
                     continue;
                 }
 
-                let target =
-                    close_offset + close_lag_s as i64 + open_lag_s as i64 + deadband as i64;
-                // println!("INSERTING {:?} for serial {}", gas, serial);
+                let target = dt_values
+                    .iter()
+                    .enumerate()
+                    .find(|(_, &t)| t.timestamp() as f64 >= measurement_range_start)
+                    .map(|(i, _)| i);
 
-                cycle.dt_v.insert(serial.clone(), meas_dt);
-                cycle.gas_v.insert(gas_key.clone(), meas_vals.clone());
-                let t0 = meas_vals.get(target as usize).unwrap_or(&Some(0.));
+                cycle.dt_v.insert(serial.clone(), dt_slice);
+
+                cycle.gas_v.insert(gas_key.clone(), gas_slice.clone());
+                let t0 = g_values.get(target.unwrap()).unwrap_or(&Some(0.));
                 cycle.t0_concentration.insert(gas_key.clone(), t0.unwrap());
 
-                let (_, diag_vals) = filter_diag_data(
-                    &dt_values,
-                    &diag_values,
-                    start_time.timestamp() as f64,
-                    end_time.timestamp() as f64,
-                );
-                cycle.diag_v.insert(serial.clone(), diag_vals);
+                cycle.diag_v.insert(serial.clone(), diag_slice);
 
                 if !cycle.gases.contains(&gas_key) {
                     cycle.gases.push(gas_key.clone());
@@ -2816,6 +2875,7 @@ pub fn process_cycles(
                     .collect();
 
                 if matching_indices.is_empty() {
+                    println!("No data found betweeni {} and {}", si_time, ei_time);
                     continue;
                 }
 
@@ -2825,7 +2885,6 @@ pub fn process_cycles(
                 cycle.dt_v.insert(serial.clone(), dt_slice);
 
                 // Insert diag vector once (shared across instruments for now)
-
                 let diag_slice: Vec<i64> =
                     matching_indices.iter().filter_map(|&i| diags.get(i).copied()).collect();
                 cycle.diag_v.insert(serial.clone(), diag_slice);
@@ -2867,6 +2926,26 @@ pub fn process_cycles(
             cycle.main_gas = project.main_gas.unwrap();
             cycle.main_instrument_serial = project.instrument_serial.clone();
             cycle.main_instrument_model = project.instrument;
+            for key in cycle.gas_v.keys() {
+                let new_key = GasKey::from((&key.gas_type, project.instrument_serial.as_str()));
+                if !cycle.gas_v.contains_key(&new_key) {
+                } else {
+                    println!("No data found for main instrument");
+                    continue;
+                }
+            }
+            // if let Some(dt_v) = cycle.dt_v.get(cycle.main_instrument_serial.as_str()) {
+            //     // println!("{:?}", dt_v);
+            // } else {
+            //     println!("No main data found");
+            //     continue;
+            // }
+            // if let Some(dt_v) = cycle.dt_v.get(cycle.instrument_serial.as_str()) {
+            //     // println!("{}", cycle.instrument_serial.as_str());
+            //     // println!("{:?}", dt_v[0]);
+            // } else {
+            //     println!("No data found");
+            // }
 
             let target = (*start + chrono::TimeDelta::seconds(*close)).timestamp();
 

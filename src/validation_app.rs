@@ -239,6 +239,7 @@ pub struct ValidationApp {
     pub show_valids: bool,
     pub show_invalids: bool,
     pub show_bad: bool,
+    pub keep_calc_constant_deadband: bool,
     pub projects: Vec<Project>,
     pub initiated: bool,
     pub selected_project: Option<Project>,
@@ -352,6 +353,7 @@ impl Default for ValidationApp {
             show_linfit: true,
             show_polyfit: true,
             show_roblinfit: true,
+            keep_calc_constant_deadband: true,
             calc_area_color: Color32::BLACK,
             calc_area_adjust_color: Color32::BLACK,
             calc_area_stroke_color: Color32::BLACK,
@@ -606,6 +608,7 @@ impl ValidationApp {
         let mut show_poly_model = true;
         let mut show_roblin_model = true;
         let mut reload_gas = false;
+        let mut keep_calc_area_constant_with_deadband = false;
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
@@ -618,6 +621,12 @@ impl ValidationApp {
                 show_invalids_clicked =
                     ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
                 show_bad = ui.checkbox(&mut self.show_bad, "Show bad measurements").clicked();
+                keep_calc_area_constant_with_deadband = ui
+                    .checkbox(
+                        &mut self.keep_calc_constant_deadband,
+                        "Keep calculation area constant when incrementing deadband",
+                    )
+                    .clicked();
             });
             ui.vertical(|ui| {
                 show_linear_model =
@@ -787,7 +796,11 @@ impl ValidationApp {
                         modifiers,
                     ) {
                         self.mark_dirty();
-                        self.increment_deadband(1.);
+                        if self.keep_calc_constant_deadband {
+                            self.increment_deadband_constant_calc(1.);
+                        } else {
+                            self.increment_deadband(1.);
+                        }
                         self.update_plots();
                     }
                     if keybind_triggered(
@@ -797,7 +810,11 @@ impl ValidationApp {
                         modifiers,
                     ) {
                         self.mark_dirty();
-                        self.increment_deadband(-1.);
+                        if self.keep_calc_constant_deadband {
+                            self.increment_deadband_constant_calc(-1.);
+                        } else {
+                            self.increment_deadband(-1.);
+                        }
                         self.update_plots();
                     }
                     if keybind_triggered(event, &self.keybinds, Action::DecrementLag, modifiers) {
