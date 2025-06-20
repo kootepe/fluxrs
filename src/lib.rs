@@ -44,6 +44,7 @@ pub mod query;
 mod stats;
 pub mod timedata;
 pub mod traits;
+pub mod ui;
 mod validation_app;
 pub mod volumedata;
 
