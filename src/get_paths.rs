@@ -2,20 +2,14 @@ use glob::glob;
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
-use std::process;
 
 fn glob_paths(str: &str) -> Vec<PathBuf> {
-    glob(str)
-        .expect("Failed to read glob pattern")
-        .filter_map(Result::ok)
-        .collect()
+    glob(str).expect("Failed to read glob pattern").filter_map(Result::ok).collect()
 }
 
 fn ask_paths() -> String {
     let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
+    io::stdin().read_line(&mut input).expect("Failed to read line");
 
     let value = input.trim().to_string();
     println!("Pattern entered: {}", value);

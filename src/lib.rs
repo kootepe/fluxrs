@@ -1,18 +1,12 @@
-use crate::gasdata::{query_gas, GasData};
 use crate::instruments::InstrumentType;
-use crate::meteodata::MeteoData;
-use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::processevent::{ProcessEvent, QueryEvent};
 use crate::project_app::Project;
-use crate::timedata::TimeData;
 use crate::traits::EqualLen;
-use crate::volumedata::VolumeData;
-use chrono::{DateTime, NaiveDateTime, Utc};
-use csv::StringRecord;
+use chrono::{DateTime, Utc};
 use csv::Writer;
 use cycle::{Cycle, CycleBuilder};
 use instruments::GasType;
 use rusqlite::{params, Connection, Result};
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::process;
@@ -133,66 +127,6 @@ impl Flux {
 //
 //     grouped_data
 // }
-
-fn insert_cycles(
-    conn: &mut Connection,
-    cycles: &TimeData,
-    project: &String,
-) -> Result<(usize, usize)> {
-    let close_vec = &cycles.close_offset;
-    let open_vec = &cycles.open_offset;
-    let end_vec = &cycles.end_offset;
-    let chamber_vec = &cycles.chamber_id;
-    let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
-
-    let tx = conn.transaction()?;
-    let mut duplicates = 0;
-    let mut inserted = 0;
-    // let site_id = "oulanka_fen"; // Example site
-
-    //   Prepare the statements **before** the loop
-    let mut insert_stmt = tx.prepare(
-        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, project_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-    )?;
-
-    let mut check_stmt = tx.prepare(
-        "SELECT 1 FROM cycles WHERE start_time = ?1 AND chamber_id = ?2 AND project_id = ?3",
-    )?;
-
-    println!("Pushing data!");
-    for i in 0..start_vec.len() {
-        // Check for duplicates first
-        let mut rows = check_stmt.query(params![start_vec[i], chamber_vec[i], project])?;
-        if rows.next()?.is_some() {
-            //   Duplicate found, skip insert
-            duplicates += 1;
-            println!(
-                "Warning: Duplicate record found for start_time: {}, chamber_id: {}, site: {}",
-                start_vec[i], chamber_vec[i], project
-            );
-        } else {
-            //   Insert new record
-            insert_stmt.execute(params![
-                start_vec[i],
-                close_vec[i],
-                open_vec[i],
-                end_vec[i],
-                chamber_vec[i],
-                project,
-            ])?;
-            inserted += 1;
-        }
-    }
-
-    drop(insert_stmt);
-    drop(check_stmt);
-
-    tx.commit()?;
-    println!("Inserted {} rows into cycles, {} duplicates skipped.", inserted, duplicates);
-
-    Ok((inserted, duplicates))
-}
 
 // fn _query_and_group_gas_data(
 //     conn: &Connection,
@@ -352,23 +286,6 @@ pub fn initiate_db() -> Result<(), Box<dyn std::error::Error>> {
 //     all_gas.sort();
 //     Ok(all_gas)
 // }
-
-fn get_time_data(path: &str) -> Result<TimeData, Box<dyn Error>> {
-    let time_paths = get_paths::get_paths(path.to_owned(), "time")?;
-    let mut all_times = TimeData::new();
-    for path in time_paths {
-        let res = csv_parse::read_time_csv(&path)?;
-        if res.validate_lengths() {
-            all_times.chamber_id.extend(res.chamber_id);
-            all_times.start_time.extend(res.start_time);
-            all_times.close_offset.extend(res.close_offset);
-            all_times.open_offset.extend(res.open_offset);
-            all_times.end_offset.extend(res.end_offset);
-            // timev.push(res);
-        }
-    }
-    Ok(all_times)
-}
 
 // fn _sort_and_group_gas(all_gas: &GasData) -> HashMap<String, GasData> {
 //     _group_gas_data_by_date(all_gas)

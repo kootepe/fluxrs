@@ -94,49 +94,6 @@ pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<d
 
     Ok(VolumeData { datetime, chamber_id, volume })
 }
-pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
-    let file = File::open(filename)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
-
-    // chamber_id,start_time,close_offset,open_offset,end_offset
-    let mut chamber_id: Vec<String> = Vec::new();
-    let mut start_time: Vec<DateTime<Utc>> = Vec::new();
-    let mut close_offset: Vec<i64> = Vec::new();
-    let mut open_offset: Vec<i64> = Vec::new();
-    let mut end_offset: Vec<i64> = Vec::new();
-    let mut project: Vec<String> = Vec::new();
-
-    for r in rdr.records() {
-        let record: &csv::StringRecord = &r?;
-        chamber_id.push(record[0].to_owned());
-
-        match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
-            Ok(naive_dt) => {
-                let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
-                    LocalResult::Single(dt) => dt.with_timezone(&Utc),
-                    LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
-                    LocalResult::None => {
-                        eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
-                        process::exit(1)
-                    },
-                };
-                start_time.push(dt_utc)
-            },
-            Err(e) => println!("Failed to parse timestamp: {}", e),
-        }
-        if let Ok(val) = record[2].parse::<i64>() {
-            close_offset.push(val)
-        }
-        if let Ok(val) = record[3].parse::<i64>() {
-            open_offset.push(val)
-        }
-        if let Ok(val) = record[4].parse::<i64>() {
-            end_offset.push(val)
-        }
-    }
-    let df = TimeData { chamber_id, start_time, close_offset, open_offset, end_offset, project };
-    Ok(df)
-}
 
 // #[cfg(test)]
 // mod tests {

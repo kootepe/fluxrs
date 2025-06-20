@@ -1,9 +1,20 @@
+use crate::get_paths;
 use crate::project_app::Project;
 use crate::EqualLen;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Europe::Helsinki;
 use rusqlite::{params, Connection, Result};
+use std::error::Error;
+use std::fs::File;
+use std::path::Path;
+use std::process;
 use std::sync::{Arc, Mutex};
 use tokio::task;
+
+pub enum TimeFormat {
+    Default,
+    Oulanka,
+}
 
 #[derive(Debug)]
 pub struct TimeData {
@@ -150,4 +161,123 @@ pub async fn query_cycles_async(
             Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
         },
     }
+}
+pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
+    let file = File::open(filename)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+
+    // chamber_id,start_time,close_offset,open_offset,end_offset
+    let mut chamber_id: Vec<String> = Vec::new();
+    let mut start_time: Vec<DateTime<Utc>> = Vec::new();
+    let mut close_offset: Vec<i64> = Vec::new();
+    let mut open_offset: Vec<i64> = Vec::new();
+    let mut end_offset: Vec<i64> = Vec::new();
+    let mut project: Vec<String> = Vec::new();
+
+    for r in rdr.records() {
+        let record: &csv::StringRecord = &r?;
+        chamber_id.push(record[0].to_owned());
+
+        match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
+            Ok(naive_dt) => {
+                let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
+                    LocalResult::Single(dt) => dt.with_timezone(&Utc),
+                    LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
+                    LocalResult::None => {
+                        eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
+                        process::exit(1)
+                    },
+                };
+                start_time.push(dt_utc)
+            },
+            Err(e) => println!("Failed to parse timestamp: {}", e),
+        }
+        if let Ok(val) = record[2].parse::<i64>() {
+            close_offset.push(val)
+        }
+        if let Ok(val) = record[3].parse::<i64>() {
+            open_offset.push(val)
+        }
+        if let Ok(val) = record[4].parse::<i64>() {
+            end_offset.push(val)
+        }
+    }
+    let df = TimeData { chamber_id, start_time, close_offset, open_offset, end_offset, project };
+    Ok(df)
+}
+
+fn insert_cycles(
+    conn: &mut Connection,
+    cycles: &TimeData,
+    project: &String,
+) -> Result<(usize, usize)> {
+    let close_vec = &cycles.close_offset;
+    let open_vec = &cycles.open_offset;
+    let end_vec = &cycles.end_offset;
+    let chamber_vec = &cycles.chamber_id;
+    let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
+
+    let tx = conn.transaction()?;
+    let mut duplicates = 0;
+    let mut inserted = 0;
+    // let site_id = "oulanka_fen"; // Example site
+
+    //   Prepare the statements **before** the loop
+    let mut insert_stmt = tx.prepare(
+        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, project_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )?;
+
+    let mut check_stmt = tx.prepare(
+        "SELECT 1 FROM cycles WHERE start_time = ?1 AND chamber_id = ?2 AND project_id = ?3",
+    )?;
+
+    println!("Pushing data!");
+    for i in 0..start_vec.len() {
+        // Check for duplicates first
+        let mut rows = check_stmt.query(params![start_vec[i], chamber_vec[i], project])?;
+        if rows.next()?.is_some() {
+            //   Duplicate found, skip insert
+            duplicates += 1;
+            println!(
+                "Warning: Duplicate record found for start_time: {}, chamber_id: {}, site: {}",
+                start_vec[i], chamber_vec[i], project
+            );
+        } else {
+            //   Insert new record
+            insert_stmt.execute(params![
+                start_vec[i],
+                close_vec[i],
+                open_vec[i],
+                end_vec[i],
+                chamber_vec[i],
+                project,
+            ])?;
+            inserted += 1;
+        }
+    }
+
+    drop(insert_stmt);
+    drop(check_stmt);
+
+    tx.commit()?;
+    println!("Inserted {} rows into cycles, {} duplicates skipped.", inserted, duplicates);
+
+    Ok((inserted, duplicates))
+}
+fn get_time_data(path: &str) -> Result<TimeData, Box<dyn Error>> {
+    let time_paths = get_paths::get_paths(path.to_owned(), "time")?;
+    let mut all_times = TimeData::new();
+    for path in time_paths {
+        let res = read_time_csv(&path)?;
+        if res.validate_lengths() {
+            all_times.chamber_id.extend(res.chamber_id);
+            all_times.start_time.extend(res.start_time);
+            all_times.close_offset.extend(res.close_offset);
+            all_times.open_offset.extend(res.open_offset);
+            all_times.end_offset.extend(res.end_offset);
+            // timev.push(res);
+        }
+    }
+    Ok(all_times)
 }
