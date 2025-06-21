@@ -1,25 +1,40 @@
-use crate::get_paths;
+use crate::instruments::InstrumentType;
 use crate::project_app::Project;
 use crate::EqualLen;
-use chrono::{
-    naive, DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
-};
+use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
-use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::process;
 use std::sync::{Arc, Mutex};
 use tokio::task;
 
-pub enum TimeFormat {
-    Default,
-    Oulanka,
+enum ParserType {
+    Oulanka(OulankaManualFormat),
+    Default(DefaultFormat),
+}
+
+impl TimeFormatParser for ParserType {
+    fn name(&self) -> &'static str {
+        match self {
+            ParserType::Oulanka(p) => p.name(),
+            ParserType::Default(p) => p.name(),
+        }
+    }
+
+    fn parse(&self, path: &Path, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+        match self {
+            ParserType::Oulanka(p) => p.parse(path, project),
+            ParserType::Default(p) => p.parse(path, project),
+        }
+    }
 }
 
 pub trait TimeFormatParser {
     fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>>;
+
     fn name(&self) -> &'static str;
 }
 
@@ -58,14 +73,14 @@ impl EqualLen for TimeData {
 }
 struct OulankaManualFormat;
 
-impl TimeFormatParser for OulankaManualFormat {
-    fn name(&self) -> &'static str {
-        "Oulanka Manual Format"
-    }
-
-    fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>> {
-        let file = File::open(path)?;
-        let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+impl OulankaManualFormat {
+    fn parse_reader<R: Read>(
+        &self,
+        reader: R,
+        path: &Path,
+        project_id: &Project,
+    ) -> Result<TimeData, Box<dyn Error>> {
+        let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(reader);
 
         let mut date = NaiveDate::default();
         let mut instrument_serial = String::new();
@@ -99,19 +114,25 @@ impl TimeFormatParser for OulankaManualFormat {
             let val_str = record.get(1).unwrap_or("0");
             measurement_time = val_str.parse::<i64>().unwrap_or(0);
         }
+
+        if let Some(result) = records.next() {
+            let model = result?.get(1).unwrap_or("").to_string();
+            if let Ok(parsed_model) = model.parse::<InstrumentType>() {
+                instrument_model = parsed_model.to_string();
+            } else {
+                return Err(format!("Couldn't parse {} as an instrument model", model).into());
+            }
+        }
+
         if let Some(result) = records.next() {
             instrument_serial = result?.get(1).unwrap_or("").to_string();
-        }
-        if let Some(result) = records.next() {
-            instrument_model = result?.get(1).unwrap_or("").to_string();
         }
 
         // Skip header row before data
         records.next();
 
-        for r in records {
+        for (i, r) in records.enumerate() {
             let record = r?;
-            chamber_id.push(record[0].to_owned());
 
             match NaiveTime::parse_from_str(&record[1], "%H%M") {
                 Ok(naive_time) => {
@@ -120,21 +141,27 @@ impl TimeFormatParser for OulankaManualFormat {
                         LocalResult::Single(dt) => dt.with_timezone(&Utc),
                         LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
                         LocalResult::None => {
-                            eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
+                            eprintln!("Impossible local time {}. Fix or remove.", naive_dt);
                             continue;
                         },
                     };
                     start_time.push(dt_utc - Duration::seconds(60));
                 },
-                Err(e) => {
-                    println!("Failed to parse timestamp: {}", e);
+                Err(_) => {
+                    println!(
+                        "Failed to parse {} as HHMM in {:?}",
+                        &record[1],
+                        path.to_string_lossy()
+                    );
+                    println!("row {}: {}", i + 1, record.iter().collect::<Vec<_>>().join(","));
                     continue;
                 },
             }
 
-            close_offset.push(record.get(2).unwrap_or("0").parse().unwrap_or(0));
-            end_offset.push(record.get(4).unwrap_or("0").parse().unwrap_or(0));
-            open_offset.push(measurement_time);
+            chamber_id.push(record[0].to_owned());
+            close_offset.push(60);
+            open_offset.push(measurement_time + 60);
+            end_offset.push(measurement_time + 120);
             project.push(project_id.name.to_owned());
         }
 
@@ -149,19 +176,28 @@ impl TimeFormatParser for OulankaManualFormat {
         })
     }
 }
-
-struct DefaultFormat;
-
-impl TimeFormatParser for DefaultFormat {
+impl TimeFormatParser for OulankaManualFormat {
     fn name(&self) -> &'static str {
-        "Default time format"
+        "Oulanka Manual Format"
     }
 
     fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>> {
-        let file = File::open(path)?;
-        let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+        let file = std::fs::File::open(path)?;
+        self.parse_reader(file, path, project_id)
+    }
+}
 
-        // chamber_id,start_time,close_offset,open_offset,end_offset
+struct DefaultFormat;
+
+impl DefaultFormat {
+    fn parse_reader<R: Read>(
+        &self,
+        reader: R,
+        path: &Path,
+        project_id: &Project,
+    ) -> Result<TimeData, Box<dyn Error>> {
+        let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(reader);
+
         let mut chamber_id: Vec<String> = Vec::new();
         let mut start_time: Vec<DateTime<Utc>> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
@@ -185,7 +221,10 @@ impl TimeFormatParser for DefaultFormat {
                     };
                     start_time.push(dt_utc)
                 },
-                Err(e) => println!("Failed to parse timestamp: {}", e),
+                Err(e) => {
+                    println!("Failed to parse timestamp: {}", e);
+                    continue;
+                },
             }
             if let Ok(val) = record[2].parse::<i64>() {
                 close_offset.push(val)
@@ -201,6 +240,16 @@ impl TimeFormatParser for DefaultFormat {
         let df =
             TimeData { chamber_id, start_time, close_offset, open_offset, end_offset, project };
         Ok(df)
+    }
+}
+impl TimeFormatParser for DefaultFormat {
+    fn name(&self) -> &'static str {
+        "Default time format"
+    }
+
+    fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>> {
+        let file = std::fs::File::open(path)?;
+        self.parse_reader(file, path, project_id)
     }
 }
 impl Default for TimeData {
@@ -316,49 +365,6 @@ pub async fn query_cycles_async(
         },
     }
 }
-pub fn read_time_csv<P: AsRef<Path>>(filename: P) -> Result<TimeData, Box<dyn Error>> {
-    let file = File::open(filename)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
-
-    // chamber_id,start_time,close_offset,open_offset,end_offset
-    let mut chamber_id: Vec<String> = Vec::new();
-    let mut start_time: Vec<DateTime<Utc>> = Vec::new();
-    let mut close_offset: Vec<i64> = Vec::new();
-    let mut open_offset: Vec<i64> = Vec::new();
-    let mut end_offset: Vec<i64> = Vec::new();
-    let mut project: Vec<String> = Vec::new();
-
-    for r in rdr.records() {
-        let record: &csv::StringRecord = &r?;
-        chamber_id.push(record[0].to_owned());
-
-        match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
-            Ok(naive_dt) => {
-                let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
-                    LocalResult::Single(dt) => dt.with_timezone(&Utc),
-                    LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
-                    LocalResult::None => {
-                        eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
-                        process::exit(1)
-                    },
-                };
-                start_time.push(dt_utc)
-            },
-            Err(e) => println!("Failed to parse timestamp: {}", e),
-        }
-        if let Ok(val) = record[2].parse::<i64>() {
-            close_offset.push(val)
-        }
-        if let Ok(val) = record[3].parse::<i64>() {
-            open_offset.push(val)
-        }
-        if let Ok(val) = record[4].parse::<i64>() {
-            end_offset.push(val)
-        }
-    }
-    let df = TimeData { chamber_id, start_time, close_offset, open_offset, end_offset, project };
-    Ok(df)
-}
 
 pub fn insert_cycles(
     conn: &mut Connection,
@@ -394,7 +400,7 @@ pub fn insert_cycles(
             //   Duplicate found, skip insert
             duplicates += 1;
             println!(
-                "Warning: Duplicate record found for start_time: {}, chamber_id: {}, site: {}",
+                "Warning: Duplicate record found for start_time: {}, chamber_id: {}, project_id: {}",
                 start_vec[i], chamber_vec[i], project
             );
         } else {
@@ -419,36 +425,112 @@ pub fn insert_cycles(
 
     Ok((inserted, duplicates))
 }
-fn get_time_data(path: &str) -> Result<TimeData, Box<dyn Error>> {
-    let time_paths = get_paths::get_paths(path.to_owned(), "time")?;
-    let mut all_times = TimeData::new();
-    for path in time_paths {
-        let res = read_time_csv(&path)?;
-        if res.validate_lengths() {
-            all_times.chamber_id.extend(res.chamber_id);
-            all_times.start_time.extend(res.start_time);
-            all_times.close_offset.extend(res.close_offset);
-            all_times.open_offset.extend(res.open_offset);
-            all_times.end_offset.extend(res.end_offset);
-            // timev.push(res);
-        }
-    }
-    Ok(all_times)
-}
 
-fn try_all_formats(
+pub fn try_all_formats(
     path: &Path,
     project: &Project,
 ) -> Result<(TimeData, &'static str), Box<dyn Error>> {
-    let parsers: Vec<Box<dyn TimeFormatParser>> =
-        vec![Box::new(DefaultFormat), Box::new(OulankaManualFormat)];
+    let parsers =
+        vec![ParserType::Oulanka(OulankaManualFormat), ParserType::Default(DefaultFormat)];
 
     for parser in parsers {
         match parser.parse(path, project) {
             Ok(data) => return Ok((data, parser.name())),
-            Err(_) => continue,
+            Err(e) => {
+                continue;
+            },
         }
     }
 
     Err("No known time format could parse this file.".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+    use std::path::Path;
+
+    fn mock_project() -> Project {
+        Project::default()
+    }
+
+    fn mock_path() -> &'static Path {
+        Path::new("test.csv")
+    }
+
+    #[test]
+    fn parses_valid_csv_with_two_chambers() {
+        let csv = "\
+,240621
+,120
+,LI7810
+,TG10-01169
+chamber_id,start_time,snow_depth
+CH1,1234
+CH2,1250";
+
+        let parser = OulankaManualFormat;
+        let reader = Cursor::new(csv);
+        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+
+        assert!(result.is_ok(), "Expected successful parsing");
+        let data = result.unwrap();
+        assert_eq!(data.chamber_id.len(), 2);
+        assert_eq!(data.project[0], "Untitled Project");
+    }
+
+    #[test]
+    fn fails_on_invalid_date() {
+        let csv = "\
+,notadate
+,120
+,LI7810
+,TG10-01169
+chamber_id,start_time,snow_depth
+CH1,1234";
+
+        let parser = OulankaManualFormat;
+        let reader = Cursor::new(csv);
+        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+
+        assert!(result.is_err(), "Expected parsing to fail on invalid date");
+    }
+
+    #[test]
+    fn fails_on_invalid_instrument_model() {
+        let csv = "\
+,240621
+,120
+,LI7811
+,TG10-01169
+chamber_id,start_time,snow_depth
+CH1,1234";
+
+        let parser = OulankaManualFormat;
+        let reader = Cursor::new(csv);
+        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+
+        assert!(result.is_err(), "Expected parsing to fail on invalid instrument model");
+    }
+
+    #[test]
+    fn skips_rows_with_invalid_time_format() {
+        let csv = "\
+,240621
+,120
+,LI7810
+,TG10-01169
+chamber_id,start_time,snow_depth
+CH1,12AA
+CH2,1250";
+
+        let parser = OulankaManualFormat;
+        let reader = Cursor::new(csv);
+        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+
+        assert!(result.is_ok());
+        let data = result.unwrap();
+        assert_eq!(data.chamber_id.len(), 1); // Only CH2 should succeed
+    }
 }

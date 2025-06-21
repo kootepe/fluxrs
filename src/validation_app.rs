@@ -3176,9 +3176,9 @@ pub fn upload_cycle_data_async(
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
-        match read_time_csv(path) {
+        match try_all_formats(path, project) {
             //   Pass `path` directly
-            Ok(res) => {
+            Ok((res, parser_name)) => {
                 if res.validate_lengths() {
                     all_times.chamber_id.extend(res.chamber_id);
                     all_times.start_time.extend(res.start_time);
