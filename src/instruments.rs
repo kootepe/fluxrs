@@ -262,8 +262,17 @@ impl InstrumentConfig {
         let mut model_key = HashMap::new();
         // model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
         // let model_string = self.model.clone().parse::<InstrumentType>().ok();
-        let model_string =
-            self.model.clone().parse::<InstrumentType>().expect("Invalid instrument type");
+        let model_string = match self.model.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                return Err(format!(
+                    "Unexpected invalid instrument type from DB: '{}'",
+                    self.model
+                )
+                .into());
+            },
+        };
+
         model_key.insert(instrument_serial.clone(), model_string);
 
         Ok(GasData {

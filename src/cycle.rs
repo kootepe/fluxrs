@@ -27,6 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::error;
 use std::fmt;
 use std::hash::Hash;
+use std::process;
 use tokio::sync::mpsc;
 
 // the window of max r must be at least 240 seconds
@@ -2289,10 +2290,25 @@ pub fn load_cycles(
             project_id: project_id.clone(),
             chamber_id: chamber_id.clone(),
         };
-        let main_instrument_model = InstrumentType::from_str(&main_model_string);
+
+        let main_instrument_model = match main_model_string.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Unexpected invalid instrument type from DB: '{}'", main_model_string);
+                process::exit(1);
+            },
+        };
+        // let main_instrument_model =
+        //     main_model_string.parse::<InstrumentType>().expect("Invalid instrument type");
 
         let model_string: String = row.get(*column_index.get("instrument_model").unwrap())?;
-        let instrument_model = InstrumentType::from_str(&model_string);
+        let instrument_model = match model_string.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Unexpected invalid instrument type from DB: '{}'", model_string);
+                continue;
+            },
+        };
 
         let start_timestamp: i64 = row.get(*column_index.get("start_time").unwrap())?;
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;

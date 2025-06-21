@@ -15,7 +15,6 @@ pub mod app_plotting;
 pub mod cmd;
 mod config;
 pub mod constants;
-mod csv_parse;
 pub mod cycle;
 pub mod cycle_navigator;
 pub mod errorcode;
