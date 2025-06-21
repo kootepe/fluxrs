@@ -1,6 +1,4 @@
-use crate::fluxes_schema::{
-    create_flux_history_table, create_flux_results_table, create_flux_table,
-};
+use crate::fluxes_schema::{create_flux_history_table, create_flux_table};
 use rusqlite::{Connection, Result};
 
 const DB_VERSION: i32 = 6;

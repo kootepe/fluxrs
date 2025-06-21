@@ -20,6 +20,7 @@ pub enum QueryEvent {
 pub enum ReadEvent {
     File(String),
     FileFail(String, String),
+    RowFail(String, String),
     FileRows(String, usize),
 }
 

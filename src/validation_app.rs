@@ -2096,6 +2096,10 @@ impl ValidationApp {
                             self.log_messages
                                 .push_front(format!("Read file: {} with {} rows", filename, rows));
                         },
+                        ReadEvent::RowFail(row_msg, msg) => {
+                            self.log_messages.push_front(format!("{}", row_msg));
+                            self.log_messages.push_front(format!("{}", msg));
+                        },
                         ReadEvent::FileFail(filename, e) => {
                             self.log_messages.push_front(format!(
                                 "Failed to read file {}, error: {}",
@@ -3122,13 +3126,11 @@ pub fn upload_gas_data_async(
         let mut instrument = match project.instrument {
             InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
             InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
-            InstrumentType::Other => None,
         };
         if let Some(upload_type) = project.upload_from {
             instrument = match upload_type {
                 InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
                 InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
-                InstrumentType::Other => None,
             };
         }
         match instrument.clone().unwrap().read_data_file(path) {
@@ -3221,14 +3223,14 @@ pub fn upload_meteo_data_async(
 ) {
     let mut meteos = MeteoData::default();
     for path in &selected_paths {
-        match csv_parse::read_meteo_csv(path) {
+        match read_meteo_csv(path) {
             //   Pass `path` directly
             Ok(res) => {
                 meteos.datetime.extend(res.datetime);
                 meteos.pressure.extend(res.pressure);
                 meteos.temperature.extend(res.temperature);
             },
-            Err(e) => {
+            Err(_) => {
                 let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
                     path.to_string_lossy().to_string(),
                     "Skipped, invalid data length".to_owned(),
@@ -3254,7 +3256,7 @@ pub fn upload_volume_data_async(
 ) {
     let mut volumes = VolumeData::default();
     for path in &selected_paths {
-        match csv_parse::read_volume_csv(path) {
+        match read_volume_csv(path) {
             //   Pass `path` directly
             Ok(res) => {
                 volumes.datetime.extend(res.datetime);

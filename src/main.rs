@@ -34,19 +34,12 @@ fn main() -> eframe::Result {
 
     let inputs = env::args();
     if inputs.len() > 1 {
-        let mut config = Config::build(inputs).unwrap_or_else(|err| {
+        let config = Config::build(inputs).unwrap_or_else(|err| {
             println!("Parsing problem {err}");
             process::exit(1)
         });
         config.run();
     }
-
-    // NOTE: I dont think this error will ever happen since they are being handled in run?
-    // if let Err(e) = fluxrs::run(config) {
-    //     println!("App error: {e}.")
-    // }
-
-    // let mut data = fluxrs::run(config).unwrap();
 
     let app = myapp::MyApp::new();
     eframe::run_native("fluxrs", Default::default(), Box::new(|_cc| Ok(Box::new(app))))

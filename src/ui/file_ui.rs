@@ -145,12 +145,14 @@ impl ValidationApp {
                                         progress_sender,
                                     )
                                 },
-                                DataType::Cycle => upload_cycle_data_async(
-                                    path_list,
-                                    &mut conn,
-                                    &project_clone,
-                                    progress_sender,
-                                ),
+                                DataType::Cycle => {
+                                    upload_cycle_data_async(
+                                        path_list,
+                                        &mut conn,
+                                        &project_clone,
+                                        progress_sender,
+                                    );
+                                },
                                 DataType::Meteo => upload_meteo_data_async(
                                     path_list,
                                     &mut conn,
