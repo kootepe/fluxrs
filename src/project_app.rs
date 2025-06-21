@@ -12,7 +12,7 @@ use rusqlite::{params, Connection, Result};
 
 use std::collections::HashMap;
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Project {
     pub name: String,
     pub instrument: InstrumentType,
@@ -23,6 +23,22 @@ pub struct Project {
     pub mode: Mode,
     pub upload_from: Option<InstrumentType>,
 }
+
+impl Default for Project {
+    fn default() -> Self {
+        Self {
+            name: "Untitled Project".to_string(),
+            instrument: InstrumentType::default(),
+            instrument_serial: "UNKNOWN_SERIAL".to_string(),
+            main_gas: Some(GasType::default()),
+            deadband: 0.0,
+            min_calc_len: 0.0,
+            mode: Mode::default(),
+            upload_from: None,
+        }
+    }
+}
+
 impl fmt::Display for Project {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
