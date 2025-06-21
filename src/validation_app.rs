@@ -11,9 +11,12 @@ use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::flux::FluxKind;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
+
 use crate::gasdata::query_gas_async;
 use crate::gasdata::{insert_measurements, GasData};
-use crate::insert_cycles;
+use crate::meteodata::{insert_meteo_data, query_meteo_async, MeteoData};
+use crate::timedata::{insert_cycles, query_cycles_async, read_time_csv, TimeData};
+use crate::volumedata::{insert_volume_data, query_volume, query_volume_async, VolumeData};
 use crate::instruments::InstrumentType;
 use crate::instruments::{GasType, InstrumentConfig};
 use crate::keybinds::{Action, KeyBindings};
@@ -3171,7 +3174,7 @@ pub fn upload_cycle_data_async(
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
-        match csv_parse::read_time_csv(path) {
+        match read_time_csv(path) {
             //   Pass `path` directly
             Ok(res) => {
                 if res.validate_lengths() {
