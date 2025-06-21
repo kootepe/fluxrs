@@ -6,7 +6,7 @@ use crate::fluxes_schema::{
     make_update_fluxes,
 };
 use crate::gasdata::{query_gas2, query_gas_all};
-use crate::instruments::GasType;
+use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::project_app::Project;

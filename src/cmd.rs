@@ -1,5 +1,6 @@
 use crate::gasdata::query_gas_async;
-use crate::instruments::{GasType, InstrumentType};
+use crate::gastype::GasType;
+use crate::instruments::InstrumentType;
 use crate::meteodata::query_meteo_async;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::project_app::Project;

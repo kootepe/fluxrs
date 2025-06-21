@@ -9,7 +9,7 @@ use crate::Connection;
 use crate::ProcessEvent;
 use crate::Project;
 use crate::QueryEvent;
-use egui::{ComboBox, Context, Spinner, Ui};
+use egui::{Context, Ui};
 use egui_file::FileDialog;
 use std::borrow::Cow;
 use std::collections::VecDeque;

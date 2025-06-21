@@ -1,7 +1,5 @@
 use crate::flux::FluxKind;
 use crate::validation_app::GasKey;
-use crate::GasType;
-use csv::Error;
 
 use crate::errorcode::ErrorCode;
 use crate::Cycle;

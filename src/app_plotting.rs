@@ -2,7 +2,7 @@ use crate::cycle::{insert_flux_history, update_fluxes, Cycle};
 use crate::cycle_navigator::compute_visible_indexes;
 use crate::errorcode::ErrorCode;
 use crate::flux::{FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
-pub use crate::instruments::GasType;
+use crate::gastype::GasType;
 use crate::validation_app::Adjuster;
 use crate::validation_app::ValidationApp;
 use crate::validation_app::{create_polygon, create_vline, is_inside_polygon, GasKey, Mode};

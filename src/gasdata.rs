@@ -1,18 +1,18 @@
-use crate::constants::{ERROR_FLOAT, ERROR_INT};
+use crate::constants::ERROR_INT;
+use crate::gastype::GasType;
 use crate::project_app::Project;
 use crate::validation_app::GasKey;
 use crate::EqualLen;
 use chrono::prelude::DateTime;
-use chrono::{NaiveDateTime, Utc};
+use chrono::Utc;
 use rusqlite::{params, params_from_iter, Connection, Result};
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::{Arc, Mutex};
 use tokio::task;
 
 use csv::StringRecord;
 
-use crate::instruments::{GasType, InstrumentType};
+use crate::instruments::InstrumentType;
 
 #[derive(Clone, Debug)]
 pub struct GasData {
@@ -20,9 +20,9 @@ pub struct GasData {
     pub instrument_model: String,
     pub instrument_serial: String,
     pub model_key: HashMap<String, InstrumentType>,
-    pub datetime: HashMap<(String), Vec<DateTime<Utc>>>,
+    pub datetime: HashMap<String, Vec<DateTime<Utc>>>,
     pub gas: HashMap<GasKey, Vec<Option<f64>>>,
-    pub diag: HashMap<(String), Vec<i64>>,
+    pub diag: HashMap<String, Vec<i64>>,
 }
 // impl fmt::Debug for GasData {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

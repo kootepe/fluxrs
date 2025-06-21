@@ -1,5 +1,5 @@
+use crate::gastype::GasType;
 use crate::stats::{pearson_correlation, LinReg, PolyReg, RobReg};
-use crate::GasType;
 use dyn_clone::DynClone;
 use egui::{Color32, Stroke};
 use egui_plot::{Line, LineStyle};
