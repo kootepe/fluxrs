@@ -1,6 +1,9 @@
 use crate::project_app::Project;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, Result};
+use std::error::Error;
+use std::fs::File;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::task;
 
@@ -147,9 +150,39 @@ pub async fn query_volume_async(
     .await;
     match result {
         Ok(inner) => inner,
-        Err(e) => {
+        Err(_) => {
             // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
             Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
         },
     }
+}
+pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<dyn Error>> {
+    let file = File::open(file_path)?;
+
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(true) //   Ensure headers are read
+        .from_reader(file);
+
+    let mut datetime = Vec::new();
+    let mut chamber_id = Vec::new();
+    let mut volume = Vec::new();
+
+    for result in rdr.records() {
+        let record = result?;
+
+        let datetime_str = &record[0]; // Read datetime column
+        let ch = &record[1]; // Read datetime column
+        let vol: f64 = record[2].parse()?; // Read air_pressure column
+
+        // Convert datetime string to Unix timestamp
+        let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
+        let timestamp = Utc.from_utc_datetime(&dt).timestamp();
+
+        // Store values
+        datetime.push(timestamp);
+        chamber_id.push(ch.to_owned());
+        volume.push(vol);
+    }
+
+    Ok(VolumeData { datetime, chamber_id, volume })
 }
