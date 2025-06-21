@@ -145,13 +145,8 @@ impl Config {
                     }
                 },
 
-                "-i" => {
-                    instrument =
-                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
-                },
-                "--instrument" => {
-                    instrument =
-                        Some(InstrumentType::from_str(&args.next().unwrap().to_lowercase()));
+                "-i" | "--instrument" => {
+                    instrument = parse_instrument(&mut args);
                 },
                 "-p" => {
                     project = args.next();
@@ -560,6 +555,10 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             ReadEvent::FileRows(filename, rows) => {
                 println!("Read file: {} with {} rows", filename, rows);
             },
+            ReadEvent::RowFail(row_msg, msg) => {
+                println!("{}", row_msg);
+                println!("{}", msg);
+            },
             ReadEvent::FileFail(filename, e) => {
                 println!("Failed to read file {}, error: {}", filename, e);
             },
@@ -594,6 +593,24 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             // self.init_enabled = true;
             // self.query_in_progress = false;
         },
+    }
+}
+
+fn parse_instrument<I>(args: &mut I) -> Option<InstrumentType>
+where
+    I: Iterator<Item = String>,
+{
+    if let Some(instr_str) = args.next() {
+        match instr_str.to_lowercase().parse::<InstrumentType>() {
+            Ok(instr) => Some(instr),
+            Err(_) => {
+                eprintln!("Invalid instrument type: '{}'", instr_str);
+                process::exit(1);
+            },
+        }
+    } else {
+        eprintln!("Expected an instrument type after '-i' or '--instrument'");
+        process::exit(1);
     }
 }
 

@@ -4,6 +4,7 @@ use crate::main_app::AppEvent;
 use crate::validation_app::Mode;
 use crate::InstrumentType;
 use std::fmt;
+use std::process;
 
 use rusqlite;
 // use rusqlite::Connection;
@@ -73,7 +74,17 @@ impl Project {
 
         let main_gas = GasType::from_int(gas_i);
         let mode = Mode::from_int(mode_i)?;
-        let instrument = InstrumentType::from_str(&instrument_string);
+        // let instrument = InstrumentType::from_str(&instrument_string);
+        // let instrument =
+        //     instrument_string.parse::<InstrumentType>().expect("Invalid instrument type");
+
+        let instrument = match instrument_string.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Unexpected invalid instrument type from DB: '{}'", instrument_string);
+                process::exit(1);
+            },
+        };
 
         Some(Project {
             name: project_id,
@@ -316,7 +327,14 @@ impl ProjectApp {
         while let Some(row) = rows.next()? {
             let name: String = row.get(*column_index.get("project_id").unwrap())?;
             let model_string: String = row.get(*column_index.get("instrument_model").unwrap())?;
-            let instrument = InstrumentType::from_str(&model_string);
+
+            let instrument = match model_string.parse::<InstrumentType>() {
+                Ok(val) => val,
+                Err(_) => {
+                    eprintln!("Unexpected invalid instrument type from DB: '{}'", model_string);
+                    process::exit(1);
+                },
+            };
             let instrument_serial: String =
                 row.get(*column_index.get("instrument_serial").unwrap())?;
             let gas_int = row.get(*column_index.get("main_gas").unwrap())?;
@@ -360,7 +378,17 @@ impl ProjectApp {
 
                 let main_gas = GasType::from_int(gas_i);
                 let mode = Mode::from_int(mode_i).unwrap();
-                let instrument = InstrumentType::from_str(&instrument_string);
+
+                let instrument = match instrument_string.parse::<InstrumentType>() {
+                    Ok(val) => val,
+                    Err(_) => {
+                        eprintln!(
+                            "Unexpected invalid instrument type from DB: '{}'",
+                            instrument_string
+                        );
+                        process::exit(1);
+                    },
+                };
 
                 let project = Project {
                     name,

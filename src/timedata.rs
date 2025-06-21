@@ -84,7 +84,14 @@ impl TimeFormatParser for OulankaManualFormat {
 
         if let Some(result) = records.next() {
             let date_str = result?.get(1).unwrap_or("").to_string();
-            date = NaiveDate::parse_from_str(&date_str, "%Y%m%d")?;
+            match NaiveDate::parse_from_str(&date_str, "%y%m%d") {
+                Ok(ndate) => date = ndate,
+                Err(_) => {
+                    let msg = format!("Failed to parse {} as YYMMDD", date_str);
+                    println!("{}", msg);
+                    return Err(msg.into());
+                },
+            }
         }
 
         if let Some(result) = records.next() {

@@ -10,13 +10,13 @@ use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
+use std::str::FromStr;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InstrumentType {
     #[default]
     LI7810,
     LI7820,
-    Other, // Placeholder for additional instruments
 }
 
 impl fmt::Display for InstrumentType {
@@ -24,37 +24,34 @@ impl fmt::Display for InstrumentType {
         match self {
             InstrumentType::LI7810 => write!(f, "LI-7810"),
             InstrumentType::LI7820 => write!(f, "LI-7820"),
-            InstrumentType::Other => write!(f, "Other"),
+        }
+    }
+}
+
+impl FromStr for InstrumentType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "li-7810" => Ok(InstrumentType::LI7810),
+            "li-7820" => Ok(InstrumentType::LI7820),
+            "li7810" => Ok(InstrumentType::LI7810),
+            "li7820" => Ok(InstrumentType::LI7820),
+            _ => Err(()),
         }
     }
 }
 
 impl InstrumentType {
-    /// Convert a `&str` into an `InstrumentType`
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "LI-7810" => InstrumentType::LI7810,
-            "LI-7820" => InstrumentType::LI7820,
-            "LI7810" => InstrumentType::LI7810,
-            "LI7820" => InstrumentType::LI7820,
-            "li-7810" => InstrumentType::LI7810,
-            "li-7820" => InstrumentType::LI7820,
-            "li7810" => InstrumentType::LI7810,
-            "li7820" => InstrumentType::LI7820,
-            _ => InstrumentType::Other,
-        }
-    }
-
     /// Return a list of available instruments (for UI dropdown)
     pub fn available_instruments() -> Vec<InstrumentType> {
-        vec![InstrumentType::LI7810, InstrumentType::LI7820, InstrumentType::Other]
+        vec![InstrumentType::LI7810, InstrumentType::LI7820]
         // Expand this list as needed
     }
     pub fn available_gases(&self) -> Vec<GasType> {
         match self {
             InstrumentType::LI7810 => InstrumentConfig::li7810().available_gases,
             InstrumentType::LI7820 => InstrumentConfig::li7820().available_gases,
-            InstrumentType::Other => vec![GasType::N2O], // Example for another instrument
         }
     }
 }
@@ -263,7 +260,11 @@ impl InstrumentConfig {
         }
 
         let mut model_key = HashMap::new();
-        model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
+        // model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
+        // let model_string = self.model.clone().parse::<InstrumentType>().ok();
+        let model_string =
+            self.model.clone().parse::<InstrumentType>().expect("Invalid instrument type");
+        model_key.insert(instrument_serial.clone(), model_string);
 
         Ok(GasData {
             header,

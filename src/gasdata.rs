@@ -7,6 +7,7 @@ use chrono::prelude::DateTime;
 use chrono::Utc;
 use rusqlite::{params, params_from_iter, Connection, Result};
 use std::collections::HashMap;
+use std::process;
 use std::sync::{Arc, Mutex};
 use tokio::task;
 
@@ -17,6 +18,7 @@ use crate::instruments::InstrumentType;
 #[derive(Clone, Debug)]
 pub struct GasData {
     pub header: StringRecord,
+    // NOTE: Change to InstrumentType
     pub instrument_model: String,
     pub instrument_serial: String,
     pub model_key: HashMap<String, InstrumentType>,
@@ -192,7 +194,15 @@ pub fn query_gas2(
 
         let serial = instrument_serial.clone().unwrap();
         let model = instrument_model.clone().unwrap();
-        let instrument_type = InstrumentType::from_str(&model);
+
+        // let instrument_type = model.parse::<InstrumentType>().expect("Invalid instrument type");
+        let instrument_type = match model.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Unexpected invalid instrument type from DB: '{}'", model);
+                process::exit(1);
+            },
+        };
         let available_gases = instrument_type.available_gases();
 
         let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
@@ -275,7 +285,14 @@ pub fn query_gas(
         let date_key = datetime.format("%Y-%m-%d").to_string();
         let serial = instrument_serial.clone().unwrap();
         let model = instrument_model.clone().unwrap();
-        let instrument_type = InstrumentType::from_str(&model);
+        let instrument_type = match model.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Unexpected invalid instrument type from DB: '{}'", model);
+                continue;
+            },
+        };
+
         let available_gases = instrument_type.available_gases();
 
         let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
@@ -373,7 +390,14 @@ pub fn query_gas_all(
         let (datetime, gas_values, diag, instrument_serial, instrument_model) = row?;
         let serial = instrument_serial.clone().unwrap();
         let model = instrument_model.clone().unwrap();
-        let instrument_type = InstrumentType::from_str(&model);
+
+        let instrument_type = match model.parse::<InstrumentType>() {
+            Ok(val) => val,
+            Err(_) => {
+                eprintln!("Unexpected invalid instrument type from DB: '{}'", model);
+                continue;
+            },
+        };
         let available_gases = instrument_type.available_gases();
 
         entry.instrument_model = model.clone();
@@ -417,7 +441,13 @@ pub fn insert_measurements(
             (serial.clone(), timestamps)
         })
         .collect();
-    let instrument = InstrumentType::from_str(&all_gas.instrument_model);
+    let instrument = match all_gas.instrument_model.parse::<InstrumentType>() {
+        Ok(val) => val,
+        Err(_) => {
+            eprintln!("Unexpected invalid instrument type from DB: '{}'", all_gas.instrument_model);
+            process::exit(1);
+        },
+    };
     // gas_vectors
     let mut gas_map: HashMap<GasType, &Vec<Option<f64>>> = HashMap::new();
 
