@@ -4,11 +4,12 @@ use std::path::Path;
 use std::process;
 
 use fluxrs::cmd::Config;
+use fluxrs::fluxes_schema;
 use fluxrs::myapp;
 
 fn main() -> eframe::Result {
     if !Path::new("fluxrs.db").exists() {
-        match fluxrs::query::initiate_tables() {
+        match fluxes_schema::initiate_tables() {
             Ok(_) => println!("Successfully initiated db tables"),
             Err(e) => {
                 println!("Err:\n {}", e);
@@ -16,7 +17,7 @@ fn main() -> eframe::Result {
             },
         }
     } else {
-        match fluxrs::query::migrate_db() {
+        match fluxes_schema::migrate_db() {
             Ok(0) => println!("No migrations necessary."),
             Ok(1) => println!("Successfully migrated db tables."),
             Ok(2) => println!("Successfully migrated to db version 2"),
@@ -24,6 +25,7 @@ fn main() -> eframe::Result {
             Ok(4) => println!("Successfully migrated to db version 4"),
             Ok(5) => println!("Successfully migrated to db version 5"),
             Ok(6) => println!("Successfully migrated to db version 6"),
+            Ok(7) => println!("Successfully migrated to db version 7"),
             Ok(_) => println!("Unknown success code."),
             Err(e) => {
                 println!("Err:\n {}", e);
