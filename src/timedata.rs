@@ -45,6 +45,7 @@ pub struct TimeData {
     pub close_offset: Vec<i64>,
     pub open_offset: Vec<i64>,
     pub end_offset: Vec<i64>,
+    pub snow_depth: Vec<f64>,
     pub project: Vec<String>,
 }
 
@@ -56,6 +57,7 @@ impl EqualLen for TimeData {
             &self.close_offset.len(),
             &self.open_offset.len(),
             &self.end_offset.len(),
+            &self.snow_depth.len(),
         ];
         let mut check: bool = true;
 
@@ -80,7 +82,8 @@ impl OulankaManualFormat {
         path: &Path,
         project_id: &Project,
     ) -> Result<TimeData, Box<dyn Error>> {
-        let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(reader);
+        let mut rdr =
+            csv::ReaderBuilder::new().flexible(true).has_headers(false).from_reader(reader);
 
         let mut date = NaiveDate::default();
         let mut instrument_serial = String::new();
@@ -93,7 +96,7 @@ impl OulankaManualFormat {
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
         let mut project: Vec<String> = Vec::new();
-        let mut snow_in_chamber: Vec<i64> = Vec::new();
+        let mut snow_in_chamber: Vec<f64> = Vec::new();
 
         let mut records = rdr.records();
 
@@ -132,7 +135,13 @@ impl OulankaManualFormat {
         records.next();
 
         for (i, r) in records.enumerate() {
-            let record = r?;
+            let record = match r {
+                Ok(rec) => rec,
+                Err(e) => {
+                    eprintln!("Failed to read record {}: {}", i, e);
+                    continue;
+                },
+            };
 
             match NaiveTime::parse_from_str(&record[1], "%H%M") {
                 Ok(naive_time) => {
@@ -158,11 +167,24 @@ impl OulankaManualFormat {
                 },
             }
 
+            if let Some(snow_str) = record.get(2) {
+                match snow_str.parse::<f64>() {
+                    Ok(value) => snow_in_chamber.push(value),
+                    Err(e) => {
+                        snow_in_chamber.push(0.0);
+                        eprintln!("Failed to parse '{}' as f64 in row {}: {}", snow_str, i + 1, e);
+                    },
+                }
+            } else {
+                snow_in_chamber.push(0.0);
+                eprintln!("Missing column 2 in row {}", i + 1);
+            }
             chamber_id.push(record[0].to_owned());
             close_offset.push(60);
             open_offset.push(measurement_time + 60);
             end_offset.push(measurement_time + 120);
             project.push(project_id.name.to_owned());
+            println!("{:?}", snow_in_chamber);
         }
 
         Ok(TimeData {
@@ -172,7 +194,7 @@ impl OulankaManualFormat {
             open_offset,
             end_offset,
             project,
-            // snow_in_chamber,
+            snow_depth: snow_in_chamber,
         })
     }
 }
@@ -203,6 +225,7 @@ impl DefaultFormat {
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
+        let mut snow_in_chamber: Vec<f64> = Vec::new();
         let mut project: Vec<String> = Vec::new();
 
         for r in rdr.records() {
@@ -236,9 +259,17 @@ impl DefaultFormat {
                 end_offset.push(val)
             }
             project.push(project_id.name.to_owned());
+            snow_in_chamber.push(0.0);
         }
-        let df =
-            TimeData { chamber_id, start_time, close_offset, open_offset, end_offset, project };
+        let df = TimeData {
+            chamber_id,
+            start_time,
+            close_offset,
+            open_offset,
+            end_offset,
+            snow_depth: snow_in_chamber,
+            project,
+        };
         Ok(df)
     }
 }
@@ -266,6 +297,7 @@ impl TimeData {
             close_offset: Vec::new(),
             open_offset: Vec::new(),
             end_offset: Vec::new(),
+            snow_depth: Vec::new(),
             project: Vec::new(),
         }
     }
@@ -282,6 +314,7 @@ impl TimeData {
                 open_offset: self.open_offset[i..end].to_vec(),
                 end_offset: self.end_offset[i..end].to_vec(),
                 chamber_id: self.chamber_id[i..end].to_vec(),
+                snow_depth: self.snow_depth[i..end].to_vec(),
                 project: self.project[i..end].to_vec(),
             };
             chunks.push(chunk);
@@ -312,7 +345,7 @@ pub fn query_cycles(
 ) -> Result<TimeData> {
     println!("Querying cycles");
     let mut stmt = conn.prepare(
-        "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, project_id
+        "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, snow_depth, project_id
          FROM cycles
          WHERE start_time BETWEEN ?1 AND ?2
          AND project_id = ?3
@@ -327,7 +360,8 @@ pub fn query_cycles(
             let close_offset: i64 = row.get(2)?;
             let open_offset: i64 = row.get(3)?;
             let end_offset: i64 = row.get(4)?;
-            let project_id: String = row.get(5)?;
+            let snow_depth: f64 = row.get(5)?;
+            let project_id: String = row.get(6)?;
 
             let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
             times.chamber_id.push(chamber_id);
@@ -335,6 +369,7 @@ pub fn query_cycles(
             times.close_offset.push(close_offset);
             times.open_offset.push(open_offset);
             times.end_offset.push(end_offset);
+            times.snow_depth.push(snow_depth);
             times.project.push(project_id);
 
             Ok(())
@@ -375,6 +410,7 @@ pub fn insert_cycles(
     let open_vec = &cycles.open_offset;
     let end_vec = &cycles.end_offset;
     let chamber_vec = &cycles.chamber_id;
+    let snow_vec = &cycles.snow_depth;
     let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
 
     let tx = conn.transaction()?;
@@ -384,8 +420,8 @@ pub fn insert_cycles(
 
     //   Prepare the statements **before** the loop
     let mut insert_stmt = tx.prepare(
-        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, project_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, snow_depth, project_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
     )?;
 
     let mut check_stmt = tx.prepare(
@@ -411,6 +447,7 @@ pub fn insert_cycles(
                 open_vec[i],
                 end_vec[i],
                 chamber_vec[i],
+                snow_vec[i],
                 project,
             ])?;
             inserted += 1;
@@ -467,8 +504,8 @@ mod tests {
 ,LI7810
 ,TG10-01169
 chamber_id,start_time,snow_depth
-CH1,1234
-CH2,1250";
+CH1,1234,0
+CH2,1250,0";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
@@ -488,7 +525,7 @@ CH2,1250";
 ,LI7810
 ,TG10-01169
 chamber_id,start_time,snow_depth
-CH1,1234";
+CH1,1234,0";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
@@ -505,7 +542,7 @@ CH1,1234";
 ,LI7811
 ,TG10-01169
 chamber_id,start_time,snow_depth
-CH1,1234";
+CH1,1234,0";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
@@ -522,8 +559,8 @@ CH1,1234";
 ,LI7810
 ,TG10-01169
 chamber_id,start_time,snow_depth
-CH1,12AA
-CH2,1250";
+CH1,12AA,
+CH2,1250,";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);

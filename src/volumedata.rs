@@ -53,7 +53,7 @@ pub fn insert_volume_data(
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO volume (chamber_id, project_id, datetime, volume)
+            "INSERT INTO height (chamber_id, project_id, datetime, volume)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(chamber_id, project_id, datetime)
              DO UPDATE SET volume = excluded.volume",
@@ -80,8 +80,8 @@ pub fn get_previous_volume(
     time: i64,
 ) -> Result<f64> {
     let mut stmt = conn.prepare(
-        "SELECT volume
-             FROM volume
+        "SELECT height
+             FROM height
              WHERE project_id = ?1
              AND datetime - ?3 < 0
              AND chamber_id = ?2
@@ -107,8 +107,8 @@ pub fn query_volume(
     // let mut data = HashMap::new();
 
     let mut stmt = conn.prepare(
-        "SELECT datetime, volume, chamber_id
-             FROM volume
+        "SELECT datetime, height, chamber_id
+             FROM height
              WHERE datetime BETWEEN ?1 AND ?2
              and project_id = ?3
              ORDER BY datetime",

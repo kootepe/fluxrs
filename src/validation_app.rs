@@ -3091,7 +3091,7 @@ fn render_recalculate_ui(
                     }
                     runtime.spawn_blocking(move || {
                         for c in &mut cycles {
-                            c.chamber_volume = volumes
+                            c.chamber_height = volumes
                                 .get_nearest_previous_volume(c.start_time.timestamp(), &c.chamber_id)
                                 .unwrap_or(1.0);
                             c.compute_all_fluxes();
@@ -3185,6 +3185,7 @@ pub fn upload_cycle_data_async(
                     all_times.close_offset.extend(res.close_offset);
                     all_times.open_offset.extend(res.open_offset);
                     all_times.end_offset.extend(res.end_offset);
+                    all_times.snow_depth.extend(res.snow_depth);
 
                     let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
                         path.to_string_lossy().to_string(),

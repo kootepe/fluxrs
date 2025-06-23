@@ -57,7 +57,7 @@ pub struct Cycle {
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub air_temperature: f64,
     pub air_pressure: f64,
-    pub chamber_volume: f64,
+    pub chamber_height: f64,
     pub error_code: ErrorMask,
     pub is_valid: bool,
     pub gas_is_valid: HashMap<GasKey, bool>,
@@ -1398,7 +1398,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber_volume,
+            self.chamber_height,
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1449,7 +1449,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber_volume,
+            self.chamber_height,
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1487,7 +1487,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber_volume,
+            self.chamber_height,
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1504,7 +1504,7 @@ impl Cycle {
 
         let pressure_pa = self.air_pressure * 100.0; // Convert hPa to Pa
         let temperature_k = self.air_temperature + 273.15; // Convert °C to K
-        let volume_m3 = self.chamber_volume / 1000.0; // Convert L to m³
+        let volume_m3 = self.chamber_height / 1000.0; // Convert L to m³
 
         let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
         let ppb_to_nmol = conversion_factor * 1e-9 * 1e9; // mol → nmol, and ppb = 1e-9
@@ -1754,7 +1754,7 @@ impl CycleBuilder {
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
-            chamber_volume: 1.,
+            chamber_height: 1.,
             is_valid: true,
             gas_is_valid: HashMap::new(),
             override_valid: None,
@@ -1819,7 +1819,7 @@ impl CycleBuilder {
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
-            chamber_volume: 1.,
+            chamber_height: 1.,
             is_valid: true,
             gas_is_valid: HashMap::new(),
             override_valid: None,
@@ -1984,7 +1984,7 @@ fn execute_history_insert(
             cycle.min_calc_len,
             cycle.air_pressure,
             cycle.air_temperature,
-            cycle.chamber_volume,
+            cycle.chamber_height,
             cycle.error_code.0,
             cycle.is_valid,
             lin_valid,
@@ -2090,7 +2090,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.min_calc_len,
             cycle.air_pressure,
             cycle.air_temperature,
-            cycle.chamber_volume,
+            cycle.chamber_height,
             cycle.error_code.0,
             cycle.is_valid,
             lin_valid,
@@ -2187,7 +2187,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.min_calc_len,
             cycle.air_pressure,
             cycle.air_temperature,
-            cycle.chamber_volume,
+            cycle.chamber_height,
             cycle.error_code.0,
             cycle.is_valid,
             lin_valid,
@@ -2337,7 +2337,7 @@ pub fn load_cycles(
 
         let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
         let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
-        let chamber_volume: f64 = row.get(*column_index.get("chamber_volume").unwrap())?;
+        let chamber_height: f64 = row.get(*column_index.get("chamber_height").unwrap())?;
 
         let end_time = start_time + TimeDelta::seconds(end_offset);
 
@@ -2399,7 +2399,7 @@ pub fn load_cycles(
                 start_time,
                 air_temperature,
                 air_pressure,
-                chamber_volume,
+                chamber_height,
                 error_code,
                 is_valid,
                 gas_is_valid: HashMap::new(),
@@ -2971,7 +2971,7 @@ pub fn process_cycles(
             cycle.air_pressure = pressure;
 
             // Add volume data
-            cycle.chamber_volume =
+            cycle.chamber_height =
                 volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
 
             // Add deadbands

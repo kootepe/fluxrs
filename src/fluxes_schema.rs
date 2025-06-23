@@ -22,7 +22,7 @@ pub mod fluxes_col {
     pub const MIN_CALC_LEN: usize = 16;
     pub const AIR_PRESSURE: usize = 17;
     pub const AIR_TEMPERATURE: usize = 18;
-    pub const CHAMBER_VOLUME: usize = 19;
+    pub const CHAMBER_HEIGHT: usize = 19;
     pub const ERROR_CODE: usize = 20;
     pub const IS_VALID: usize = 21;
     pub const MANUAL_ADJUSTED: usize = 22;
@@ -53,7 +53,7 @@ pub const OTHER_COLS: &[&str] = &[
     "start_lag_s",
     "air_pressure",
     "air_temperature",
-    "chamber_volume",
+    "chamber_height",
     "error_code",
     "is_valid",
     "main_gas_r2",
@@ -81,7 +81,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "min_calc_len",
     "air_pressure",
     "air_temperature",
-    "chamber_volume",
+    "chamber_height",
     "error_code",
     "measurement_is_valid",
     "gas_is_valid",
@@ -232,7 +232,7 @@ pub fn create_flux_table() -> String {
             min_calc_len INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
-            chamber_volume FLOAT,
+            chamber_height FLOAT,
 
             error_code INTEGER,
             measurement_is_valid BOOL,
@@ -306,7 +306,7 @@ pub fn create_flux_history_table() -> String {
             min_calc_len INTEGER NOT NULL,
             air_pressure FLOAT,
             air_temperature FLOAT,
-            chamber_volume FLOAT,
+            chamber_height FLOAT,
 
             error_code INTEGER,
             measurement_is_valid BOOL,
@@ -449,11 +449,11 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     // conn.execute("PRAGMA journal_mode = WAL;", [])?;
 
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS volume (
+        "CREATE TABLE IF NOT EXISTS height (
             chamber_id TEXT,
             project_id TEXT,
             datetime INTEGER,
-            volume FLOAT,
+            height FLOAT,
             PRIMARY KEY (chamber_id, project_id, datetime)
         )",
         [],
