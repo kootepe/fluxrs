@@ -477,7 +477,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             end_offset INTEGER NOT NULL,
             snow_depth FLOAT NOT NULL,
             project_id TEXT NOT NULL,
-            PRIMARY KEY ( start_time, chamber_id, project_id)
+            instrument_serial TEXT NOT NULL,
+            instrument_model TEXT NOT NULL,
+            PRIMARY KEY (start_time, chamber_id, project_id)
         )",
         [],
     )?;
