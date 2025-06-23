@@ -38,6 +38,7 @@ use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use csv::Writer;
 use rusqlite::{params, types::ValueRef, Connection, Result, Row};
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::env;
@@ -642,25 +643,36 @@ impl ValidationApp {
 
             ui.vertical(|ui| {
                 if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+                    // Group keys by their label
+                    let mut label_map: BTreeMap<String, Vec<_>> = BTreeMap::new();
+
                     for key in current_cycle.gases.clone() {
-                        // let (target_gas, target_serial) = &key;
-                        // Check if any model for this gas is valid (to toggle meaningfully)
-                        let any_valid = current_cycle
-                            .fluxes
-                            .iter()
-                            .any(|((g, _s), record)| g == &key && record.is_valid);
-                        // .any(|(&(g, s, _), record)| (g, s) == key && record.is_valid);
-
-                        let label = if any_valid {
-                            format!("Invalidate {} measurement", key)
-                        } else {
-                            format!("Revalidate {} measurement", key)
-                        };
-
-                        if ui.button(label).clicked() {
-                            self.toggled_gas = Some(key);
-                        }
+                        label_map.entry(key.label.clone()).or_default().push(key);
                     }
+
+                    // Use a horizontal layout to make columns per label
+                    ui.horizontal(|ui| {
+                        for (_, keys) in label_map {
+                            ui.vertical(|ui| {
+                                for key in keys {
+                                    let any_valid = current_cycle
+                                        .fluxes
+                                        .iter()
+                                        .any(|((g, _s), record)| g == &key && record.is_valid);
+
+                                    let button_label = if any_valid {
+                                        format!("Invalidate {}", key)
+                                    } else {
+                                        format!("Revalidate {}", key)
+                                    };
+
+                                    if ui.button(button_label).clicked() {
+                                        self.toggled_gas = Some(key.clone());
+                                    }
+                                }
+                            });
+                        }
+                    });
                 }
             });
 
