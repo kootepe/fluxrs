@@ -171,7 +171,7 @@ impl ValidationApp {
 
             // Prepare predictions from the selected model
 
-            let Some(model) = self.get_model(&key, kind) else { return };
+            let Some(model) = self.get_model(key, kind) else { return };
 
             let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
             let residuals: Vec<f64> =
@@ -233,7 +233,7 @@ impl ValidationApp {
             let x0 = dt_v.first().unwrap();
 
             // Prepare predictions from the selected model
-            let y_pred: Vec<f64> = match self.get_model(&key, kind) {
+            let y_pred: Vec<f64> = match self.get_model(key, kind) {
                 Some(model) => {
                     if let Some(lin) = model.as_any().downcast_ref::<LinearFlux>() {
                         dt_v.iter().map(|&x| lin.model.calculate(x)).collect()
@@ -282,10 +282,10 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             // let dt_v = cycle.get_calc_dt2(&key.clone());
             // let actual = cycle.get_calc_gas_v2(&key.clone());
-            let (dt_v, actual) = cycle.get_calc_data2(&key);
+            let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // Prepare predictions from the selected model
-            let Some(model) = self.get_model(&key, kind) else { return };
+            let Some(model) = self.get_model(key, kind) else { return };
 
             let y_pred: Vec<f64> = dt_v.iter().map(|&x| model.predict(x).unwrap_or(0.0)).collect();
 
@@ -347,7 +347,7 @@ impl ValidationApp {
     pub fn render_gas_plot(&self, plot_ui: &mut egui_plot::PlotUi, key: &GasKey) {
         // BUG: if there's a gap in the data dragging stops working properly, items cant be dragged
         // over the plots if the start or end of the measurement is over the gap
-        let dpw = self.get_dragger_width(&key);
+        let dpw = self.get_dragger_width(key);
 
         let dark_green = Color32::DARK_GREEN;
         let red = Color32::RED;
@@ -358,11 +358,11 @@ impl ValidationApp {
             // let ei = cycle.get_calc_end_i(gas_type);
             // let calc_start = cycle.get_measurement_gas_v2(gas_type)[si];
             // let calc_end = cycle.get_measurement_gas_v2(gas_type)[ei];
-            let dead_s = self.get_deadband(&key);
-            let calc_start = cycle.get_calc_start(&key);
-            let calc_end = cycle.get_calc_end(&key);
-            let min_y = self.get_min_y(&key);
-            let max_y = self.get_max_y(&key);
+            let dead_s = self.get_deadband(key);
+            let calc_start = cycle.get_calc_start(key);
+            let calc_end = cycle.get_calc_end(key);
+            let min_y = self.get_min_y(key);
+            let max_y = self.get_max_y(key);
 
             let deadband = create_polygon(
                 cycle.get_adjusted_close(),
@@ -458,7 +458,7 @@ impl ValidationApp {
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
             }
-            if let Some(data) = cycle.gas_v.get(&key) {
+            if let Some(data) = cycle.gas_v.get(key) {
                 let dt_v = &cycle.dt_v.get(&key.label).unwrap();
                 let diag_v = &cycle.diag_v.get(&key.label).unwrap();
 
@@ -498,13 +498,13 @@ impl ValidationApp {
                 }
 
                 if self.show_linfit {
-                    self.plot_model_fit(plot_ui, &key, FluxKind::Linear);
+                    self.plot_model_fit(plot_ui, key, FluxKind::Linear);
                 }
                 if self.show_roblinfit {
-                    self.plot_model_fit(plot_ui, &key, FluxKind::RobLin);
+                    self.plot_model_fit(plot_ui, key, FluxKind::RobLin);
                 }
                 if self.show_polyfit {
-                    self.plot_model_fit(plot_ui, &key, FluxKind::Poly);
+                    self.plot_model_fit(plot_ui, key, FluxKind::Poly);
                 }
 
                 plot_ui.vline(adj_open_line);
@@ -978,7 +978,7 @@ impl ValidationApp {
     pub fn increment_deadband_gas(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            let deadband = cycle.deadbands.get(&key).unwrap_or(&0.0);
+            let deadband = cycle.deadbands.get(key).unwrap_or(&0.0);
             cycle.set_deadband(key, deadband + x);
         }
     }
@@ -1041,7 +1041,7 @@ impl ValidationApp {
                     .iter()
                     .filter_map(|kind| {
                         cycle
-                            .get_model((GasKey::from((&main_gas, serial.as_str()))), *kind)
+                            .get_model(GasKey::from((&main_gas, serial.as_str())), *kind)
                             .and_then(|m| m.aic().map(|aic| (*kind, aic)))
                     })
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -1050,7 +1050,7 @@ impl ValidationApp {
                     let value = selector(cycle, key);
 
                     let is_valid = cycle.is_valid_by_threshold(
-                        (GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))),
+                        GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str())),
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,
@@ -1421,7 +1421,7 @@ impl ValidationApp {
         if let Some(dragged) = self.dragged_point {
             if response.dragged_by(egui::PointerButton::Primary) {
                 let delta = response.drag_delta();
-                let mut dy = delta.y as f64 * transform.dvalue_dpos()[1];
+                let dy = delta.y as f64 * transform.dvalue_dpos()[1];
                 self.current_ydelta += dy;
                 let steps = self.current_ydelta.trunc();
 
@@ -1576,7 +1576,7 @@ impl ValidationApp {
             let dragging_polygon = dragging_left || dragging_right || dragging_main;
             let dragging_lag = dragging_open_lag || dragging_close_lag;
 
-            let mut dx = drag_delta.x as f64;
+            let dx = drag_delta.x as f64;
             let can_move = self.calc_area_can_move(key);
             // Reset drag state when not dragging
 
@@ -1610,7 +1610,7 @@ impl ValidationApp {
                     println!("Dragging left");
                     if inside_left && can_move && dragged {
                         self.current_delta += dx;
-                        self.handle_drag_polygon(plot_ui, true, &key);
+                        self.handle_drag_polygon(plot_ui, true, key);
                     }
                 },
 
@@ -1618,7 +1618,7 @@ impl ValidationApp {
                     println!("Dragging right");
                     if inside_right && can_move && dragged {
                         self.current_delta += dx;
-                        self.handle_drag_polygon(plot_ui, false, &key);
+                        self.handle_drag_polygon(plot_ui, false, key);
                     }
                 },
 
@@ -1630,10 +1630,10 @@ impl ValidationApp {
                         self.current_delta -= full_steps;
 
                         if full_steps != 0.0 {
-                            let calc_start = self.get_calc_start(&key);
-                            let calc_end = self.get_calc_end(&key);
+                            let calc_start = self.get_calc_start(key);
+                            let calc_end = self.get_calc_end(key);
                             let measurement_start =
-                                self.get_measurement_start() + self.get_deadband(&key);
+                                self.get_measurement_start() + self.get_deadband(key);
                             let measurement_end = self.get_measurement_end();
 
                             let mut clamped = full_steps;
@@ -1645,8 +1645,8 @@ impl ValidationApp {
                             }
 
                             if clamped.abs() > f64::EPSILON {
-                                self.increment_calc_start(&key, clamped);
-                                self.increment_calc_end(&key, clamped);
+                                self.increment_calc_start(key, clamped);
+                                self.increment_calc_end(key, clamped);
                             }
                         }
                     }
@@ -1926,7 +1926,7 @@ impl ValidationApp {
         let num_points = 200;
 
         let label = format!("{}{}{}", key.gas_type, key.label, kind.as_str());
-        if let Some(model) = self.get_model(&key, kind) {
+        if let Some(model) = self.get_model(key, kind) {
             let points: PlotPoints = (0..=num_points)
                 .filter_map(|i| {
                     let t = i as f64 / num_points as f64;

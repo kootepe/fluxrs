@@ -1023,7 +1023,7 @@ impl ValidationApp {
             return;
         }
         let main_key = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            (GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str())))
+            GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))
         } else {
             return;
         };
