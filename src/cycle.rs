@@ -20,11 +20,9 @@ use crate::timedata::TimeData;
 use crate::volumedata::VolumeData;
 
 use chrono::{DateTime, TimeDelta, Utc};
-use chrono_tz::Africa::Windhoek;
 use rayon::prelude::*;
 use rusqlite::{params, Connection, Error, Result};
 use std::collections::{HashMap, HashSet};
-use std::error;
 use std::fmt;
 use std::hash::Hash;
 use std::process;
@@ -1636,7 +1634,10 @@ pub struct CycleBuilder {
     open_offset: Option<i64>,
     end_offset: Option<i64>,
     min_calc_len: Option<f64>,
+    snow_depth: Option<f64>,
     project: Option<String>,
+    instrument_model: Option<InstrumentType>,
+    instrument_serial: Option<String>,
 }
 impl CycleBuilder {
     /// Create a new CycleBuilder
@@ -1647,8 +1648,11 @@ impl CycleBuilder {
             close_offset: None,
             open_offset: None,
             end_offset: None,
-            project: None,
             min_calc_len: None,
+            snow_depth: None,
+            project: None,
+            instrument_model: None,
+            instrument_serial: None,
         }
     }
 
@@ -1687,6 +1691,18 @@ impl CycleBuilder {
     }
     pub fn min_calc_len(mut self, min_calc_len: f64) -> Self {
         self.min_calc_len = Some(min_calc_len);
+        self
+    }
+    pub fn instrument_serial(mut self, instrument_serial: String) -> Self {
+        self.instrument_serial = Some(instrument_serial);
+        self
+    }
+    pub fn instrument_model(mut self, instrument_model: InstrumentType) -> Self {
+        self.instrument_model = Some(instrument_model);
+        self
+    }
+    pub fn snow_depth(mut self, snow_depth: f64) -> Self {
+        self.snow_depth = Some(snow_depth);
         self
     }
 
@@ -1767,16 +1783,20 @@ impl CycleBuilder {
         let close = self.close_offset.ok_or("Close offset is required")?;
         let open = self.open_offset.ok_or("Open offset is required")?;
         let end = self.end_offset.ok_or("End offset is required")?;
+        // FIX: snow_depth is unused
+        let snow_depth = self.snow_depth.ok_or("Snow depth is required")?;
+        let instrument_model = self.instrument_model.ok_or("Instrument model is requred")?;
+        let instrument_serial = self.instrument_serial.ok_or("Instrument serial is required")?;
         let project = self.project.ok_or("Project is required")?;
         let min_calc_len = self.min_calc_len.ok_or("Project is required")?;
 
         Ok(Cycle {
             id: 0,
             chamber_id: chamber,
-            main_instrument_model: InstrumentType::LI7810,
-            main_instrument_serial: String::new(),
-            instrument_model: InstrumentType::LI7810,
-            instrument_serial: String::new(),
+            main_instrument_model: instrument_model,
+            main_instrument_serial: instrument_serial.clone(),
+            instrument_model,
+            instrument_serial,
             min_calc_len,
             project_name: project,
             start_time: start,
@@ -2844,7 +2864,7 @@ pub fn process_cycles(
 ) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>> {
     let mut cycle_vec = Vec::new();
 
-    for (chamber, start, close, open, end, _) in timev.iter() {
+    for (chamber, start, close, open, end, snow_depth, model, serial, _) in timev.iter() {
         let day = start.format("%Y-%m-%d").to_string();
 
         let mut cycle = CycleBuilder::new()
@@ -2853,6 +2873,9 @@ pub fn process_cycles(
             .close_offset(*close)
             .open_offset(*open)
             .end_offset(*end)
+            .instrument_model(*model)
+            .instrument_serial(serial.clone())
+            .snow_depth(*snow_depth)
             .project_name(project.name.to_owned())
             .min_calc_len(project.min_calc_len)
             .build()?;
