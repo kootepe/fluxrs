@@ -1609,11 +1609,25 @@ impl Cycle {
         rmse_thresh: f64,
         t0_thresh: f64,
     ) -> bool {
-        let p_val = self.fluxes.get(&(key.clone(), kind)).unwrap().model.p_value().unwrap_or(0.0);
-        let r2 = self.measurement_r2.get(&key.clone()).unwrap_or(&0.0);
-        let rmse = self.fluxes.get(&(key.clone(), kind)).unwrap().model.rmse().unwrap_or(0.0);
-        let t0 = self.t0_concentration.get(&key.clone()).unwrap_or(&0.0);
-        p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh
+        let flux = match self.fluxes.get(&(key.clone(), kind)) {
+            Some(f) => f,
+            None => return false,
+        };
+
+        let p_val = flux.model.p_value().unwrap_or(0.);
+        let rmse = flux.model.rmse().unwrap_or(f64::MAX);
+
+        let r2 = match self.measurement_r2.get(&key) {
+            Some(val) => *val,
+            None => return false,
+        };
+
+        let t0 = match self.t0_concentration.get(&key) {
+            Some(val) => *val,
+            None => return false,
+        };
+
+        p_val < p_val_thresh && r2 > r2_thresh && rmse < rmse_thresh && t0 < t0_thresh
     }
 
     pub fn mark_flux_invalid(&mut self, key: GasKey, kind: FluxKind) {
@@ -2084,7 +2098,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             InstrumentType::LI7810
         };
 
-        // Skip row if neither model exists
+        // Skip row if no model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
             eprintln!("Skipping gas {} {}: no models available", key, cycle.start_time);
             continue;
