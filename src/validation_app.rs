@@ -49,6 +49,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
+type InstrumentSerial = String;
+
 #[derive(Clone, PartialEq)]
 pub enum DataType {
     Gas,
@@ -139,7 +141,7 @@ type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GasKey {
     pub gas_type: GasType,
-    pub label: String,
+    pub label: InstrumentSerial,
 }
 impl fmt::Display for GasKey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
