@@ -94,6 +94,22 @@ pub trait FluxModel: Sync + Send + DynClone {
 }
 dyn_clone::clone_trait_object!(FluxModel);
 
+impl fmt::Display for dyn FluxModel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:?}, {:?}, flux: {:?}, r2: {:?}, len: {:?}",
+            self.fit_id(),
+            self.gas_type(),
+            self.flux(),
+            self.r2(),
+            match (self.range_start(), self.range_end()) {
+                (Some(start), Some(end)) => Some(end - start),
+                _ => None,
+            }
+        )
+    }
+}
 impl fmt::Display for LinearFlux {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
