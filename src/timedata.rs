@@ -47,6 +47,8 @@ pub struct TimeData {
     pub end_offset: Vec<i64>,
     pub snow_depth: Vec<f64>,
     pub project: Vec<String>,
+    pub instrument_model: Vec<InstrumentType>,
+    pub instrument_serial: Vec<String>,
 }
 
 impl EqualLen for TimeData {
@@ -86,8 +88,8 @@ impl OulankaManualFormat {
             csv::ReaderBuilder::new().flexible(true).has_headers(false).from_reader(reader);
 
         let mut date = NaiveDate::default();
-        let mut instrument_serial = String::new();
-        let mut instrument_model = String::new();
+        let mut instrument_serial = Vec::new();
+        let mut instrument_model = Vec::new();
         let mut measurement_time: i64 = 0;
 
         let mut chamber_id: Vec<String> = Vec::new();
@@ -121,14 +123,16 @@ impl OulankaManualFormat {
         if let Some(result) = records.next() {
             let model = result?.get(1).unwrap_or("").to_string();
             if let Ok(parsed_model) = model.parse::<InstrumentType>() {
-                instrument_model = parsed_model.to_string();
+                instrument_model.push(parsed_model)
+                // instrument_model = parsed_model.to_string();
             } else {
                 return Err(format!("Couldn't parse {} as an instrument model", model).into());
             }
         }
 
         if let Some(result) = records.next() {
-            instrument_serial = result?.get(1).unwrap_or("").to_string();
+            let parsed_serial = result?.get(1).unwrap_or("").to_string();
+            instrument_serial.push(parsed_serial);
         }
 
         // Skip header row before data
@@ -184,7 +188,6 @@ impl OulankaManualFormat {
             open_offset.push(measurement_time + 60);
             end_offset.push(measurement_time + 120);
             project.push(project_id.name.to_owned());
-            println!("{:?}", snow_in_chamber);
         }
 
         Ok(TimeData {
@@ -193,8 +196,10 @@ impl OulankaManualFormat {
             close_offset,
             open_offset,
             end_offset,
-            project,
             snow_depth: snow_in_chamber,
+            project,
+            instrument_serial,
+            instrument_model,
         })
     }
 }
@@ -216,17 +221,19 @@ impl DefaultFormat {
         &self,
         reader: R,
         path: &Path,
-        project_id: &Project,
+        project: &Project,
     ) -> Result<TimeData, Box<dyn Error>> {
         let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(reader);
 
         let mut chamber_id: Vec<String> = Vec::new();
+        let mut instrument_model: Vec<InstrumentType> = Vec::new();
+        let mut instrument_serial: Vec<String> = Vec::new();
         let mut start_time: Vec<DateTime<Utc>> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
         let mut snow_in_chamber: Vec<f64> = Vec::new();
-        let mut project: Vec<String> = Vec::new();
+        let mut project_id: Vec<String> = Vec::new();
 
         for r in rdr.records() {
             let record: &csv::StringRecord = &r?;
@@ -258,7 +265,9 @@ impl DefaultFormat {
             if let Ok(val) = record[4].parse::<i64>() {
                 end_offset.push(val)
             }
-            project.push(project_id.name.to_owned());
+            project_id.push(project.name.to_owned());
+            instrument_model.push(project.instrument);
+            instrument_serial.push(project.instrument_serial.to_owned());
             snow_in_chamber.push(0.0);
         }
         let df = TimeData {
@@ -268,7 +277,9 @@ impl DefaultFormat {
             open_offset,
             end_offset,
             snow_depth: snow_in_chamber,
-            project,
+            instrument_serial,
+            instrument_model,
+            project: project_id,
         };
         Ok(df)
     }
@@ -299,6 +310,8 @@ impl TimeData {
             end_offset: Vec::new(),
             snow_depth: Vec::new(),
             project: Vec::new(),
+            instrument_serial: Vec::new(),
+            instrument_model: Vec::new(),
         }
     }
     pub fn chunk(&self) -> Vec<TimeData> {
@@ -315,6 +328,8 @@ impl TimeData {
                 end_offset: self.end_offset[i..end].to_vec(),
                 chamber_id: self.chamber_id[i..end].to_vec(),
                 snow_depth: self.snow_depth[i..end].to_vec(),
+                instrument_serial: self.instrument_serial[i..end].to_vec(),
+                instrument_model: self.instrument_model[i..end].to_vec(),
                 project: self.project[i..end].to_vec(),
             };
             chunks.push(chunk);
@@ -324,17 +339,27 @@ impl TimeData {
     }
     pub fn iter(
         &self,
-    ) -> impl Iterator<Item = (&String, &DateTime<Utc>, &i64, &i64, &i64, &String)> {
+    ) -> impl Iterator<
+        Item = (&String, &DateTime<Utc>, &i64, &i64, &i64, &f64, &InstrumentType, &String, &String),
+    > {
         self.chamber_id
             .iter()
             .zip(&self.start_time)
             .zip(&self.close_offset)
             .zip(&self.open_offset)
             .zip(&self.end_offset)
+            .zip(&self.snow_depth)
+            .zip(&self.instrument_model)
+            .zip(&self.instrument_serial)
             .zip(&self.project)
-            .map(|(((((chamber, start), close), open), end), project)| {
-                (chamber, start, close, open, end, project)
-            })
+            .map(
+                |(
+                    (((((((chamber, start), close), open), end), snow_depth), model), serial),
+                    project,
+                )| {
+                    (chamber, start, close, open, end, snow_depth, model, serial, project)
+                },
+            )
     }
 }
 pub fn query_cycles(
@@ -345,7 +370,7 @@ pub fn query_cycles(
 ) -> Result<TimeData> {
     println!("Querying cycles");
     let mut stmt = conn.prepare(
-        "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, snow_depth, project_id
+        "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, snow_depth, instrument_model, instrument_serial, project_id
          FROM cycles
          WHERE start_time BETWEEN ?1 AND ?2
          AND project_id = ?3
@@ -361,8 +386,24 @@ pub fn query_cycles(
             let open_offset: i64 = row.get(3)?;
             let end_offset: i64 = row.get(4)?;
             let snow_depth: f64 = row.get(5)?;
-            let project_id: String = row.get(6)?;
+            let model: String = row.get(6)?;
+            let serial: String = row.get(7)?;
+            let project_id: String = row.get(8)?;
+            let instrument_model = match model.parse::<InstrumentType>() {
+                Ok(val) => val,
+                Err(_) => {
+                    eprintln!("Unexpected invalid instrument type from DB: '{}'", model);
 
+                    return Err(rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("Unexpected invalid instrument type from DB: '{}'", model),
+                        )),
+                    ));
+                },
+            };
             let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
             times.chamber_id.push(chamber_id);
             times.start_time.push(start_time);
@@ -370,6 +411,9 @@ pub fn query_cycles(
             times.open_offset.push(open_offset);
             times.end_offset.push(end_offset);
             times.snow_depth.push(snow_depth);
+
+            times.instrument_model.push(instrument_model);
+            times.instrument_serial.push(serial);
             times.project.push(project_id);
 
             Ok(())
@@ -411,6 +455,8 @@ pub fn insert_cycles(
     let end_vec = &cycles.end_offset;
     let chamber_vec = &cycles.chamber_id;
     let snow_vec = &cycles.snow_depth;
+    let model_vec = &cycles.instrument_model;
+    let serial_vec = &cycles.instrument_serial;
     let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
 
     let tx = conn.transaction()?;
@@ -420,8 +466,8 @@ pub fn insert_cycles(
 
     //   Prepare the statements **before** the loop
     let mut insert_stmt = tx.prepare(
-        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, snow_depth, project_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, snow_depth, project_id, instrument_model, instrument_serial)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )?;
 
     let mut check_stmt = tx.prepare(
@@ -449,6 +495,8 @@ pub fn insert_cycles(
                 chamber_vec[i],
                 snow_vec[i],
                 project,
+                model_vec[i].to_string(),
+                serial_vec[i],
             ])?;
             inserted += 1;
         }
@@ -471,6 +519,7 @@ pub fn try_all_formats(
         vec![ParserType::Oulanka(OulankaManualFormat), ParserType::Default(DefaultFormat)];
 
     for parser in parsers {
+        println!("Trying parser: {}", parser.name());
         match parser.parse(path, project) {
             Ok(data) => return Ok((data, parser.name())),
             Err(e) => {

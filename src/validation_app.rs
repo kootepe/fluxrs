@@ -3186,6 +3186,9 @@ pub fn upload_cycle_data_async(
                     all_times.open_offset.extend(res.open_offset);
                     all_times.end_offset.extend(res.end_offset);
                     all_times.snow_depth.extend(res.snow_depth);
+                    all_times.instrument_model.extend(res.instrument_model);
+                    all_times.instrument_serial.extend(res.instrument_serial);
+                    all_times.project.extend(res.project);
 
                     let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
                         path.to_string_lossy().to_string(),
