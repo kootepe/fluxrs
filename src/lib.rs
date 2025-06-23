@@ -295,33 +295,6 @@ pub fn initiate_db() -> Result<(), Box<dyn std::error::Error>> {
 // ) -> Result<Vec<Cycle>, Box<dyn Error>> {
 //     Ok(Vec::from())
 // }
-fn query_cycles_within_timerange(
-    conn: &Connection,
-    start_time: DateTime<Utc>,
-    end_time: DateTime<Utc>,
-) -> Result<Vec<Cycle>, rusqlite::Error> {
-    // pub fn _to_html_row(&self) -> Result<String, Box<dyn Error>> {
-    let start_timestamp = start_time.timestamp(); // Convert to i64 (UNIX time)
-    let end_timestamp = end_time.timestamp();
-
-    let mut stmt = conn.prepare(
-        "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, site
-         FROM cycles
-         WHERE start_time BETWEEN ?1 AND ?2",
-    )?;
-
-    let cycle_iter = stmt.query_map(params![start_timestamp, end_timestamp], |row| {
-        CycleBuilder::new()
-            .chamber_id(row.get(0)?) // chamber_id as String
-            .start_time(DateTime::from_timestamp(row.get(1)?, 0).unwrap()) // start_time as i64 (UNIX timestamp)
-            .close_offset(row.get(2)?) // close_offset as i32
-            .open_offset(row.get(3)?) // open_offset as i32
-            .end_offset(row.get(4)?) // end_offset as i32
-            .build_db()
-    })?;
-
-    cycle_iter.collect::<Result<Vec<_>, _>>()
-}
 
 pub fn exit_with_help() {
     let help = String::from(
