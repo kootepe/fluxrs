@@ -108,15 +108,17 @@ pub struct Cycle {
 
 impl fmt::Debug for Cycle {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        // let len: usize = self.measurement_dt_v.len();
-        write!(
-            f,
-            // "Cycle id: {}, \nlag: {}, \nstart: {}, \nmeas_s: {}, \nmeas_e: {}",
-            "start: {}",
-            self.start_time,
-        )
+        writeln!(f, "Cycle start: {}", self.start_time)?;
+        writeln!(f, "Fluxes:")?;
+
+        for ((gas_key, flux_kind), flux_record) in &self.fluxes {
+            writeln!(f, "  ({}, {}): {}", gas_key, flux_kind, flux_record.model)?;
+        }
+
+        Ok(())
     }
 }
+
 impl Cycle {
     // pub fn _to_html_row(&self) -> Result<String, Box<dyn Error>> {
     //     let _plot_path = gas_plot::draw_gas_plot(self)?; // Call your plot function and get the path
