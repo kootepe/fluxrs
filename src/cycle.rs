@@ -38,7 +38,7 @@ type InstrumentSerial = String;
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 struct CycleKey {
     start_time: i64,
-    instrument_serial: String,
+    instrument_serial: InstrumentSerial,
     project_id: String,
     chamber_id: String,
 }
@@ -506,7 +506,7 @@ impl Cycle {
     }
     fn adjust_calc_range_all_deadband(&mut self) {
         for key in self.gases.iter().clone() {
-            let mut deadband = self.get_deadband(&key);
+            let mut deadband = self.get_deadband(key);
             let range_min = self.get_adjusted_close() + deadband;
             let range_max = self.get_adjusted_open();
             let min_range = self.min_calc_len;
@@ -564,8 +564,8 @@ impl Cycle {
             let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
             let range_max = self.get_adjusted_open();
             let min_range = self.min_calc_len;
-            let mut start = *self.calc_range_start.get(&key).unwrap_or(&range_min);
-            let mut end = *self.calc_range_end.get(&key).unwrap_or(&range_max);
+            let mut start = *self.calc_range_start.get(key).unwrap_or(&range_min);
+            let mut end = *self.calc_range_end.get(key).unwrap_or(&range_max);
 
             let available_range = range_max - range_min;
             // Clamp to bounds
@@ -619,10 +619,10 @@ impl Cycle {
         self.measurement_range_end = value;
     }
     pub fn get_calc_start(&self, key: &GasKey) -> f64 {
-        *self.calc_range_start.get(&key).unwrap_or(&0.0)
+        *self.calc_range_start.get(key).unwrap_or(&0.0)
     }
     pub fn get_calc_end(&self, key: &GasKey) -> f64 {
-        *self.calc_range_end.get(&key).unwrap_or(&0.0)
+        *self.calc_range_end.get(key).unwrap_or(&0.0)
     }
     pub fn get_calc_start_i(&self, key: &GasKey) -> usize {
         (self.get_calc_start(key) - self.get_start()) as usize
@@ -700,7 +700,7 @@ impl Cycle {
         key: &GasKey,
         target_time: i64, // Now an i64 timestamp
     ) -> Option<f64> {
-        if let Some(gas_v) = self.gas_v.get(&(key)) {
+        if let Some(gas_v) = self.gas_v.get(key) {
             let len = gas_v.len();
             if len < 120 {
                 println!("Less than 2minutes of data.");
@@ -858,7 +858,7 @@ impl Cycle {
         // Precompute timestamps as float
         // let dt_v: Vec<f64> = self.get_measurement_dt_v2(&key);
 
-        let (dt_v, gas_v) = self.get_measurement_data(&key);
+        let (dt_v, gas_v) = self.get_measurement_data(key);
         // Precompute timestamp gaps (difference > 1.0 sec)
         let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
 
@@ -877,8 +877,8 @@ impl Cycle {
         ) {
             let start_time = dt_v[start];
             let end_time = dt_v[end - 1];
-            self.set_calc_start(&key, start_time);
-            self.set_calc_end(&key, end_time);
+            self.set_calc_start(key, start_time);
+            self.set_calc_end(key, end_time);
         }
     }
 
@@ -915,7 +915,7 @@ impl Cycle {
                 }
 
                 find_best_window_for_gas_par(
-                    &dt_v,
+                    dt_v,
                     gas_v,
                     &gaps,
                     self.min_calc_len as usize,
@@ -946,7 +946,7 @@ impl Cycle {
             .gases
             .par_iter()
             .filter_map(|key| {
-                let (dt_vv, gas_v) = self.get_measurement_data(&key);
+                let (dt_vv, gas_v) = self.get_measurement_data(key);
                 // let gas_v = self.get_measurement_gas_v2(key);
                 // let dt_vv = self.get_measurement_dt_v2(key); // shared, safe
                 if gas_v.len() != dt_vv.len() || gas_v.len() < 5 {
@@ -964,7 +964,7 @@ impl Cycle {
     }
     pub fn calculate_measurement_rs(&mut self) {
         for key in &self.gases {
-            let (dt_vv, gas_v) = self.get_measurement_data(&key);
+            let (dt_vv, gas_v) = self.get_measurement_data(key);
             // let gas_v = self.get_measurement_gas_v2(key);
             // let dt_vv = self.get_measurement_dt_v2(key);
 
@@ -1122,9 +1122,9 @@ impl Cycle {
 
     pub fn get_calc_data(&mut self, key: &GasKey) {
         if let Some(gas_v) = self.gas_v.get(key) {
-            let s = (self.calc_range_start.get(&key).unwrap() - self.start_time.timestamp() as f64)
+            let s = (self.calc_range_start.get(key).unwrap() - self.start_time.timestamp() as f64)
                 as usize;
-            let e = (self.calc_range_end.get(&key).unwrap() - self.start_time.timestamp() as f64)
+            let e = (self.calc_range_end.get(key).unwrap() - self.start_time.timestamp() as f64)
                 as usize;
 
             // Clear previous results
@@ -2485,10 +2485,10 @@ pub fn load_cycles(
                 //     end_target as f64,
                 // );
 
-                println!("{}", day);
-                println!("dt: {}", dt_values.len());
-                println!("gv: {}", g_values.len());
-                println!("di: {}", diag_values.len());
+                // println!("{}", day);
+                // println!("dt: {}", dt_values.len());
+                // println!("gv: {}", g_values.len());
+                // println!("di: {}", diag_values.len());
                 let diag_slice: Vec<i64> =
                     matching_indices.iter().filter_map(|&i| diag_values.get(i).copied()).collect();
                 let gas_slice: Vec<Option<f64>> =
@@ -2967,14 +2967,14 @@ pub fn process_cycles(
             cycle.main_gas = project.main_gas.unwrap();
             cycle.main_instrument_serial = project.instrument_serial.clone();
             cycle.main_instrument_model = project.instrument;
-            for key in cycle.gas_v.keys() {
-                let new_key = GasKey::from((&key.gas_type, project.instrument_serial.as_str()));
-                if !cycle.gas_v.contains_key(&new_key) {
-                } else {
-                    println!("No data found for main instrument");
-                    continue;
-                }
-            }
+            // for key in cycle.gas_v.keys() {
+            //     let new_key = GasKey::from((&key.gas_type, project.instrument_serial.as_str()));
+            //     if !cycle.gas_v.contains_key(&new_key) {
+            //     } else {
+            //         println!("No data found for main instrument");
+            //         continue;
+            //     }
+            // }
             // if let Some(dt_v) = cycle.dt_v.get(cycle.main_instrument_serial.as_str()) {
             //     // println!("{:?}", dt_v);
             // } else {
