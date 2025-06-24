@@ -175,7 +175,7 @@ impl RobReg {
                 y.iter().zip(y_hat.iter()).map(|(&yi, &yhi)| yi - yhi).collect();
             let scale = mad(&residuals);
 
-            let weights: Vec<f64> = residuals.iter().map(|&r| psi_huber(r / scale, k)).collect();
+            let weights: Vec<f64> = residuals.iter().map(|&r| weight_huber(r / scale, k)).collect();
 
             let w_sum: f64 = weights.iter().sum();
             let xw_mean = x_norm.iter().zip(&weights).map(|(&xi, &w)| xi * w).sum::<f64>() / w_sum;
@@ -301,6 +301,14 @@ fn psi_huber(u: f64, k: f64) -> f64 {
     }
 }
 
+fn weight_huber(r: f64, k: f64) -> f64 {
+    let abs_r = r.abs();
+    if abs_r <= k {
+        1.0
+    } else {
+        k / abs_r
+    }
+}
 // Median Absolute Deviation (MAD)
 fn mad(residuals: &[f64]) -> f64 {
     let mut res = residuals.to_vec();
