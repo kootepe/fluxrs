@@ -297,11 +297,18 @@ fn mad(residuals: &[f64]) -> f64 {
     median(&res) / 0.6745
 }
 
-fn median(data: &[f64]) -> f64 {
-    let mut sorted = data.to_vec();
+pub fn median(data: &[f64]) -> f64 {
+    let mut sorted: Vec<f64> = data.iter().cloned().filter(|v| !v.is_nan()).collect();
+
+    let len = sorted.len();
+    if len == 0 {
+        return f64::NAN;
+    }
+
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let mid = sorted.len() / 2;
-    if sorted.len() % 2 == 0 {
+
+    let mid = len / 2;
+    if len % 2 == 0 {
         (sorted[mid - 1] + sorted[mid]) / 2.0
     } else {
         sorted[mid]
