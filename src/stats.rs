@@ -292,15 +292,6 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
     }
 }
 
-// Huber psi function: full weight for small residuals, downweight large ones
-fn psi_huber(u: f64, k: f64) -> f64 {
-    if u.abs() <= k {
-        1.0
-    } else {
-        k / u.abs()
-    }
-}
-
 fn weight_huber(r: f64, k: f64) -> f64 {
     let abs_r = r.abs();
     if abs_r <= k {
