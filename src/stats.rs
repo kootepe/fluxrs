@@ -308,7 +308,12 @@ fn mad(residuals: &[f64]) -> f64 {
     for r in res.iter_mut() {
         *r = (*r - med).abs();
     }
-    median(&res) / 0.6745
+    let mad = median(&res) / 0.6745;
+    if mad < 1e-12 {
+        1e-12
+    } else {
+        mad
+    }
 }
 
 pub fn median(data: &[f64]) -> f64 {
