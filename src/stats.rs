@@ -153,7 +153,21 @@ impl RobReg {
         let x_norm: Vec<f64> = x.iter().map(|xi| xi - x0).collect();
 
         // Initialize with OLS
-        let (mut slope, mut intercept) = Self::ols(&x_norm, y)?;
+        // let (mut slope, mut intercept) = Self::ols(&x_norm, y)?;
+        let mut slope = {
+            let mut slopes = vec![];
+            for i in 0..x_norm.len() {
+                for j in i + 1..x_norm.len() {
+                    let dx = x_norm[j] - x_norm[i];
+                    let dy = y[j] - y[i];
+                    if dx.abs() > 1e-12 {
+                        slopes.push(dy / dx);
+                    }
+                }
+            }
+            median(&slopes)
+        };
+        let mut intercept = median(y) - slope * median(&x_norm);
 
         for _ in 0..max_iter {
             let y_hat: Vec<f64> = x_norm.iter().map(|&xi| intercept + slope * xi).collect();
