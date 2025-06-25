@@ -335,7 +335,7 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            start_date: NaiveDate::from_ymd_opt(2022, 8, 14)
+            start_date: NaiveDate::from_ymd_opt(2024, 8, 1)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
@@ -445,7 +445,7 @@ impl ValidationApp {
                             if let Some(first_val) = cycle
                                 .dt_v
                                 .get(&self.selected_project.as_ref().unwrap().instrument_serial)
-                                .unwrap()
+                                .unwrap_or(&vec![])
                                 .first()
                             {
                                 ui.label(format!("{}", first_val.to_owned()));
@@ -457,7 +457,7 @@ impl ValidationApp {
                             if let Some(last_val) = cycle
                                 .dt_v
                                 .get(&self.selected_project.as_ref().unwrap().instrument_serial)
-                                .unwrap()
+                                .unwrap_or(&vec![])
                                 .last()
                             {
                                 ui.label(format!("{}", last_val.to_owned()));
