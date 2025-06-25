@@ -338,52 +338,52 @@ mod tests {
 
     #[test]
     fn test_pearson_length() {
-        let x = vec![1., 2., 3., 4., 5., 6.];
-        let y = vec![1., 2., 3., 4., 5.];
+        let x = [1., 2., 3., 4., 5., 6.];
+        let y = [1., 2., 3., 4., 5.];
 
         assert_eq!(pearson_correlation(&x, &y), None);
     }
     #[test]
     fn test_pearsons_empty() {
-        let x = vec![1., 2.];
-        let y = vec![];
+        let x = [1., 2.];
+        let y = [];
 
         assert_eq!(pearson_correlation(&x, &y), None);
     }
     #[test]
     fn test_pearsons_pos() {
-        let x = vec![1., 2., 3., 4., 5.];
-        let y = vec![1., 2., 3., 4., 5.];
+        let x = [1., 2., 3., 4., 5.];
+        let y = [1., 2., 3., 4., 5.];
 
         assert_eq!(pearson_correlation(&x, &y), Some(1.));
     }
     #[test]
     // needs to fail since absolute value is returned
     fn test_pearsons_neg() {
-        let x = vec![1., 2., 3., 4., 5.];
-        let y = vec![5., 4., 3., 2., 1.];
+        let x = [1., 2., 3., 4., 5.];
+        let y = [5., 4., 3., 2., 1.];
 
         assert_ne!(pearson_correlation(&x, &y), Some(-1.));
     }
     #[test]
     fn test_pearsons_short_x() {
-        let x = vec![1., 2., 3.];
-        let y = vec![5., 4., 3., 2., 1.];
+        let x = [1., 2., 3.];
+        let y = [5., 4., 3., 2., 1.];
 
         assert_eq!(pearson_correlation(&x, &y), None);
     }
     #[test]
     fn test_pearsons_short_y() {
-        let x = vec![5., 4., 3., 2., 1.];
-        let y = vec![1., 2., 3.];
+        let x = [5., 4., 3., 2., 1.];
+        let y = [1., 2., 3.];
 
         assert_eq!(pearson_correlation(&x, &y), None);
     }
 
     #[test]
     fn test_robust_reg_basic_fit() {
-        let x_raw = vec![0.0, 1.0, 2.0, 3.0];
-        let y = vec![1.0, 2.0, 3.0, 4.0]; // y = x + 1
+        let x_raw = [0.0, 1.0, 2.0, 3.0];
+        let y = [1.0, 2.0, 3.0, 4.0]; // y = x + 1
 
         let x0 = x_raw[0];
         let x: Vec<f64> = x_raw.iter().map(|xi| xi - x0).collect();
@@ -395,8 +395,8 @@ mod tests {
     }
     #[test]
     fn test_robust_reg_with_outlier() {
-        let x = vec![0.0, 1.0, 2.0, 3.0, 4.0];
-        let y = vec![1.0, 2.0, 3.0, 4.0, 100.0]; // strong outlier at end
+        let x = [0.0, 1.0, 2.0, 3.0, 4.0];
+        let y = [1.0, 2.0, 3.0, 4.0, 100.0]; // strong outlier at end
 
         let model = RobReg::train(&x, &y, 1.0, 10).unwrap();
 

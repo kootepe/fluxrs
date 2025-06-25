@@ -287,63 +287,6 @@ impl LinearFlux {
             range_end: end,
         })
     }
-    // pub fn from_data(
-    //     fit_id: &str,
-    //     gas_type: GasType,
-    //     x: &[f64],
-    //     y: &[f64],
-    //     start: f64,
-    //     end: f64,
-    //     air_temperature: f64,
-    //     air_pressure: f64,
-    //     volume: f64,
-    // ) -> Option<Self> {
-    //     if x.len() != y.len() || x.len() < 3 {
-    //         return None;
-    //     }
-    //
-    //     let n = x.len() as f64;
-    //     let model = LinReg::train(x, y);
-    //
-    //     // Compute predictions and residuals
-    //     let y_hat: Vec<f64> = x.iter().map(|&xi| model.calculate(xi)).collect();
-    //     let residuals: Vec<f64> = y.iter().zip(&y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
-    //     let rss: f64 = residuals.iter().map(|r| r.powi(2)).sum();
-    //     // Standard error of regression (sigma)
-    //     let sigma = (rss / (n - 2.0)).sqrt();
-    //     let rmse_val = rmse(&y, &y_hat).unwrap_or(0.0);
-    //
-    //     // Standard error of the slope
-    //     let x_mean = x.iter().copied().sum::<f64>() / n;
-    //     let ss_xx: f64 = x.iter().map(|xi| (xi - x_mean).powi(2)).sum();
-    //     let se_slope = sigma / ss_xx.sqrt();
-    //
-    //     // t-statistic and p-value
-    //     let t_stat = model.slope / se_slope;
-    //     let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
-    //     let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
-    //
-    //     let aic = aic_from_rss(rss, n as usize, 2);
-    //
-    //     let r2 = pearson_correlation(x, y).unwrap_or(0.0).powi(2);
-    //     let adjusted_r2 = adjusted_r2(r2, n as usize, 1);
-    //     let flux = calculate_flux(gas_type, model.slope, air_temperature, air_pressure, volume);
-    //
-    //     Some(Self {
-    //         fit_id: fit_id.to_string(),
-    //         gas_type,
-    //         flux,
-    //         adjusted_r2,
-    //         r2,
-    //         model,
-    //         p_value,
-    //         sigma,
-    //         aic,
-    //         rmse: rmse_val,
-    //         range_start: start,
-    //         range_end: end,
-    //     })
-    // }
     pub fn from_values(
         fit_id: &str,
         gas_type: GasType,
