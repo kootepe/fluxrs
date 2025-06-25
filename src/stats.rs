@@ -153,21 +153,7 @@ impl RobReg {
         let x_norm: Vec<f64> = x.iter().map(|xi| xi - x0).collect();
 
         // Initialize with OLS
-        // let (mut slope, mut intercept) = Self::ols(&x_norm, y)?;
-        let mut slope = {
-            let mut slopes = vec![];
-            for i in 0..x_norm.len() {
-                for j in i + 1..x_norm.len() {
-                    let dx = x_norm[j] - x_norm[i];
-                    let dy = y[j] - y[i];
-                    if dx.abs() > 1e-12 {
-                        slopes.push(dy / dx);
-                    }
-                }
-            }
-            median(&slopes)
-        };
-        let mut intercept = median(y) - slope * median(&x_norm);
+        let (mut slope, mut intercept) = Self::trimmed_ols(&x_norm, y, 0.1)?;
 
         for _ in 0..max_iter {
             let y_hat: Vec<f64> = x_norm.iter().map(|&xi| intercept + slope * xi).collect();
@@ -205,6 +191,62 @@ impl RobReg {
         Some(Self { intercept, slope })
     }
 
+    fn trimmed_ols(x: &[f64], y: &[f64], trim_frac: f64) -> Option<(f64, f64)> {
+        if x.len() != y.len() || x.len() < 3 {
+            return None;
+        }
+
+        // Initial OLS fit
+        let n = x.len();
+        let x_mean = x.iter().sum::<f64>() / n as f64;
+        let y_mean = y.iter().sum::<f64>() / n as f64;
+
+        let sxx = x.iter().map(|xi| (xi - x_mean).powi(2)).sum::<f64>();
+        let sxy = x.iter().zip(y).map(|(xi, yi)| (xi - x_mean) * (yi - y_mean)).sum::<f64>();
+
+        if sxx.abs() < 1e-12 {
+            return None;
+        }
+
+        let slope = sxy / sxx;
+        let intercept = y_mean - slope * x_mean;
+
+        // Compute residuals
+        let mut data: Vec<(f64, f64, f64)> = x
+            .iter()
+            .zip(y)
+            .map(|(&xi, &yi)| {
+                let y_hat = intercept + slope * xi;
+                let resid = (yi - y_hat).abs();
+                (xi, yi, resid)
+            })
+            .collect();
+
+        // Sort by residuals and trim
+        data.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+        let trim_n = ((n as f64) * trim_frac).floor() as usize;
+        let trimmed = &data[trim_n..n - trim_n];
+
+        // Recompute OLS on trimmed data
+        let x_vals: Vec<f64> = trimmed.iter().map(|t| t.0).collect();
+        let y_vals: Vec<f64> = trimmed.iter().map(|t| t.1).collect();
+
+        let x_mean = x_vals.iter().sum::<f64>() / x_vals.len() as f64;
+        let y_mean = y_vals.iter().sum::<f64>() / y_vals.len() as f64;
+
+        let sxx = x_vals.iter().map(|xi| (xi - x_mean).powi(2)).sum::<f64>();
+        let sxy = x_vals
+            .iter()
+            .zip(y_vals.iter())
+            .map(|(xi, yi)| (xi - x_mean) * (yi - y_mean))
+            .sum::<f64>();
+
+        if sxx.abs() < 1e-12 {
+            return None;
+        }
+
+        Some((sxy / sxx, y_mean - (sxy / sxx) * x_mean))
+    }
     fn ols(x: &[f64], y: &[f64]) -> Option<(f64, f64)> {
         let n = x.len();
         let x_mean = x.iter().sum::<f64>() / n as f64;
@@ -395,14 +437,23 @@ mod tests {
     }
     #[test]
     fn test_robust_reg_with_outlier() {
-        let x = [0.0, 1.0, 2.0, 3.0, 4.0];
-        let y = [1.0, 2.0, 3.0, 4.0, 100.0]; // strong outlier at end
+        let mut x = vec![];
+        let mut y = vec![];
 
-        let model = RobReg::train(&x, &y, 1.0, 10).unwrap();
+        // Linear trend with noise
+        for i in 0..50 {
+            x.push(i as f64);
+            y.push(i as f64 + rand::random::<f64>() * 0.5 - 0.25);
+        }
 
-        // Robust regression should still produce a reasonable slope
+        // Add an outlier
+        x.push(100.0);
+        y.push(1000.0); // big deviation
+
+        let model = RobReg::train(&x, &y, 0.1, 10).unwrap();
+
         dbg!(model.slope, model.intercept);
-        assert!((model.slope - 1.0).abs() < 0.5);
-        assert!(model.intercept < 10.0);
+        assert!((model.slope - 1.0).abs() < 0.1);
+        assert!(model.intercept.abs() < 1.0);
     }
 }
