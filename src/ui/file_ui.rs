@@ -1,9 +1,10 @@
 use crate::instruments::InstrumentType;
 use crate::mpsc;
+use crate::validation_app::upload_chamber_metadata_async;
 use crate::validation_app::upload_cycle_data_async;
 use crate::validation_app::upload_gas_data_async;
+use crate::validation_app::upload_height_data_async;
 use crate::validation_app::upload_meteo_data_async;
-use crate::validation_app::upload_volume_data_async;
 use crate::validation_app::{DataType, ValidationApp};
 use crate::Connection;
 use crate::ProcessEvent;
@@ -59,9 +60,13 @@ impl ValidationApp {
                     self.selected_data_type = Some(DataType::Meteo);
                     self.open_file_dialog("Select Meteo Files");
                 }
-                if ui.button("Select Volume Files").clicked() {
-                    self.selected_data_type = Some(DataType::Volume);
-                    self.open_file_dialog("Select Volume Files");
+                if ui.button("Select Height Files").clicked() {
+                    self.selected_data_type = Some(DataType::Height);
+                    self.open_file_dialog("Select Height Files");
+                }
+                if ui.button("Select Chamber Metadata File").clicked() {
+                    self.selected_data_type = Some(DataType::Chamber);
+                    self.open_file_dialog("Select Chamber Metadata File");
                 }
             })
             .response
@@ -159,7 +164,13 @@ impl ValidationApp {
                                     &project_clone,
                                     progress_sender,
                                 ),
-                                DataType::Volume => upload_volume_data_async(
+                                DataType::Height => upload_height_data_async(
+                                    path_list,
+                                    &mut conn,
+                                    &project_clone,
+                                    progress_sender,
+                                ),
+                                DataType::Chamber => upload_chamber_metadata_async(
                                     path_list,
                                     &mut conn,
                                     &project_clone,

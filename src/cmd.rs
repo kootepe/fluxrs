@@ -1,16 +1,19 @@
-use crate::gasdata::query_gas_async;
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
-use crate::meteodata::query_meteo_async;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::project_app::Project;
-use crate::timedata::query_cycles_async;
 use crate::validation_app::{run_processing_dynamic, Mode};
 use crate::validation_app::{
-    upload_cycle_data_async, upload_gas_data_async, upload_meteo_data_async,
-    upload_volume_data_async, DataType,
+    upload_cycle_data_async, upload_gas_data_async, upload_height_data_async,
+    upload_meteo_data_async, DataType,
 };
-use crate::volumedata::query_volume_async;
+
+use crate::chamber::query_chamber_async;
+use crate::gasdata::query_gas_async;
+use crate::heightdata::query_height_async;
+use crate::meteodata::query_meteo_async;
+use crate::timedata::query_cycles_async;
+
 use chrono::TimeZone;
 use chrono::{DateTime, NaiveDate, Utc};
 use glob::glob;
@@ -217,11 +220,11 @@ impl Config {
                     paths = args.next();
                     file_type = Some(DataType::Gas);
                 },
-                // volume data path
-                // -v for volume
+                // height data path
+                // -v for height
                 "-v" => {
                     paths = args.next();
-                    file_type = Some(DataType::Volume);
+                    file_type = Some(DataType::Height);
                 },
                 //  meteo data path
                 // -m for meteo
@@ -345,9 +348,16 @@ impl Config {
                                 println!("No files found with {}", self.paths.as_ref().unwrap(),)
                             }
                         },
-                        DataType::Volume => {
+                        DataType::Height => {
                             if !files.is_empty() {
-                                upload_volume_data_async(files, &mut conn, &project, sender_clone);
+                                upload_height_data_async(files, &mut conn, &project, sender_clone);
+                            } else {
+                                println!("No files found with {}", self.paths.as_ref().unwrap(),)
+                            }
+                        },
+                        DataType::Chamber => {
+                            if !files.is_empty() {
+                                upload_height_data_async(files, &mut conn, &project, sender_clone);
                             } else {
                                 println!("No files found with {}", self.paths.as_ref().unwrap(),)
                             }
@@ -371,6 +381,7 @@ impl Config {
                     let end_date = self.end.unwrap_or(Utc::now());
                     if start_date > end_date {
                         eprintln!("Start time can't be after end time.");
+                        process::exit(1)
                     }
                     println!("Initiating from {} to {}", start_date, end_date);
 
@@ -406,7 +417,7 @@ impl Config {
                         let meteo_result =
                             query_meteo_async(arc_conn.clone(), start_date, end_date, proj.clone())
                                 .await;
-                        let volume_result = query_volume_async(
+                        let height_result = query_height_async(
                             arc_conn.clone(),
                             start_date,
                             end_date,
@@ -414,8 +425,22 @@ impl Config {
                         )
                         .await;
 
-                        match (cycles_result, gas_result, meteo_result, volume_result) {
-                            (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
+                        let chamber_result =
+                            query_chamber_async(arc_conn.clone(), proj.clone()).await;
+                        match (
+                            cycles_result,
+                            gas_result,
+                            meteo_result,
+                            height_result,
+                            chamber_result,
+                        ) {
+                            (
+                                Ok(times),
+                                Ok(gas_data),
+                                Ok(meteo_data),
+                                Ok(height_data),
+                                Ok(chamber_data),
+                            ) => {
                                 let _ = progress_sender
                                     .send(ProcessEvent::Query(QueryEvent::QueryComplete));
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
@@ -423,7 +448,8 @@ impl Config {
                                         times,
                                         gas_data,
                                         meteo_data,
-                                        volume_data,
+                                        height_data,
+                                        chamber_data,
                                         proj.clone(),
                                         arc_conn.clone(),
                                         progress_sender,
@@ -633,7 +659,7 @@ General Options:
 File Upload:
   -t <PATH>                    Upload cycle data from path
   -g <PATH>                    Upload gas data from path
-  -v <PATH>                    Upload volume data from path
+  -h <PATH>                    Upload height data from path
   -m <PATH>                    Upload meteo data from path
 
 Project Creation:

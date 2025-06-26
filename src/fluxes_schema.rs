@@ -82,6 +82,7 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "air_pressure",
     "air_temperature",
     "chamber_height",
+    "snow_depth_m",
     "error_code",
     "measurement_is_valid",
     "gas_is_valid",
@@ -152,6 +153,7 @@ pub fn make_insert_fluxes() -> String {
         placeholders.join(", ")
     )
 }
+
 pub fn make_insert_flux_history() -> String {
     // Total columns = archived_at + flux columns
     let mut columns = vec!["archived_at"];
@@ -233,6 +235,7 @@ pub fn create_flux_table() -> String {
             air_pressure FLOAT,
             air_temperature FLOAT,
             chamber_height FLOAT,
+            snow_depth_m FLOAT,
 
             error_code INTEGER,
             measurement_is_valid BOOL,
@@ -307,6 +310,7 @@ pub fn create_flux_history_table() -> String {
             air_pressure FLOAT,
             air_temperature FLOAT,
             chamber_height FLOAT,
+            snow_depth_m FLOAT,
 
             error_code INTEGER,
             measurement_is_valid BOOL,

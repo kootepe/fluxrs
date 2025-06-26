@@ -11,15 +11,20 @@ use crate::errorcode::ErrorCode;
 use crate::flux::FluxKind;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 
-use crate::gasdata::query_gas_async;
-use crate::gasdata::{insert_measurements, GasData};
+use crate::chamber::{
+    insert_chamber_metadata, query_chamber_async, read_chamber_metadata, ChamberShape,
+};
+use crate::gasdata::{insert_measurements, query_gas_async, GasData};
 use crate::meteodata::{insert_meteo_data, query_meteo_async, read_meteo_csv, MeteoData};
 use crate::timedata::{insert_cycles, query_cycles_async, try_all_formats, TimeData};
-use crate::volumedata::{
-    insert_volume_data, query_volume, query_volume_async, read_volume_csv, VolumeData,
-};
+// use crate::volumedata::{
+//     insert_volume_data, query_height, query_volume_async, read_volume_csv, HeightData,
+// };
 
 use crate::gastype::GasType;
+use crate::heightdata::{
+    insert_height_data, query_height, query_height_async, read_height_csv, HeightData,
+};
 
 use crate::instruments::InstrumentConfig;
 use crate::instruments::InstrumentType;
@@ -56,7 +61,8 @@ pub enum DataType {
     Gas,
     Cycle,
     Meteo,
-    Volume,
+    Height,
+    Chamber,
 }
 impl fmt::Display for DataType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -64,7 +70,8 @@ impl fmt::Display for DataType {
             DataType::Gas => write!(f, "Gas Data"),
             DataType::Cycle => write!(f, "Cycle data"),
             DataType::Meteo => write!(f, "Meteo data"),
-            DataType::Volume => write!(f, "Volume data"),
+            DataType::Height => write!(f, "Height data"),
+            DataType::Chamber => write!(f, "Chamber metadat"),
         }
     }
 }
@@ -166,7 +173,7 @@ impl GasKey {
 }
 impl From<(&GasType, &str)> for GasKey {
     fn from(tuple: (&GasType, &str)) -> Self {
-        Self { gas_type: tuple.0.clone(), label: tuple.1.to_string() }
+        Self { gas_type: *tuple.0, label: tuple.1.to_string() }
     }
 }
 pub struct ValidationApp {
@@ -335,12 +342,12 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            start_date: NaiveDate::from_ymd_opt(2024, 8, 1)
+            start_date: NaiveDate::from_ymd_opt(2023, 10, 11)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_utc(),
-            end_date: NaiveDate::from_ymd_opt(2024, 8, 30)
+            end_date: NaiveDate::from_ymd_opt(2023, 10, 30)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
@@ -431,6 +438,9 @@ impl ValidationApp {
                             ui.end_row();
                             ui.label("Chamber:");
                             ui.label(cycle.chamber_id.to_string());
+                            ui.end_row();
+                            ui.label("Chamber dimensions:");
+                            ui.label(format!("{}", cycle.chamber));
                             ui.end_row();
                             ui.label("Start Time:");
                             ui.label(cycle.start_time.to_string());
@@ -2004,16 +2014,30 @@ impl ValidationApp {
                             project.clone(),
                         )
                         .await;
-                        let volume_result = query_volume_async(
+                        let height_result = query_height_async(
                             arc_conn.clone(),
                             start_date,
                             end_date,
                             project.clone(),
                         )
                         .await;
+                        let chamber_result =
+                            query_chamber_async(arc_conn.clone(), project.clone()).await;
 
-                        match (cycles_result, gas_result, meteo_result, volume_result) {
-                            (Ok(times), Ok(gas_data), Ok(meteo_data), Ok(volume_data)) => {
+                        match (
+                            cycles_result,
+                            gas_result,
+                            meteo_result,
+                            height_result,
+                            chamber_result,
+                        ) {
+                            (
+                                Ok(times),
+                                Ok(gas_data),
+                                Ok(meteo_data),
+                                Ok(height_data),
+                                Ok(chamber_data),
+                            ) => {
                                 let _ = progress_sender
                                     .send(ProcessEvent::Query(QueryEvent::QueryComplete));
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
@@ -2021,7 +2045,8 @@ impl ValidationApp {
                                         times,
                                         gas_data,
                                         meteo_data,
-                                        volume_data,
+                                        height_data,
+                                        chamber_data,
                                         project.clone(),
                                         arc_conn.clone(),
                                         progress_sender,
@@ -2773,7 +2798,7 @@ impl TableApp {
         if table_name == "meteo" {
             index = Some("datetime")
         }
-        if table_name == "volume" {
+        if table_name == "height" {
             index = Some("datetime")
         }
         let query = match index {
@@ -2898,7 +2923,8 @@ pub async fn run_processing_dynamic(
     times: TimeData,
     gas_data: HashMap<String, GasData>,
     meteo_data: MeteoData,
-    volume_data: VolumeData,
+    height_data: HeightData,
+    chamber_data: HashMap<String, ChamberShape>,
     project: Project,
     conn: Arc<Mutex<rusqlite::Connection>>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
@@ -2932,7 +2958,8 @@ pub async fn run_processing_dynamic(
             }
 
             let meteo = meteo_data.clone();
-            let volume = volume_data.clone();
+            let height = height_data.clone();
+            let chambers = chamber_data.clone();
             let project_clone = project.clone();
             let progress_sender = progress_sender.clone();
 
@@ -2941,7 +2968,8 @@ pub async fn run_processing_dynamic(
                     &chunk,
                     &chunk_gas_data,
                     &meteo,
-                    &volume,
+                    &height,
+                    &chambers,
                     project_clone,
                     progress_sender.clone(),
                 ) {
@@ -3078,8 +3106,8 @@ fn render_recalculate_ui(
     log_messages: &mut VecDeque<String>,
 ) {
     ui.vertical(|ui| {
-        ui.label("Compare the current chamber volume of all calculated fluxes and recalculate if a new one is found.");
-        ui.label("Only changes the fluxes and volume, no need to redo manual validation.");
+        ui.label("Compare the current chamber height of all calculated fluxes and recalculate if a new one is found.");
+        ui.label("Only changes the fluxes and height, no need to redo manual validation.");
 
         if ui.button("Recalculate.").clicked() {
 
@@ -3095,19 +3123,20 @@ fn render_recalculate_ui(
             let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
             match (
                 load_cycles(&conn, &project, start_date, end_date, progress_sender),
-                query_volume(&conn, start_date, end_date,project.name.clone()),
+                query_height(&conn, start_date, end_date, project.name.clone()),
             ) {
-                (Ok(mut cycles), Ok(volumes)) => {
-                    println!("{}", volumes.volume.len());
-                    if volumes.volume.is_empty() {
-                        log_messages.push_front("No volume data loaded.".to_owned());
+                (Ok(mut cycles), Ok(heights)) => {
+                    if heights.height.is_empty() {
+                        log_messages.push_front("No height data loaded.".to_owned());
                         return;
                     }
                     runtime.spawn_blocking(move || {
                         for c in &mut cycles {
-                            c.chamber_height = volumes
-                                .get_nearest_previous_volume(c.start_time.timestamp(), &c.chamber_id)
-                                .unwrap_or(1.0);
+                            let old_height = c.chamber.internal_height();
+                            // set new chamber height
+                            c.chamber.set_height(heights
+                                .get_nearest_previous_height(c.start_time.timestamp(), &c.chamber_id)
+                                .unwrap_or(old_height));
                             c.compute_all_fluxes();
                         }
 
@@ -3266,20 +3295,20 @@ pub fn upload_meteo_data_async(
         },
     }
 }
-pub fn upload_volume_data_async(
+pub fn upload_height_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    let mut volumes = VolumeData::default();
+    let mut heights = HeightData::default();
     for path in &selected_paths {
-        match read_volume_csv(path) {
-            //   Pass `path` directly
+        //   Pass `path` directly
+        match read_height_csv(path) {
             Ok(res) => {
-                volumes.datetime.extend(res.datetime);
-                volumes.chamber_id.extend(res.chamber_id);
-                volumes.volume.extend(res.volume);
+                heights.datetime.extend(res.datetime);
+                heights.chamber_id.extend(res.chamber_id);
+                heights.height.extend(res.height);
             },
             Err(e) => {
                 let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
@@ -3289,7 +3318,7 @@ pub fn upload_volume_data_async(
             },
         }
     }
-    match insert_volume_data(conn, &project.name, &volumes) {
+    match insert_height_data(conn, &project.name, &heights) {
         Ok(row_count) => {
             let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(row_count)));
         },
@@ -3300,6 +3329,30 @@ pub fn upload_volume_data_async(
     }
 }
 
+pub fn upload_chamber_metadata_async(
+    selected_paths: Vec<PathBuf>,
+    conn: &mut Connection,
+    project: &Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+) {
+    for path in &selected_paths {
+        match read_chamber_metadata(path) {
+            Ok(chambers) => match insert_chamber_metadata(conn, &chambers, &project.name) {
+                Ok(_) => {},
+                Err(e) => {
+                    let msg = format!("Failed to insert chamber data. Error: {}", e);
+                    let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
+                },
+            },
+            Err(e) => {
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                    path.to_string_lossy().to_string(),
+                    format!("Skipped, invalid data: {}", e),
+                )));
+            },
+        }
+    }
+}
 pub fn keybind_triggered(
     event: &egui::Event,
     keybinds: &KeyBindings,

@@ -24,6 +24,7 @@ mod gas_plot;
 pub mod gasdata;
 pub mod gastype;
 mod get_paths;
+pub mod heightdata;
 mod html_report;
 mod index;
 mod instruments;
@@ -38,7 +39,6 @@ pub mod timedata;
 pub mod traits;
 pub mod ui;
 mod validation_app;
-pub mod volumedata;
 
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,

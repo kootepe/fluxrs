@@ -8,15 +8,15 @@ use std::sync::{Arc, Mutex};
 use tokio::task;
 
 #[derive(Debug, Default, Clone)]
-pub struct VolumeData {
+pub struct HeightData {
     pub datetime: Vec<i64>,
     pub chamber_id: Vec<String>,
-    pub volume: Vec<f64>,
+    pub height: Vec<f64>,
 }
 
-impl VolumeData {
-    /// the the nearest volume to a given timestamp
-    pub fn get_nearest_previous_volume(
+impl HeightData {
+    /// the the nearest height to a given timestamp
+    pub fn get_nearest_previous_height(
         &self,
         target_datetime: i64,
         target_chamber_id: &str,
@@ -34,18 +34,18 @@ impl VolumeData {
             }
         }
 
-        nearest_index.map(|i| self.volume[i])
+        nearest_index.map(|i| self.height[i])
     }
 }
 
-pub fn insert_volume_data(
+pub fn insert_height_data(
     conn: &mut Connection,
     project_id: &str,
-    volume_data: &VolumeData,
+    height_data: &HeightData,
 ) -> Result<usize> {
     let mut inserted: usize = 0;
-    if volume_data.datetime.len() != volume_data.chamber_id.len()
-        || volume_data.datetime.len() != volume_data.volume.len()
+    if height_data.datetime.len() != height_data.chamber_id.len()
+        || height_data.datetime.len() != height_data.height.len()
     {
         return Err(rusqlite::Error::InvalidQuery); // Ensure all vectors have the same length
     }
@@ -53,18 +53,18 @@ pub fn insert_volume_data(
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO height (chamber_id, project_id, datetime, volume)
+            "INSERT INTO height (chamber_id, project_id, datetime, height)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(chamber_id, project_id, datetime)
-             DO UPDATE SET volume = excluded.volume",
+             DO UPDATE SET height = excluded.height",
         )?;
 
-        for i in 0..volume_data.datetime.len() {
+        for i in 0..height_data.datetime.len() {
             stmt.execute(params![
-                &volume_data.chamber_id[i],
+                &height_data.chamber_id[i],
                 project_id,
-                volume_data.datetime[i],
-                volume_data.volume[i]
+                height_data.datetime[i],
+                height_data.height[i]
             ])?;
             inserted += 1;
         }
@@ -73,7 +73,7 @@ pub fn insert_volume_data(
     Ok(inserted)
 }
 
-pub fn get_previous_volume(
+pub fn get_previous_height(
     conn: &Connection,
     project: String,
     chamber_id: String,
@@ -92,18 +92,18 @@ pub fn get_previous_volume(
     let result = stmt.query_row(params![&project, &chamber_id, time], |row| (row.get(0)));
 
     match result {
-        Ok(volume) => Ok(volume),
+        Ok(height) => Ok(height),
         Err(_) => Ok(1.0), // Return defaults if no data is found
     }
 }
 
-pub fn query_volume(
+pub fn query_height(
     conn: &Connection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     project: String,
-) -> Result<VolumeData> {
-    println!("Querying volume data");
+) -> Result<HeightData> {
+    println!("Querying height data");
     // let mut data = HashMap::new();
 
     let mut stmt = conn.prepare(
@@ -118,31 +118,31 @@ pub fn query_volume(
         params![start.timestamp() - (86400 * 365), end.timestamp() + (86400 * 365), project],
         |row| {
             let datetime_unix: i64 = row.get(0)?;
-            let volume: f64 = row.get(1)?;
+            let height: f64 = row.get(1)?;
             let chamber_id: String = row.get(2)?;
 
-            Ok((datetime_unix, volume, chamber_id))
+            Ok((datetime_unix, height, chamber_id))
         },
     )?;
 
-    let mut volumes = VolumeData::default();
+    let mut heights = HeightData::default();
     for row in rows {
-        let (time, volume, chamber_id) = row?;
-        volumes.datetime.push(time);
-        volumes.chamber_id.push(chamber_id);
-        volumes.volume.push(volume);
+        let (time, height, chamber_id) = row?;
+        heights.datetime.push(time);
+        heights.chamber_id.push(chamber_id);
+        heights.height.push(height);
     }
-    Ok(volumes)
+    Ok(heights)
 }
-pub async fn query_volume_async(
+pub async fn query_height_async(
     conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     project: Project,
-) -> Result<VolumeData> {
+) -> Result<HeightData> {
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_volume(&conn, start, end, project.name)
+        query_height(&conn, start, end, project.name)
     })
     .await;
     match result {
@@ -153,7 +153,7 @@ pub async fn query_volume_async(
         },
     }
 }
-pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<dyn Error>> {
+pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<dyn Error>> {
     let file = File::open(file_path)?;
 
     let mut rdr = csv::ReaderBuilder::new()
@@ -162,14 +162,14 @@ pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<d
 
     let mut datetime = Vec::new();
     let mut chamber_id = Vec::new();
-    let mut volume = Vec::new();
+    let mut height = Vec::new();
 
     for result in rdr.records() {
         let record = result?;
 
-        let datetime_str = &record[0]; // Read datetime column
-        let ch = &record[1]; // Read datetime column
-        let vol: f64 = record[2].parse()?; // Read air_pressure column
+        let ch = &record[1];
+        let datetime_str = &record[0];
+        let h: f64 = record[2].parse()?;
 
         // Convert datetime string to Unix timestamp
         let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
@@ -178,8 +178,8 @@ pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<d
         // Store values
         datetime.push(timestamp);
         chamber_id.push(ch.to_owned());
-        volume.push(vol);
+        height.push(h);
     }
 
-    Ok(VolumeData { datetime, chamber_id, volume })
+    Ok(HeightData { datetime, chamber_id, height })
 }

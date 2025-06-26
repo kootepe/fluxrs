@@ -14,10 +14,11 @@ use crate::stats::{self, LinReg, PolyReg, RobReg};
 use crate::validation_app::GasKey;
 use crate::validation_app::Mode;
 
+use crate::chamber::{query_chambers, ChamberShape};
 use crate::gasdata::GasData;
+use crate::heightdata::HeightData;
 use crate::meteodata::MeteoData;
 use crate::timedata::TimeData;
-use crate::volumedata::VolumeData;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::prelude::*;
@@ -51,11 +52,13 @@ pub struct Cycle {
     pub main_instrument_serial: String,
     pub instrument_model: InstrumentType,
     pub instrument_serial: String,
+    pub chamber: ChamberShape,
     pub project_name: String,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub air_temperature: f64,
     pub air_pressure: f64,
     pub chamber_height: f64,
+    pub snow_depth_m: f64,
     pub error_code: ErrorMask,
     pub is_valid: bool,
     pub gas_is_valid: HashMap<GasKey, bool>,
@@ -1398,7 +1401,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber_height,
+            self.chamber.adjusted_volume(self.snow_depth_m),
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1449,7 +1452,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber_height,
+            self.chamber.adjusted_volume(self.snow_depth_m),
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1487,7 +1490,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber_height,
+            self.chamber.adjusted_volume(self.snow_depth_m),
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1745,11 +1748,10 @@ impl CycleBuilder {
             main_instrument_serial: String::new(),
             instrument_model: InstrumentType::LI7810,
             instrument_serial: String::new(),
+            chamber: ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1. },
+            snow_depth_m: 0.,
             project_name: String::new(),
             min_calc_len: MIN_CALC_AREA_RANGE,
-            // close_time: start + chrono::Duration::seconds(close),
-            // open_time: start + chrono::Duration::seconds(open),
-            // end_time: start + chrono::Duration::seconds(end),
             close_offset: close,
             open_offset: open,
             end_offset: end,
@@ -1800,7 +1802,7 @@ impl CycleBuilder {
         let open = self.open_offset.ok_or("Open offset is required")?;
         let end = self.end_offset.ok_or("End offset is required")?;
         // FIX: snow_depth is unused
-        let snow_depth = self.snow_depth.ok_or("Snow depth is required")?;
+        let snow_depth_m = self.snow_depth.ok_or("Snow depth is required")?;
         let instrument_model = self.instrument_model.ok_or("Instrument model is requred")?;
         let instrument_serial = self.instrument_serial.ok_or("Instrument serial is required")?;
         let project = self.project.ok_or("Project is required")?;
@@ -1813,6 +1815,8 @@ impl CycleBuilder {
             main_instrument_serial: instrument_serial.clone(),
             instrument_model,
             instrument_serial,
+            chamber: ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1. },
+            snow_depth_m,
             min_calc_len,
             project_name: project,
             start_time: start,
@@ -2021,6 +2025,7 @@ fn execute_history_insert(
             cycle.air_pressure,
             cycle.air_temperature,
             cycle.chamber_height,
+            cycle.snow_depth_m,
             cycle.error_code.0,
             cycle.is_valid,
             lin_valid,
@@ -2102,8 +2107,6 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         if linear.is_none() && poly.is_none() && roblin.is_none() {
             eprintln!("Skipping gas {} {}: no models available", key, cycle.start_time);
             continue;
-        } else {
-            eprintln!("Pushed {} {}", key, cycle.start_time);
         }
 
         stmt.execute(params![
@@ -2127,6 +2130,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.air_pressure,
             cycle.air_temperature,
             cycle.chamber_height,
+            cycle.snow_depth_m,
             cycle.error_code.0,
             cycle.is_valid,
             lin_valid,
@@ -2224,6 +2228,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.air_pressure,
             cycle.air_temperature,
             cycle.chamber_height,
+            cycle.snow_depth_m,
             cycle.error_code.0,
             cycle.is_valid,
             lin_valid,
@@ -2294,6 +2299,7 @@ pub fn load_cycles(
     let start = start.timestamp();
     let end = end.timestamp();
     let gas_data = query_gas2(conn, start, end, project.name.to_owned())?;
+    let chamber_metadata = query_chambers(conn, project.name.to_owned())?;
     let mut stmt = conn.prepare(
         "SELECT * FROM fluxes
          WHERE project_id = ?1 AND start_time BETWEEN ?2 AND ?3
@@ -2315,6 +2321,8 @@ pub fn load_cycles(
         serials.insert(instrument_serial.clone());
         let project_id: String = row.get(*column_index.get("project_id").unwrap())?;
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
+
+        let chamber = chamber_metadata.get(&chamber_id).cloned().unwrap_or_default();
         let main_model_string: String =
             row.get(*column_index.get("main_instrument_model").unwrap())?;
         let main_instrument_serial: String =
@@ -2374,6 +2382,7 @@ pub fn load_cycles(
         let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
         let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
         let chamber_height: f64 = row.get(*column_index.get("chamber_height").unwrap())?;
+        let snow_depth_m: f64 = row.get(*column_index.get("snow_depth_m").unwrap())?;
 
         let end_time = start_time + TimeDelta::seconds(end_offset);
 
@@ -2431,11 +2440,13 @@ pub fn load_cycles(
                 main_instrument_serial,
                 instrument_model, // Set properly if stored
                 instrument_serial: instrument_serial.clone(),
+                chamber,
                 project_name,
                 start_time,
                 air_temperature,
                 air_pressure,
                 chamber_height,
+                snow_depth_m,
                 error_code,
                 is_valid,
                 gas_is_valid: HashMap::new(),
@@ -2874,7 +2885,8 @@ pub fn process_cycles(
     timev: &TimeData,
     sorted_data: &HashMap<String, GasData>,
     meteo_data: &MeteoData,
-    volume_data: &VolumeData,
+    height_data: &HeightData,
+    chamber_data: &HashMap<String, ChamberShape>,
     project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>> {
@@ -2937,11 +2949,20 @@ pub fn process_cycles(
                 // Insert timestamp vector
                 let dt_slice: Vec<f64> =
                     matching_indices.iter().map(|&i| datetimes[i].timestamp() as f64).collect();
+                // BUG: Sometimes data that isnt within start time and end time gets assigned to the
+                // cycle, problematic data 2024-08-12
+                // HACK: this is a hack, need to fix root cause
+                if cycle.start_time.timestamp() as f64 != *dt_slice.first().unwrap() {
+                    println!("{} {}", cycle.start_time.timestamp(), dt_slice.first().unwrap());
+                    continue;
+                }
+                println!("{}", dt_slice.len());
                 cycle.dt_v.insert(serial.clone(), dt_slice);
 
                 // Insert diag vector once (shared across instruments for now)
                 let diag_slice: Vec<i64> =
                     matching_indices.iter().filter_map(|&i| diags.get(i).copied()).collect();
+                println!("{}", diag_slice.len());
                 cycle.diag_v.insert(serial.clone(), diag_slice);
                 // if cycle.diag_v.is_empty() {
                 //     cycle.diag_v = matching_indices.iter().map(|&i| cur_data.diag[i]).collect();
@@ -2968,6 +2989,7 @@ pub fn process_cycles(
                             .iter()
                             .filter_map(|&i| gas_values.get(i).copied())
                             .collect();
+                        println!("{}", gas_slice.len());
                         cycle.gas_v.insert(key.clone(), gas_slice);
                     }
                 }
@@ -2981,11 +3003,13 @@ pub fn process_cycles(
             cycle.main_gas = project.main_gas.unwrap();
             cycle.main_instrument_serial = project.instrument_serial.clone();
             cycle.main_instrument_model = project.instrument;
+
             // for key in cycle.gas_v.keys() {
             //     let new_key = GasKey::from((&key.gas_type, project.instrument_serial.as_str()));
             //     if !cycle.gas_v.contains_key(&new_key) {
             //     } else {
             //         println!("No data found for main instrument");
+            //         println!("{}", &key);
             //         continue;
             //     }
             // }
@@ -2996,7 +3020,7 @@ pub fn process_cycles(
             //     continue;
             // }
             // if let Some(dt_v) = cycle.dt_v.get(cycle.instrument_serial.as_str()) {
-            //     // println!("{}", cycle.instrument_serial.as_str());
+            //     println!("{}", cycle.instrument_serial.as_str());
             //     // println!("{:?}", dt_v[0]);
             // } else {
             //     println!("No data found");
@@ -3009,9 +3033,10 @@ pub fn process_cycles(
             cycle.air_temperature = temp;
             cycle.air_pressure = pressure;
 
-            // Add volume data
+            // Add height data
             cycle.chamber_height =
-                volume_data.get_nearest_previous_volume(target, &cycle.chamber_id).unwrap_or(1.0);
+                height_data.get_nearest_previous_height(target, &cycle.chamber_id).unwrap_or(1.0);
+            cycle.chamber = chamber_data.get(chamber).cloned().unwrap_or_default();
 
             // Add deadbands
             for gas in &cycle.gases {
@@ -3019,6 +3044,7 @@ pub fn process_cycles(
             }
 
             // Initialize model
+            println!("Running init.");
             cycle.init(project.mode == Mode::BestPearsonsR, project.deadband);
 
             cycle_vec.push(Some(cycle));
