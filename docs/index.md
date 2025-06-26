@@ -10,6 +10,5 @@ implemented first.
 ## Notes
 - Only cylinder and box shaped chambers are supported (For now)
 
-[Creating a project](docs/create_project.md)
-[File formats](docs/file_formats.md)
-[File formats](docs/file_formats.md)
+- [Creating a project](create_project.md)
+- [File formats](file_formats.md)
