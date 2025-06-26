@@ -449,6 +449,21 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     // conn.execute("PRAGMA journal_mode = WAL;", [])?;
 
     conn.execute(
+        "CREATE TABLE chamber_metadata (
+            id INTEGER PRIMARY KEY,
+            chamber_id TEXT NOT NULL,
+            shape TEXT NOT NULL,
+            diameter REAL,
+            width REAL,
+            length REAL,
+            height REAL NOT NULL,
+            project_id TEXT NOT NULL,
+            UNIQUE(chamber_id, project_id)
+        );",
+        [],
+    )?;
+
+    conn.execute(
         "CREATE TABLE IF NOT EXISTS height (
             chamber_id TEXT,
             project_id TEXT,
