@@ -90,6 +90,8 @@ impl OulankaManualFormat {
         let mut date = NaiveDate::default();
         let mut instrument_serial = Vec::new();
         let mut instrument_model = Vec::new();
+        let mut insmodel = InstrumentType::default();
+        let mut insserial = String::new();
         let mut measurement_time: i64 = 0;
 
         let mut chamber_id: Vec<String> = Vec::new();
@@ -123,8 +125,8 @@ impl OulankaManualFormat {
         if let Some(result) = records.next() {
             let model = result?.get(1).unwrap_or("").to_string();
             if let Ok(parsed_model) = model.parse::<InstrumentType>() {
-                instrument_model.push(parsed_model)
-                // instrument_model = parsed_model.to_string();
+                // instrument_model.push(parsed_model)
+                insmodel = parsed_model
             } else {
                 return Err(format!("Couldn't parse {} as an instrument model", model).into());
             }
@@ -132,7 +134,8 @@ impl OulankaManualFormat {
 
         if let Some(result) = records.next() {
             let parsed_serial = result?.get(1).unwrap_or("").to_string();
-            instrument_serial.push(parsed_serial);
+            // instrument_serial.push(parsed_serial);
+            insserial = parsed_serial
         }
 
         // Skip header row before data
@@ -173,10 +176,10 @@ impl OulankaManualFormat {
 
             if let Some(snow_str) = record.get(2) {
                 match snow_str.parse::<f64>() {
-                    Ok(value) => snow_in_chamber.push(value),
+                    Ok(value) => snow_in_chamber.push(value / 100.),
                     Err(e) => {
                         snow_in_chamber.push(0.0);
-                        eprintln!("Failed to parse '{}' as f64 in row {}: {}", snow_str, i + 1, e);
+                        eprintln!("No snow_depth supplied, using 0.0");
                     },
                 }
             } else {
@@ -184,6 +187,8 @@ impl OulankaManualFormat {
                 eprintln!("Missing column 2 in row {}", i + 1);
             }
             chamber_id.push(record[0].to_owned());
+            instrument_model.push(insmodel);
+            instrument_serial.push(insserial.clone());
             close_offset.push(60);
             open_offset.push(measurement_time + 60);
             end_offset.push(measurement_time + 120);
@@ -458,6 +463,35 @@ pub fn insert_cycles(
     let model_vec = &cycles.instrument_model;
     let serial_vec = &cycles.instrument_serial;
     let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
+
+    if !(close_vec.len() == open_vec.len()
+        && open_vec.len() == end_vec.len()
+        && end_vec.len() == chamber_vec.len()
+        && chamber_vec.len() == snow_vec.len()
+        && snow_vec.len() == model_vec.len()
+        && model_vec.len() == serial_vec.len()
+        && serial_vec.len() == start_vec.len())
+    {
+        return Err(rusqlite::Error::FromSqlConversionFailure(
+            0,
+            rusqlite::types::Type::Text,
+            Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "Mismatched vector lengths:\n\
+            close: {}, open: {}, end: {}, chamber: {}, snow: {}, model: {}, serial: {}, start: {}",
+                    close_vec.len(),
+                    open_vec.len(),
+                    end_vec.len(),
+                    chamber_vec.len(),
+                    snow_vec.len(),
+                    model_vec.len(),
+                    serial_vec.len(),
+                    start_vec.len()
+                ),
+            )),
+        ));
+    }
 
     let tx = conn.transaction()?;
     let mut duplicates = 0;
