@@ -1,5 +1,6 @@
 title: Fluxrs
 description: Fluxrs manual.
+nav_enabled: true
 
 plugins:
   - jekyll-remote-theme

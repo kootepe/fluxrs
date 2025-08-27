@@ -1,4 +1,4 @@
-# Gas Analyzer data
+# File formats
 ## LI-7810
 - Works with the files directly downloaded from the analyzer.
 - Columns positions are read from the header so old formats should also work.
