@@ -1,5 +1,4 @@
 ---
-layout: default
 title: File formats
 ---
 # File formats
