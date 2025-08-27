@@ -1,3 +1,7 @@
+---
+layout: default
+title: Fluxrs
+---
 Fluxrs is an application for manually validating chamber flux measurements.
 
 Currently supported gas analyzers:

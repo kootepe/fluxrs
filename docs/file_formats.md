@@ -1,3 +1,7 @@
+---
+layout: default
+title: File formats
+---
 # File formats
 ## LI-7810
 - Works with the files directly downloaded from the analyzer.
