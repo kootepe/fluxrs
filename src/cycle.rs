@@ -5,7 +5,7 @@ use crate::fluxes_schema::{
     make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
     make_update_fluxes,
 };
-use crate::gasdata::{query_gas2, query_gas_all};
+use crate::data_formats::gasdata::{query_gas2, query_gas_all};
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
@@ -15,10 +15,10 @@ use crate::validation_app::GasKey;
 use crate::validation_app::Mode;
 
 use crate::chamber::{query_chambers, ChamberShape};
-use crate::gasdata::GasData;
-use crate::heightdata::HeightData;
-use crate::meteodata::MeteoData;
-use crate::timedata::TimeData;
+use crate::data_formats::meteodata::MeteoData;
+use crate::data_formats::gasdata::GasData;
+use crate::data_formats::heightdata::HeightData;
+use crate::data_formats::timedata::TimeData;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::prelude::*;

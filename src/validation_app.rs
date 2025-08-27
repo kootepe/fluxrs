@@ -14,15 +14,17 @@ use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::chamber::{
     insert_chamber_metadata, query_chamber_async, read_chamber_metadata, ChamberShape,
 };
-use crate::gasdata::{insert_measurements, query_gas_async, GasData};
-use crate::meteodata::{insert_meteo_data, query_meteo_async, read_meteo_csv, MeteoData};
-use crate::timedata::{insert_cycles, query_cycles_async, try_all_formats, TimeData};
-// use crate::volumedata::{
+use crate::data_formats::meteodata::{
+    insert_meteo_data, query_meteo_async, read_meteo_csv, MeteoData,
+};
+use crate::data_formats::gasdata::{insert_measurements, query_gas_async, GasData};
+use crate::data_formats::timedata::{insert_cycles, query_cycles_async, try_all_formats, TimeData};
+// use crate::data_formats::volumedata::{
 //     insert_volume_data, query_height, query_volume_async, read_volume_csv, HeightData,
 // };
 
 use crate::gastype::GasType;
-use crate::heightdata::{
+use crate::data_formats::heightdata::{
     insert_height_data, query_height, query_height_async, read_height_csv, HeightData,
 };
 

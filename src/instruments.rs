@@ -1,4 +1,4 @@
-use crate::gasdata::GasData;
+use crate::data_formats::gasdata::GasData;
 use crate::gastype::GasType;
 use crate::validation_app::GasKey;
 use chrono::offset::LocalResult;

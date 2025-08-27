@@ -9,10 +9,10 @@ use crate::validation_app::{
 };
 
 use crate::chamber::query_chamber_async;
-use crate::gasdata::query_gas_async;
-use crate::heightdata::query_height_async;
-use crate::meteodata::query_meteo_async;
-use crate::timedata::query_cycles_async;
+use crate::data_formats::meteodata::query_meteo_async;
+use crate::data_formats::gasdata::query_gas_async;
+use crate::data_formats::heightdata::query_height_async;
+use crate::data_formats::timedata::query_cycles_async;
 
 use chrono::TimeZone;
 use chrono::{DateTime, NaiveDate, Utc};
