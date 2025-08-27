@@ -2,3 +2,6 @@ theme: jekyll-theme-slate
 title: Fluxrs
 description: Fluxrs manual.
 
+plugins:
+  - jekyll-remote-theme
+
