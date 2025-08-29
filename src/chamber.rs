@@ -199,10 +199,10 @@ pub fn insert_chamber_metadata(
     for (chamber_id, shape) in chambers {
         let (shape_str, diameter, width, length, height) = match shape {
             ChamberShape::Cylinder { diameter_m, height_m } => {
-                ("cylinder", Some(*diameter_m), Some(0.), Some(0.), *height_m)
+                ("cylinder", *diameter_m, 0., 0., *height_m)
             },
             ChamberShape::Box { width_m, length_m, height_m } => {
-                ("box", None, Some(*width_m), Some(*length_m), *height_m)
+                ("box", 0., *width_m, *length_m, *height_m)
             },
         };
 
@@ -254,11 +254,10 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
 
         let chamber_id = record.get(0).ok_or("Missing chamber_id")?.to_string();
         let shape = record.get(1).ok_or("Missing shape")?.to_lowercase();
-
-        let diameter: f64 = record.get(2).unwrap_or("0").parse()?;
-        let width: f64 = record.get(3).unwrap_or("0").parse()?;
-        let length: f64 = record.get(4).unwrap_or("0").parse()?;
-        let height: f64 = record.get(5).unwrap_or("0").parse()?;
+        let diameter = parse_f64_field(&record, 2)?;
+        let width = parse_f64_field(&record, 3)?;
+        let length = parse_f64_field(&record, 4)?;
+        let height = parse_f64_field(&record, 5)?;
 
         let chamber = match shape.as_str() {
             "cylinder" => ChamberShape::Cylinder { diameter_m: diameter, height_m: height },
@@ -269,8 +268,13 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
             },
         };
 
+        println!("{}", chamber);
         chambers.insert(chamber_id, chamber);
     }
 
     Ok(chambers)
+}
+
+fn parse_f64_field(record: &csv::StringRecord, idx: usize) -> Result<f64, Box<dyn Error>> {
+    Ok(record.get(idx).filter(|s| !s.trim().is_empty()).unwrap_or("0").parse()?)
 }
