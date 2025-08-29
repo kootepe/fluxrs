@@ -3039,19 +3039,17 @@ pub fn process_cycles(
             cycle.chamber = chamber_data.get(chamber).cloned().unwrap_or_default();
 
             match maybe_height {
-                // if there's a measured height, replace the metadata height
                 Some(h) => {
-                    // override both
+                    // if there's a measured height, replace the metadata height
                     cycle.chamber_height = h;
                     match &mut cycle.chamber {
                         ChamberShape::Cylinder { height_m, .. } => *height_m = h,
                         ChamberShape::Box { height_m, .. } => *height_m = h,
                     }
                 },
-                // if there's no measured height, replace it with metadata height which defaults to
-                // 0
                 None => {
-                    // fall back to chamber's existing height
+                    // if there's no measured height, replace it with metadata height which defaults to
+                    // 1
                     cycle.chamber_height = match &cycle.chamber {
                         ChamberShape::Cylinder { height_m, .. } => *height_m,
                         ChamberShape::Box { height_m, .. } => *height_m,
