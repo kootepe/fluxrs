@@ -1,11 +1,11 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
+use crate::data_formats::gasdata::{query_gas2, query_gas_all};
 use crate::errorcode::{ErrorCode, ErrorMask};
 use crate::flux::{FluxKind, FluxModel, FluxRecord, LinearFlux, PolyFlux, RobustFlux};
 use crate::fluxes_schema::{
     make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
     make_update_fluxes,
 };
-use crate::data_formats::gasdata::{query_gas2, query_gas_all};
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
@@ -15,9 +15,9 @@ use crate::validation_app::GasKey;
 use crate::validation_app::Mode;
 
 use crate::chamber::{query_chambers, ChamberShape};
-use crate::data_formats::meteodata::MeteoData;
 use crate::data_formats::gasdata::GasData;
 use crate::data_formats::heightdata::HeightData;
+use crate::data_formats::meteodata::MeteoData;
 use crate::data_formats::timedata::TimeData;
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -3034,10 +3034,30 @@ pub fn process_cycles(
             cycle.air_pressure = pressure;
 
             // Add height data
-            cycle.chamber_height =
-                height_data.get_nearest_previous_height(target, &cycle.chamber_id).unwrap_or(1.0);
+            let maybe_height = height_data.get_nearest_previous_height(target, &cycle.chamber_id);
+
             cycle.chamber = chamber_data.get(chamber).cloned().unwrap_or_default();
 
+            match maybe_height {
+                // if there's a measured height, replace the metadata height
+                Some(h) => {
+                    // override both
+                    cycle.chamber_height = h;
+                    match &mut cycle.chamber {
+                        ChamberShape::Cylinder { height_m, .. } => *height_m = h,
+                        ChamberShape::Box { height_m, .. } => *height_m = h,
+                    }
+                },
+                // if there's no measured height, replace it with metadata height which defaults to
+                // 0
+                None => {
+                    // fall back to chamber's existing height
+                    cycle.chamber_height = match &cycle.chamber {
+                        ChamberShape::Cylinder { height_m, .. } => *height_m,
+                        ChamberShape::Box { height_m, .. } => *height_m,
+                    };
+                },
+            }
             // Add deadbands
             for gas in &cycle.gases {
                 cycle.deadbands.insert(gas.clone(), project.deadband);
