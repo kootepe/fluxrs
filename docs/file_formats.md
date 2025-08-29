@@ -38,7 +38,7 @@ This is the format we use for collecting measurements manually in the field.
 
 ```
 date,YYMMDD
-measurement_time_in_secods,120
+measurement_time_in_seconds,120
 instrument_model,LI-7810
 instrument_serial,TG10-01420
 plot_id,start_time,snow_depth
@@ -50,6 +50,7 @@ plot_id,start_time,snow_depth
 
 - plot_id
   - Arbitrary id of the measurement plot
+  - plot_id needs to be possible to tie in with chamber height data
 - start_time
   - Time when chamber was placed down
 - snow_depth
@@ -71,7 +72,14 @@ YYYY-MM-DD HH:MM:SS,10,994
 
 # Chamber metadata
 Some info about your plots / chambers.
+For Box type chamber, the value isn't used, so you can either use a placeholder
+value or leave it empty
+For Cylinder type chamber, width and length aren't used so you can again either
+use a placeholder value or leave them empty.
+
 
 ```
-plot_id,shape,diameter,width,length
+plot_id,shape,diameter,height,width,length
+12,cylinder,24,12,
+13,box,,1,1,1
 ```
