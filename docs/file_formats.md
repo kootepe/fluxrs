@@ -52,12 +52,20 @@ plot_id,start_time,snow_depth
   - Arbitrary id of the measurement plot
   - plot_id needs to be possible to tie in with chamber height data
 - start_time
-  - Time when chamber was placed down
+  - Time when chamber was placed down as HHMM
 - snow_depth
   - Height of snow inside the chamber in centimeters (optional)
   - Snow depth will be set to 0 when if this column can't be parsed.
 
 # Chamber height data
+Use this for chambers which positions are static and have depths measured every
+now and then.
+
+```
+datetime,plot_id,height_m
+YYYY-MM-DD HH:MM:SS,12,0.78
+```
+
 # Meteo data
 - Simple format for air temperature and pressure data
 - Air temperature in C°
@@ -72,7 +80,8 @@ YYYY-MM-DD HH:MM:SS,10,994
 
 # Chamber metadata
 Some info about your plots / chambers.
-For Box type chamber, the value isn't used, so you can either use a placeholder
+diameter, height, width and length have to either be numeric or empty.
+For Box type chamber, diameter isn't used, so you can either use a placeholder
 value or leave it empty
 For Cylinder type chamber, width and length aren't used so you can again either
 use a placeholder value or leave them empty.
@@ -80,6 +89,6 @@ use a placeholder value or leave them empty.
 
 ```
 plot_id,shape,diameter,height,width,length
-12,cylinder,24,12,
 13,box,,1,1,1
+12,cylinder,24,12
 ```
