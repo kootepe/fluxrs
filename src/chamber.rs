@@ -117,13 +117,13 @@ impl fmt::Display for ChamberShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ChamberShape::Cylinder { diameter_m, height_m } => {
-                write!(f, "Cylinder: diameter = {:.2} m, height = {:.2} m", diameter_m, height_m)
+                write!(f, "Cylinder: height = {:.2} m, diameter = {:.2} m", height_m, diameter_m)
             },
             ChamberShape::Box { width_m, length_m, height_m } => {
                 write!(
                     f,
-                    "Box: width = {:.2} m, length = {:.2} m, height = {:.2} m",
-                    width_m, length_m, height_m
+                    "Box: height = {:.2} m, length = {:.2} m, width = {:.2} m",
+                    height_m, length_m, width_m
                 )
             },
         }
@@ -255,9 +255,9 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
         let chamber_id = record.get(0).ok_or("Missing chamber_id")?.to_string();
         let shape = record.get(1).ok_or("Missing shape")?.to_lowercase();
         let diameter = parse_f64_field(&record, 2)?;
-        let width = parse_f64_field(&record, 3)?;
-        let length = parse_f64_field(&record, 4)?;
-        let height = parse_f64_field(&record, 5)?;
+        let height = parse_f64_field(&record, 3)?;
+        let width = parse_f64_field(&record, 4)?;
+        let length = parse_f64_field(&record, 5)?;
 
         let chamber = match shape.as_str() {
             "cylinder" => ChamberShape::Cylinder { diameter_m: diameter, height_m: height },
