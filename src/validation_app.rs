@@ -32,7 +32,7 @@ use crate::instruments::InstrumentConfig;
 use crate::instruments::InstrumentType;
 use crate::keybinds::{Action, KeyBindings};
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
-use crate::project_app::Project;
+use crate::ui::project_ui::Project;
 use crate::Cycle;
 use crate::EqualLen;
 use std::str::FromStr;

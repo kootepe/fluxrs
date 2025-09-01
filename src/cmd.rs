@@ -1,7 +1,7 @@
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
-use crate::project_app::Project;
+use crate::ui::project_ui::Project;
 use crate::validation_app::{run_processing_dynamic, Mode};
 use crate::validation_app::{
     upload_cycle_data_async, upload_gas_data_async, upload_height_data_async,
@@ -9,9 +9,9 @@ use crate::validation_app::{
 };
 
 use crate::chamber::query_chamber_async;
-use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::gasdata::query_gas_async;
 use crate::data_formats::heightdata::query_height_async;
+use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 
 use chrono::TimeZone;

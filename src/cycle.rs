@@ -9,8 +9,8 @@ use crate::fluxes_schema::{
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
-use crate::project_app::Project;
 use crate::stats::{self, LinReg, PolyReg, RobReg};
+use crate::ui::project_ui::Project;
 use crate::validation_app::GasKey;
 use crate::validation_app::Mode;
 

@@ -1,5 +1,5 @@
 use crate::instruments::InstrumentType;
-use crate::project_app::Project;
+use crate::ui::project_ui::Project;
 use crate::EqualLen;
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;

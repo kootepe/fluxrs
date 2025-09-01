@@ -1,4 +1,4 @@
-use crate::project_app::Project;
+use crate::ui::project_ui::Project;
 use chrono::prelude::DateTime;
 use chrono::Utc;
 use rusqlite;

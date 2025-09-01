@@ -1,6 +1,6 @@
 use crate::constants::ERROR_INT;
 use crate::gastype::GasType;
-use crate::project_app::Project;
+use crate::ui::project_ui::Project;
 use crate::validation_app::GasKey;
 use crate::EqualLen;
 use chrono::prelude::DateTime;

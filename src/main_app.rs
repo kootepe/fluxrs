@@ -1,5 +1,5 @@
 use crate::keybinds::{Action, KeyBind, KeyBindings};
-use crate::project_app::{Project, ProjectApp};
+use crate::ui::project_ui::{Project, ProjectApp};
 use crate::validation_app::{TableApp, ValidationApp};
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
 

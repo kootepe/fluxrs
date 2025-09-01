@@ -1,6 +1,5 @@
 use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, QueryEvent};
-use crate::project_app::Project;
 use crate::traits::EqualLen;
 use csv::Writer;
 use cycle::Cycle;
@@ -9,6 +8,7 @@ use std::error::Error;
 use std::fs::File;
 use std::process;
 use tokio::sync::mpsc;
+use ui::project_ui::Project;
 
 pub mod app_plotting;
 pub mod chamber;
@@ -32,7 +32,6 @@ mod main_app;
 // pub mod meteodata;
 pub mod myapp;
 pub mod processevent;
-pub mod project_app;
 mod stats;
 pub mod traits;
 pub mod ui;

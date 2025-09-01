@@ -1,4 +1,4 @@
-use crate::project_app::Project;
+use crate::ui::project_ui::Project;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
