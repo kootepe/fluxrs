@@ -11,8 +11,8 @@ use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::stats::{self, LinReg, PolyReg, RobReg};
 use crate::ui::project_ui::Project;
-use crate::validation_app::GasKey;
-use crate::validation_app::Mode;
+use crate::ui::validation_ui::GasKey;
+use crate::ui::validation_ui::Mode;
 
 use crate::chamber::{query_chambers, ChamberShape};
 use crate::data_formats::gasdata::GasData;

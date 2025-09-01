@@ -1,5 +1,5 @@
 use crate::flux::FluxKind;
-use crate::validation_app::GasKey;
+use crate::ui::validation_ui::GasKey;
 
 use crate::errorcode::ErrorCode;
 use crate::Cycle;

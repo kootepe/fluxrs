@@ -1,6 +1,7 @@
 use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::ui::project_ui::{Project, ProjectApp};
-use crate::validation_app::{TableApp, ValidationApp};
+use crate::ui::table_ui::TableApp;
+use crate::ui::validation_ui::ValidationApp;
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
 
 pub enum AppEvent {

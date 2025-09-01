@@ -1,7 +1,3 @@
-use crate::app_plotting::{
-    init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
-    init_standardized_residuals_plot,
-};
 use crate::cycle::{
     insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
     update_fluxes,
@@ -10,6 +6,10 @@ use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::flux::FluxKind;
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
+use crate::ui::plotting_ui::{
+    init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
+    init_standardized_residuals_plot,
+};
 
 use crate::chamber::{
     insert_chamber_metadata, query_chamber_async, read_chamber_metadata, ChamberShape,
@@ -182,9 +182,9 @@ pub struct ValidationApp {
     pub runtime: tokio::runtime::Runtime,
     pub init_enabled: bool,
     pub init_in_progress: bool,
-    cycles_progress: usize,
-    cycles_state: Option<(usize, usize)>,
-    query_in_progress: bool,
+    pub cycles_progress: usize,
+    pub cycles_state: Option<(usize, usize)>,
+    pub query_in_progress: bool,
     pub load_result: LoadResult,
     pub progress_receiver: ProgReceiver,
     pub task_done_sender: Sender<()>,
@@ -1773,7 +1773,7 @@ impl ValidationApp {
         }
     }
 
-    fn date_picker(&mut self, ui: &mut egui::Ui) {
+    pub fn date_picker(&mut self, ui: &mut egui::Ui) {
         let mut picker_start = self.start_date.date_naive();
         let mut picker_end = self.end_date.date_naive();
         ui.horizontal(|ui| {
@@ -1859,237 +1859,6 @@ impl ValidationApp {
         }
 
         ui.heading("Plot selection");
-    }
-    pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
-        self.handle_progress_messages();
-        if self.task_done_receiver.try_recv().is_ok() {
-            self.init_in_progress = false;
-            self.init_enabled = true;
-
-            if let Ok(mut result_lock) = self.load_result.lock() {
-                if let Some(result) = result_lock.take() {
-                    match result {
-                        Ok(cycles) => {
-                            self.cycles = cycles;
-                            self.log_messages.push_front("Successfully loaded cycles.".to_string());
-                        },
-                        Err(e) => {
-                            eprintln!("Failed to load cycles: {:?}", e);
-                            self.log_messages.push_front(format!("Error: {}", e));
-                        },
-                    }
-                }
-            }
-            self.update_plots();
-        }
-        if self.selected_project.is_none() {
-            ui.label("Add or select a project in the Initiate project tab.");
-            return;
-        }
-
-        if self.init_in_progress || !self.init_enabled {
-            ui.add(egui::Spinner::new());
-            ui.label("Loading fluxes from db...");
-            // return; // optionally stop drawing the rest of the UI while loading
-        } else {
-            self.date_picker(ui);
-
-            if ui.button("Init from db").clicked() {
-                self.commit_all_dirty_cycles();
-                let sender = self.task_done_sender.clone();
-                let result_slot = self.load_result.clone();
-                let start_date = self.start_date;
-                let end_date = self.end_date;
-                let project = self.get_project().clone();
-                let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-                self.progress_receiver = Some(progress_receiver);
-
-                self.init_enabled = false;
-                self.init_in_progress = true;
-
-                self.runtime.spawn(async move {
-                    let result = match Connection::open("fluxrs.db") {
-                        Ok(conn) => {
-                            load_cycles(&conn, &project, start_date, end_date, progress_sender)
-                        },
-                        Err(e) => Err(e),
-                    };
-
-                    if let Ok(mut slot) = result_slot.lock() {
-                        *slot = Some(result);
-                    }
-
-                    let _ = sender.send(()); // Notify UI
-                });
-            }
-        }
-        self.log_display(ui);
-    }
-
-    pub fn init_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
-        // Check if background task has finished
-        if self.task_done_receiver.try_recv().is_ok() {
-            self.init_in_progress = false;
-            self.init_enabled = true;
-        }
-
-        // Show info if no project selected
-        if self.selected_project.is_none() {
-            ui.label("Add or select a project in the Initiate project tab.");
-            return;
-        }
-        self.handle_progress_messages();
-
-        // Show spinner if processing is ongoing
-        if self.init_in_progress || !self.init_enabled {
-            ui.add(egui::Spinner::new());
-            if self.query_in_progress {
-                ui.label("Querying data, this can take a while for large time ranges.");
-            } else if let Some((_, total)) = self.cycles_state {
-                // ui.label(format!("Processed {}/{} cycles...", self.cycles_progress, total));
-                let pb =
-                    egui::widgets::ProgressBar::new(self.cycles_progress as f32 / total as f32)
-                        .desired_width(200.)
-                        .corner_radius(1)
-                        .show_percentage()
-                        .text(format!("{}/{}", self.cycles_progress, total));
-                ui.add(pb);
-            } else {
-                ui.label("Processing cycles...");
-            }
-            self.log_display(ui);
-            return;
-        }
-
-        // Main UI layout
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                self.date_picker(ui);
-                // Date navigation buttons
-
-                // Trigger processing with selected date range
-                if ui
-                    .add_enabled(
-                        self.init_enabled && !self.init_in_progress,
-                        egui::Button::new("Use range"),
-                    )
-                    .clicked()
-                {
-                    self.commit_all_dirty_cycles();
-                    self.init_enabled = false;
-                    self.init_in_progress = true;
-                    self.query_in_progress = true;
-
-                    let start_date = self.start_date;
-                    let end_date = self.end_date;
-                    let project = self.get_project().clone();
-                    let instrument_serial = self.get_project().instrument_serial.clone();
-
-                    let conn = match Connection::open("fluxrs.db") {
-                        Ok(conn) => conn,
-                        Err(e) => {
-                            eprintln!("Failed to open database: {}", e);
-                            return;
-                        },
-                    };
-                    let arc_conn = Arc::new(Mutex::new(conn));
-                    let sender = self.task_done_sender.clone();
-                    let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-                    self.progress_receiver = Some(progress_receiver);
-
-                    self.runtime.spawn(async move {
-                        let cycles_result = query_cycles_async(
-                            arc_conn.clone(),
-                            start_date,
-                            end_date,
-                            project.clone(),
-                        )
-                        .await;
-                        let gas_result = query_gas_async(
-                            arc_conn.clone(),
-                            start_date,
-                            end_date,
-                            project.clone(),
-                        )
-                        .await;
-                        let meteo_result = query_meteo_async(
-                            arc_conn.clone(),
-                            start_date,
-                            end_date,
-                            project.clone(),
-                        )
-                        .await;
-                        let height_result = query_height_async(
-                            arc_conn.clone(),
-                            start_date,
-                            end_date,
-                            project.clone(),
-                        )
-                        .await;
-                        let chamber_result =
-                            query_chamber_async(arc_conn.clone(), project.clone()).await;
-
-                        match (
-                            cycles_result,
-                            gas_result,
-                            meteo_result,
-                            height_result,
-                            chamber_result,
-                        ) {
-                            (
-                                Ok(times),
-                                Ok(gas_data),
-                                Ok(meteo_data),
-                                Ok(height_data),
-                                Ok(chamber_data),
-                            ) => {
-                                let _ = progress_sender
-                                    .send(ProcessEvent::Query(QueryEvent::QueryComplete));
-                                if !times.start_time.is_empty() && !gas_data.is_empty() {
-                                    run_processing_dynamic(
-                                        times,
-                                        gas_data,
-                                        meteo_data,
-                                        height_data,
-                                        chamber_data,
-                                        project.clone(),
-                                        arc_conn.clone(),
-                                        progress_sender,
-                                    )
-                                    .await;
-                                    let _ = sender.send(());
-                                } else {
-                                    // let _ = progress_sender.send(ProcessEvent::Query(
-                                    //     QueryEvent::NoGasData("No data available".into()),
-                                    // ));
-                                    let _ = progress_sender.send(ProcessEvent::Done(Err(
-                                        "No data available.".to_owned(),
-                                    )));
-                                }
-                            },
-                            e => eprintln!("Failed to query database: {:?}", e),
-                        }
-                    });
-                }
-            });
-            if self.start_date > self.end_date {
-                self.log_messages.push_front("End date can't be before start date.".to_string());
-            }
-
-            ui.separator();
-            render_recalculate_ui(
-                ui,
-                &self.runtime,
-                self.start_date,
-                self.end_date,
-                self.get_project().clone(),
-                &mut self.log_messages,
-            );
-        });
-        // Handle messages from background processing
-
-        // Display log messages
-        self.log_display(ui);
     }
 
     pub fn handle_progress_messages(&mut self) {
@@ -2738,190 +2507,7 @@ pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine
 }
 
 // TableApp struct
-#[derive(Default)]
-pub struct TableApp {
-    table_names: Vec<String>,
-    selected_table: Option<String>,
-    column_names: Vec<String>,
-    data: Vec<Vec<String>>,
-    current_page: usize,
-}
 
-impl TableApp {
-    fn fetch_table_names(&mut self, conn: &Connection) {
-        let mut stmt = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
-            Ok(stmt) => stmt,
-            Err(err) => {
-                eprintln!("Error preparing statement: {}", err);
-                self.table_names.clear();
-                return;
-            },
-        };
-
-        let tables = stmt
-            .query_map([], |row| row.get::<_, String>(0))
-            .and_then(|rows| rows.collect::<Result<Vec<String>, _>>());
-
-        match tables {
-            Ok(names) => self.table_names = names,
-            Err(err) => {
-                eprintln!("Error fetching table names: {}", err);
-                self.table_names.clear();
-            },
-        }
-    }
-    fn fetch_table_data(&mut self, table_name: &str) {
-        self.column_names.clear();
-        self.data.clear();
-        self.current_page = 0; // Reset page when switching tables
-
-        let conn = Connection::open("fluxrs.db").expect("Failed to open database");
-
-        let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table_name)).unwrap();
-        self.column_names = stmt
-            .query_map([], |row| row.get::<_, String>(1))
-            .unwrap()
-            .collect::<Result<Vec<String>, _>>()
-            .unwrap_or_default();
-
-        let mut index = None;
-        if table_name == "project" {
-            index = None
-        }
-        if table_name == "fluxes" {
-            index = Some("start_time")
-        }
-        if table_name == "fluxes_history" {
-            index = Some("start_time")
-        }
-        if table_name == "cycles" {
-            index = Some("start_time")
-        }
-        if table_name == "measurements" {
-            index = Some("datetime")
-        }
-        if table_name == "meteo" {
-            index = Some("datetime")
-        }
-        if table_name == "height" {
-            index = Some("datetime")
-        }
-        let query = match index {
-            None => &format!("SELECT * FROM {}", table_name),
-            Some(val) => &format!("SELECT * FROM {} ORDER BY {}", table_name, val),
-        };
-        let mut stmt = conn.prepare(query).unwrap();
-        let column_count = stmt.column_count();
-
-        let rows = stmt.query_map([], |row: &Row| {
-            let mut values = Vec::new();
-            for i in 0..column_count {
-                let value = match row.get_ref(i) {
-                    Ok(ValueRef::Null) => "NULL".to_string(),
-                    Ok(ValueRef::Integer(i)) => i.to_string(),
-                    Ok(ValueRef::Real(f)) => f.to_string(),
-                    Ok(ValueRef::Text(s)) => String::from_utf8_lossy(s).to_string(),
-                    Ok(ValueRef::Blob(_)) => "[BLOB]".to_string(), // Handle BLOBs gracefully
-                    Err(_) => "[ERROR]".to_string(),               //   Handle row errors explicitly
-                };
-                values.push(value);
-            }
-            Ok(values)
-        });
-
-        self.data = rows.unwrap().filter_map(|res| res.ok()).collect(); //   Collect valid rows only
-    }
-    pub fn table_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
-        ui.heading("Database Table Viewer");
-        if self.table_names.is_empty() {
-            let conn = Connection::open("fluxrs.db").expect("Failed to open database");
-            self.fetch_table_names(&conn);
-        }
-        if self.selected_table == Some("measurements".to_owned()) {
-            ui.label("Viewing measurements is disabled for now, too much data.");
-            ui.label(
-                "Need to implement selecting a time range because of the massive amount of data.",
-            );
-        }
-        if !self.table_names.is_empty() {
-            egui::ComboBox::from_label("Select a table")
-                .selected_text(
-                    self.selected_table.clone().unwrap_or_else(|| "Choose a table".to_string()),
-                )
-                .show_ui(ui, |ui| {
-                    for table in &self.table_names.clone() {
-                        if ui
-                            .selectable_label(self.selected_table.as_deref() == Some(table), table)
-                            .clicked()
-                        {
-                            self.selected_table = Some(table.clone());
-                            if table == "measurements" {
-                                return;
-                            }
-                            self.fetch_table_data(table);
-                        }
-                    }
-                });
-        } else {
-            ui.label("No tables found in the database.");
-        }
-
-        ui.separator();
-
-        if let Some(_selected) = &self.selected_table {
-            // Determine which rows to display for pagination
-            let rows_per_page = 100;
-            let start_idx = self.current_page * rows_per_page;
-            let end_idx = (start_idx + rows_per_page).min(self.data.len());
-            ui.horizontal(|ui| {
-                // Previous Page Button
-                if self.current_page > 0 && ui.button("⬅ Previous").clicked() {
-                    self.current_page -= 1;
-                }
-
-                ui.label(format!(
-                    "Page {}/{}",
-                    self.current_page + 1,
-                    self.data.len().div_ceil(rows_per_page)
-                ));
-
-                // Next Page Button
-                if end_idx < self.data.len() && ui.button("Next ➡").clicked() {
-                    self.current_page += 1;
-                }
-            });
-            egui::ScrollArea::both().show(ui, |ui| {
-                egui::Grid::new("data_table").striped(true).show(ui, |ui| {
-                    for col in &self.column_names {
-                        ui.label(col); // show headers as-is
-                    }
-                    ui.end_row();
-                    for row in &self.data[start_idx..end_idx] {
-                        for (i, value) in row.iter().enumerate() {
-                            let col_name = &self.column_names[i];
-                            let display = if col_name == "datetime" || col_name == "start_time" {
-                                if let Ok(ts) = value.parse::<i64>() {
-                                    if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
-                                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
-                                    } else {
-                                        format!("Invalid timestamp: {}", ts)
-                                    }
-                                } else {
-                                    format!("Invalid value: {}", value)
-                                }
-                            } else {
-                                value.to_string()
-                            };
-
-                            ui.label(display);
-                        }
-                        ui.end_row();
-                    }
-                });
-            });
-        }
-    }
-}
 const MAX_CONCURRENT_TASKS: usize = 10;
 
 pub async fn run_processing_dynamic(
@@ -3102,7 +2688,7 @@ pub fn export_sqlite_to_csv(
     Ok(())
 }
 
-fn render_recalculate_ui(
+pub fn render_recalculate_ui(
     ui: &mut Ui,
     runtime: &tokio::runtime::Runtime,
     start_date: DateTime<Utc>,

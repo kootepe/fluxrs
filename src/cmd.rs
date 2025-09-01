@@ -2,8 +2,8 @@ use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::ui::project_ui::Project;
-use crate::validation_app::{run_processing_dynamic, Mode};
-use crate::validation_app::{
+use crate::ui::validation_ui::{run_processing_dynamic, Mode};
+use crate::ui::validation_ui::{
     upload_cycle_data_async, upload_gas_data_async, upload_height_data_async,
     upload_meteo_data_async, DataType,
 };

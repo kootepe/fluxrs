@@ -1,6 +1,6 @@
 use crate::data_formats::gasdata::GasData;
 use crate::gastype::GasType;
-use crate::validation_app::GasKey;
+use crate::ui::validation_ui::GasKey;
 use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};

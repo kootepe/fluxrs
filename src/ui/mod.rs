@@ -1,2 +1,9 @@
 pub mod file_ui;
+pub mod init_ui;
+pub mod load_ui;
+pub mod main_app;
+pub mod main_frame;
+pub mod plotting_ui;
 pub mod project_ui;
+pub mod table_ui;
+pub mod validation_ui;

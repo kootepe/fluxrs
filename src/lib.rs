@@ -10,7 +10,6 @@ use std::process;
 use tokio::sync::mpsc;
 use ui::project_ui::Project;
 
-pub mod app_plotting;
 pub mod chamber;
 pub mod cmd;
 mod config;
@@ -28,14 +27,11 @@ mod html_report;
 mod index;
 mod instruments;
 mod keybinds;
-mod main_app;
 // pub mod meteodata;
-pub mod myapp;
 pub mod processevent;
 mod stats;
 pub mod traits;
 pub mod ui;
-mod validation_app;
 
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,

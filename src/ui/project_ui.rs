@@ -1,7 +1,7 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::gastype::GasType;
-use crate::main_app::AppEvent;
-use crate::validation_app::Mode;
+use crate::ui::main_app::AppEvent;
+use crate::ui::validation_ui::Mode;
 use crate::InstrumentType;
 use std::fmt;
 use std::process;

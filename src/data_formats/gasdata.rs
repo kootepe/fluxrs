@@ -1,7 +1,7 @@
 use crate::constants::ERROR_INT;
 use crate::gastype::GasType;
 use crate::ui::project_ui::Project;
-use crate::validation_app::GasKey;
+use crate::ui::validation_ui::GasKey;
 use crate::EqualLen;
 use chrono::prelude::DateTime;
 use chrono::Utc;

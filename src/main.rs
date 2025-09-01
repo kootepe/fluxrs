@@ -5,7 +5,7 @@ use std::process;
 
 use fluxrs::cmd::Config;
 use fluxrs::fluxes_schema;
-use fluxrs::myapp;
+use fluxrs::ui::main_frame::MyApp;
 
 fn main() -> eframe::Result {
     if !Path::new("fluxrs.db").exists() {
@@ -43,6 +43,6 @@ fn main() -> eframe::Result {
         config.run();
     }
 
-    let app = myapp::MyApp::new();
+    let app = MyApp::new();
     eframe::run_native("fluxrs", Default::default(), Box::new(|_cc| Ok(Box::new(app))))
 }

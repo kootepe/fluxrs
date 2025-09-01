@@ -1,6 +1,6 @@
 use crate::keybinds::Action;
-use crate::main_app::MainApp;
-use crate::validation_app::keybind_triggered;
+use crate::ui::main_app::MainApp;
+use crate::ui::validation_ui::keybind_triggered;
 use egui::FontFamily;
 
 #[derive(Default)]

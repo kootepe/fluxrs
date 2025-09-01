@@ -1,11 +1,11 @@
 use crate::instruments::InstrumentType;
 use crate::mpsc;
-use crate::validation_app::upload_chamber_metadata_async;
-use crate::validation_app::upload_cycle_data_async;
-use crate::validation_app::upload_gas_data_async;
-use crate::validation_app::upload_height_data_async;
-use crate::validation_app::upload_meteo_data_async;
-use crate::validation_app::{DataType, ValidationApp};
+use crate::ui::validation_ui::upload_chamber_metadata_async;
+use crate::ui::validation_ui::upload_cycle_data_async;
+use crate::ui::validation_ui::upload_gas_data_async;
+use crate::ui::validation_ui::upload_height_data_async;
+use crate::ui::validation_ui::upload_meteo_data_async;
+use crate::ui::validation_ui::{DataType, ValidationApp};
 use crate::Connection;
 use crate::ProcessEvent;
 use crate::Project;
