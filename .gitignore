@@ -4,6 +4,8 @@
 *.DAT
 .jukit
 images/
+target-arm
+*.db*
 *.png
 *.html
 *.png

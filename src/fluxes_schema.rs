@@ -458,9 +458,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             chamber_id TEXT NOT NULL,
             shape TEXT NOT NULL,
             diameter REAL,
+            height REAL NOT NULL,
             width REAL,
             length REAL,
-            height REAL NOT NULL,
             project_id TEXT NOT NULL,
             UNIQUE(chamber_id, project_id)
         );",

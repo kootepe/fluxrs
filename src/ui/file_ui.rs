@@ -30,6 +30,7 @@ impl ValidationApp {
             ui.add(egui::Spinner::new());
             ui.label("Reading files.");
         }
+        let mut gas_btn_text = "Select Analyzer Files".to_owned();
         if let Some(project) = self.selected_project.as_mut() {
             let current_value = project.upload_from.unwrap_or(project.instrument); // fallback display value
 
@@ -43,14 +44,15 @@ impl ValidationApp {
                         }
                     }
                 });
+            gas_btn_text = format!("Select {} Files", &current_value);
         }
 
         let btns_disabled = self.init_enabled && !self.init_in_progress;
         ui.add_enabled(btns_disabled, |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
-                if ui.button("Select Gas Files").clicked() {
+                if ui.button(&gas_btn_text).clicked() {
                     self.selected_data_type = Some(DataType::Gas);
-                    self.open_file_dialog("Select Gas Files");
+                    self.open_file_dialog(&gas_btn_text);
                 }
                 if ui.button("Select Cycle Files").clicked() {
                     self.selected_data_type = Some(DataType::Cycle);
