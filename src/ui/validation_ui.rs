@@ -5,27 +5,18 @@ use crate::cycle::{
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::flux::FluxKind;
-use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
 
-use crate::chamber::{
-    insert_chamber_metadata, query_chamber_async, read_chamber_metadata, ChamberShape,
-};
-use crate::data_formats::gasdata::{insert_measurements, query_gas_async, GasData};
-use crate::data_formats::meteodata::{
-    insert_meteo_data, query_meteo_async, read_meteo_csv, MeteoData,
-};
-use crate::data_formats::timedata::{insert_cycles, query_cycles_async, try_all_formats, TimeData};
-// use crate::data_formats::volumedata::{
-//     insert_volume_data, query_height, query_volume_async, read_volume_csv, HeightData,
-// };
-
+use crate::chamber::{insert_chamber_metadata, read_chamber_metadata, ChamberShape};
+use crate::data_formats::gasdata::{insert_measurements, GasData};
 use crate::data_formats::heightdata::{
-    insert_height_data, query_height, query_height_async, read_height_csv, HeightData,
+    insert_height_data, query_height, read_height_csv, HeightData,
 };
+use crate::data_formats::meteodata::{insert_meteo_data, read_meteo_csv, MeteoData};
+use crate::data_formats::timedata::{insert_cycles, try_all_formats, TimeData};
 use crate::gastype::GasType;
 
 use crate::instruments::InstrumentConfig;
@@ -43,20 +34,27 @@ use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
-use csv::Writer;
-use rusqlite::{params, types::ValueRef, Connection, Result, Row};
+use rusqlite::{params, Connection, Result};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::env;
-use std::error::Error;
 use std::fmt;
-use std::fs::File;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 type InstrumentSerial = String;
+type GasDataSet = HashMap<String, Arc<GasData>>;
+type HeightDataSet = HeightData;
+type ChamberDataSet = HashMap<String, ChamberShape>;
+type MeteoDataSet = MeteoData;
+type TimeDataSet = TimeData;
+// times: TimeData,
+// gas_data:
+// meteo_data: MeteoData,
+// height_data: HeightData,
+// chamber_data: HashMap<String, ChamberShape>,
 
 #[derive(Clone, PartialEq)]
 pub enum DataType {
@@ -1102,7 +1100,7 @@ impl ValidationApp {
                             let response = flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1134,7 +1132,7 @@ impl ValidationApp {
                             let response = poly_flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1166,7 +1164,7 @@ impl ValidationApp {
                             let response = roblin_flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1198,7 +1196,7 @@ impl ValidationApp {
                             let response = lin_p_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1260,7 +1258,7 @@ impl ValidationApp {
                             let response = calc_r_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1318,7 +1316,7 @@ impl ValidationApp {
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1348,7 +1346,7 @@ impl ValidationApp {
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1378,7 +1376,7 @@ impl ValidationApp {
                             let response = lin_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1408,7 +1406,7 @@ impl ValidationApp {
                             let response = lin_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1438,7 +1436,7 @@ impl ValidationApp {
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1468,7 +1466,7 @@ impl ValidationApp {
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1498,7 +1496,7 @@ impl ValidationApp {
                             let response = poly_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1528,7 +1526,7 @@ impl ValidationApp {
                             let response = poly_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1558,7 +1556,7 @@ impl ValidationApp {
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1588,7 +1586,7 @@ impl ValidationApp {
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1618,7 +1616,7 @@ impl ValidationApp {
                             let response = roblin_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1648,7 +1646,7 @@ impl ValidationApp {
                             let response = roblin_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
-                                    &key,
+                                    key,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -2433,92 +2431,106 @@ pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine
 
 const MAX_CONCURRENT_TASKS: usize = 10;
 
-pub async fn run_processing_dynamic(
-    times: TimeData,
-    gas_data: HashMap<String, GasData>,
-    meteo_data: MeteoData,
-    height_data: HeightData,
-    chamber_data: HashMap<String, ChamberShape>,
+pub struct Datasets {
+    pub gas: Arc<GasDataSet>,
+    pub meteo: MeteoDataSet,
+    pub height: HeightDataSet,
+    pub chambers: ChamberDataSet,
+}
+pub struct Infra {
+    pub conn: Arc<Mutex<rusqlite::Connection>>,
+    pub progress: mpsc::UnboundedSender<ProcessEvent>,
+}
+
+pub struct Processor {
     project: Project,
-    conn: Arc<Mutex<rusqlite::Connection>>,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) {
-    let all_empty = gas_data.values().all(|g| g.datetime.is_empty());
-    if all_empty {
-        let _ = progress_sender.send(ProcessEvent::Done(Err("No data available".to_owned())));
-        return;
+    data: Arc<Datasets>, // Arc so tasks can share cheaply
+    infra: Infra,
+}
+impl Processor {
+    pub fn new(project: Project, data: Datasets, infra: Infra) -> Self {
+        Self { project, data: Arc::new(data), infra }
     }
 
-    let total_cycles = times.start_time.len();
-    let gas_data_arc = Arc::new(gas_data);
-    let mut time_chunks = VecDeque::from(times.chunk()); // ⬅️ chunk into ~250 cycles
-    let mut active_tasks = Vec::new();
-
-    let processed = 0;
-    while !time_chunks.is_empty() || !active_tasks.is_empty() {
-        // Fill up active tasks
-        while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
-            let chunk = time_chunks.pop_front().unwrap();
-            let mut chunk_gas_data = HashMap::new();
-            let mut missing_dates = Vec::new();
-
-            for dt in &chunk.start_time {
-                let date_str = dt.format("%Y-%m-%d").to_string();
-                if let Some(data) = gas_data_arc.get(&date_str) {
-                    chunk_gas_data.insert(date_str, data.clone());
-                } else {
-                    missing_dates.push(date_str);
-                }
-            }
-
-            let meteo = meteo_data.clone();
-            let height = height_data.clone();
-            let chambers = chamber_data.clone();
-            let project_clone = project.clone();
-            let progress_sender = progress_sender.clone();
-
-            let task = tokio::task::spawn_blocking(move || {
-                match process_cycles(
-                    &chunk,
-                    &chunk_gas_data,
-                    &meteo,
-                    &height,
-                    &chambers,
-                    project_clone,
-                    progress_sender.clone(),
-                ) {
-                    Ok(result) => {
-                        if processed >= total_cycles {
-                            let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
-                        }
-                        let count = result.iter().flatten().count();
-                        let _ = progress_sender
-                            .send(ProcessEvent::Progress(ProgressEvent::Rows(count, total_cycles)));
-                        Ok(result)
-                    },
-                    Err(e) => {
-                        let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
-                        Err(e)
-                    },
-                }
-            });
-
-            active_tasks.push(task);
+    pub async fn run_processing_dynamic(&self, times: TimeDataSet) {
+        let all_empty = self.data.gas.values().all(|g| g.datetime.is_empty());
+        if all_empty {
+            let _ =
+                self.infra.progress.send(ProcessEvent::Done(Err("No data available".to_owned())));
+            return;
         }
 
-        // Wait for one task to finish
-        let (result, _i, remaining_tasks) = futures::future::select_all(active_tasks).await;
-        active_tasks = remaining_tasks; // assign back for next loop
+        let total_cycles = times.start_time.len();
+        let gas_data_arc = Arc::clone(&self.data.gas); // cheap
 
-        match result {
-            Ok(Ok(cycles)) => {
-                if !cycles.is_empty() {
-                    let mut conn = conn.lock().unwrap();
-                    match insert_fluxes_ignore_duplicates(&mut conn, &cycles, project.name.clone())
-                    {
-                        Ok((_, _)) => {
+        let mut time_chunks = VecDeque::from(times.chunk());
+        let mut active_tasks = Vec::new();
+
+        // track progress correctly
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let processed = Arc::new(AtomicUsize::new(0));
+
+        while !time_chunks.is_empty() || !active_tasks.is_empty() {
+            while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
+                let chunk = time_chunks.pop_front().unwrap();
+
+                // Build a lightweight map of ARC references (no deep clone)
+                let mut chunk_gas_data = HashMap::new();
+                for dt in &chunk.start_time {
+                    let date_str = dt.format("%Y-%m-%d").to_string();
+                    if let Some(data) = gas_data_arc.get(&date_str) {
+                        chunk_gas_data.insert(date_str, Arc::clone(data)); // bump refcount only
+                    }
+                }
+
+                let meteo = self.data.meteo.clone();
+                let height = self.data.height.clone();
+                let chambers = self.data.chambers.clone();
+                let project_clone = self.project.clone();
+                let progress_sender = self.infra.progress.clone();
+                let processed_ctr = Arc::clone(&processed);
+
+                let task = tokio::task::spawn_blocking(move || {
+                    match process_cycles(
+                        &chunk,
+                        &chunk_gas_data, // now holds Arc<GasDay>, not heavy clones
+                        &meteo,
+                        &height,
+                        &chambers,
+                        project_clone,
+                        progress_sender.clone(),
+                    ) {
+                        Ok(result) => {
+                            let count = result.iter().flatten().count();
+                            processed_ctr.fetch_add(count, Ordering::Relaxed);
+                            let _ = progress_sender.send(ProcessEvent::Progress(
+                                ProgressEvent::Rows(count, total_cycles),
+                            ));
+                            Ok(result)
+                        },
+                        Err(e) => {
+                            let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
+                            Err(e)
+                        },
+                    }
+                });
+
+                active_tasks.push(task);
+            }
+
+            let (result, _i, remaining_tasks) = futures::future::select_all(active_tasks).await;
+            active_tasks = remaining_tasks;
+
+            match result {
+                Ok(Ok(cycles)) => {
+                    if !cycles.is_empty() {
+                        let mut conn = self.infra.conn.lock().unwrap();
+                        if let Ok((_, _)) = insert_fluxes_ignore_duplicates(
+                            &mut conn,
+                            &cycles,
+                            self.project.name.clone(),
+                        ) {
                             for cycle_opt in cycles.into_iter().flatten() {
-                                // Lookup the inserted flux ID to associate flux results
                                 let cycle_id: i64 = conn.query_row(
                                 "SELECT id FROM fluxes
                                  WHERE instrument_serial = ?1 AND start_time = ?2 AND project_id = ?3",
@@ -2538,77 +2550,19 @@ pub async fn run_processing_dynamic(
                                     }
                                 }
                             }
-                        },
-                        Err(e) => eprintln!("Error inserting fluxes: {}", e),
-                    }
-                }
-            },
-            Ok(Err(e)) => eprintln!("Cycle error: {e}"),
-            Err(e) => eprintln!("Join error: {e}"),
-        }
-    }
-
-    // Final insert (if you're collecting cycles earlier)
-    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
-}
-
-pub fn export_sqlite_to_csv(
-    db_path: &str,
-    csv_path: &str,
-    project: String,
-) -> Result<(), Box<dyn Error>> {
-    let conn = Connection::open(db_path)?;
-
-    let query = make_select_all_fluxes();
-    let mut stmt = conn.prepare(&query)?;
-    let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-    let column_count = column_names.len();
-
-    let rows = stmt.query_map([&project], {
-        let column_names = column_names.clone();
-        move |row| {
-            let mut values = Vec::with_capacity(column_count);
-            for (i, col_name) in column_names.iter().enumerate() {
-                let val = match row.get_ref(i)? {
-                    ValueRef::Null => "".to_string(),
-                    ValueRef::Integer(ts) => {
-                        if col_name == "start_time" {
-                            if let Some(dt) = DateTime::<Utc>::from_timestamp(ts, 0) {
-                                dt.format("%Y-%m-%d %H:%M:%S").to_string()
-                            } else {
-                                ts.to_string()
-                            }
-                        } else if col_name == "gas" {
-                            if let Some(gas) = GasType::from_int(ts as usize) {
-                                format!("{}", gas)
-                            } else {
-                                ts.to_string()
-                            }
                         } else {
-                            ts.to_string()
+                            eprintln!("Error inserting fluxes");
                         }
-                    },
-                    ValueRef::Real(f) => f.to_string(),
-                    ValueRef::Text(t) => String::from_utf8_lossy(t).to_string(),
-                    ValueRef::Blob(_) => "[BLOB]".to_string(),
-                };
-                values.push(val);
+                    }
+                },
+                Ok(Err(e)) => eprintln!("Cycle error: {e}"),
+                Err(e) => eprintln!("Join error: {e}"),
             }
-            Ok(values)
         }
-    })?;
 
-    let file = File::create(Path::new(csv_path))?;
-    let mut wtr = Writer::from_writer(file);
-
-    wtr.write_record(&column_names)?;
-
-    for row in rows {
-        wtr.write_record(&row?)?;
+        // Send Done exactly once, here.
+        let _ = self.infra.progress.send(ProcessEvent::Done(Ok(())));
     }
-
-    wtr.flush()?;
-    Ok(())
 }
 
 pub fn render_recalculate_ui(
@@ -2695,7 +2649,7 @@ pub fn upload_gas_data_async(
                 if data.validate_lengths() && !data.any_col_invalid() {
                     let rows = data.datetime.len();
                     println!("Loaded: {} from {}", path.to_string_lossy(), instrument.unwrap());
-                    match insert_measurements(conn, &data, &project) {
+                    match insert_measurements(conn, &data, project) {
                         Ok((count, duplicates)) => {
                             let _ = progress_sender
                                 .send(ProcessEvent::Insert(InsertEvent::OkSkip(count, duplicates)));

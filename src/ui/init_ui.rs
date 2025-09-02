@@ -1,11 +1,10 @@
 use crate::chamber::query_chamber_async;
-use crate::cycle::load_cycles;
 use crate::data_formats::gasdata::query_gas_async;
 use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 use crate::processevent::{ProcessEvent, QueryEvent};
-use crate::ui::validation_ui::{render_recalculate_ui, run_processing_dynamic, ValidationApp};
+use crate::ui::validation_ui::{render_recalculate_ui, Datasets, Infra, Processor, ValidationApp};
 use eframe::egui::Context;
 use rusqlite::Connection;
 use std::sync::Arc;
@@ -133,17 +132,17 @@ impl ValidationApp {
                                 let _ = progress_sender
                                     .send(ProcessEvent::Query(QueryEvent::QueryComplete));
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
-                                    run_processing_dynamic(
-                                        times,
-                                        gas_data,
-                                        meteo_data,
-                                        height_data,
-                                        chamber_data,
+                                    let processor = Processor::new(
                                         project.clone(),
-                                        arc_conn.clone(),
-                                        progress_sender,
-                                    )
-                                    .await;
+                                        Datasets {
+                                            gas: Arc::new(gas_data),
+                                            meteo: meteo_data,
+                                            height: height_data,
+                                            chambers: chamber_data,
+                                        },
+                                        Infra { conn: arc_conn, progress: progress_sender },
+                                    );
+                                    processor.run_processing_dynamic(times).await;
                                     let _ = sender.send(());
                                 } else {
                                     // let _ = progress_sender.send(ProcessEvent::Query(

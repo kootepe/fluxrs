@@ -136,7 +136,7 @@ pub async fn query_gas_async(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     project: Project,
-) -> Result<HashMap<(String), GasData>> {
+) -> Result<HashMap<String, Arc<GasData>>> {
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
         query_gas2(&conn, start.timestamp(), end.timestamp(), project.name)
@@ -150,12 +150,13 @@ pub async fn query_gas_async(
         },
     }
 }
+
 pub fn query_gas2(
     conn: &Connection,
     start: i64,
     end: i64,
     project: String,
-) -> Result<HashMap<String, GasData>> {
+) -> Result<HashMap<String, Arc<GasData>>> {
     println!("Querying gas data");
     let mut grouped_data: HashMap<String, GasData> = HashMap::new();
 
@@ -164,7 +165,7 @@ pub fn query_gas2(
         "SELECT datetime, co2, ch4, h2o, n2o, diag, instrument_serial, instrument_model
          FROM measurements
          WHERE datetime BETWEEN ?1 AND ?2
-         AND project_id = ?3
+           AND project_id = ?3
          ORDER BY instrument_serial, datetime",
     )?;
 
@@ -190,12 +191,15 @@ pub fn query_gas2(
 
     for row in rows {
         let (datetime, gas_values, diag, instrument_serial, instrument_model) = row?;
+
+        // Skip rows lacking serial/model (you can choose to error instead)
+        let (serial, model) = match (instrument_serial, instrument_model) {
+            (Some(s), Some(m)) => (s, m),
+            _ => continue,
+        };
+
         let date_key = datetime.format("%Y-%m-%d").to_string();
 
-        let serial = instrument_serial.clone().unwrap();
-        let model = instrument_model.clone().unwrap();
-
-        // let instrument_type = model.parse::<InstrumentType>().expect("Invalid instrument type");
         let instrument_type = match model.parse::<InstrumentType>() {
             Ok(val) => val,
             Err(_) => {
@@ -205,7 +209,7 @@ pub fn query_gas2(
         };
         let available_gases = instrument_type.available_gases();
 
-        let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
+        let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
             header: StringRecord::new(),
             instrument_model: model.clone(),
             instrument_serial: serial.clone(),
@@ -215,22 +219,21 @@ pub fn query_gas2(
             diag: HashMap::new(),
         });
 
+        // Keep these up-to-date if multiple instruments share a day
         entry.instrument_model = model.clone();
         entry.instrument_serial = serial.clone();
         entry.model_key.insert(serial.clone(), instrument_type);
 
-        // Dynamically assign each gas value
-
+        // Time + diag
         entry.datetime.entry(serial.clone()).or_default().push(datetime);
         entry.diag.entry(serial.clone()).or_default().push(diag);
+
+        // Gas vectors
         for gas in &available_gases {
             let idx = gas.as_int();
             let gas_key = GasKey::from((gas, serial.as_str()));
-
-            // Ensure a vector exists for this gas_key
             let gas_vec = entry.gas.entry(gas_key).or_default();
 
-            // Push the value or None
             if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
                 gas_vec.push(Some(gas_val));
             } else {
@@ -239,7 +242,11 @@ pub fn query_gas2(
         }
     }
 
-    Ok(grouped_data)
+    // Convert to Arc-wrapped values without cloning GasData
+    let grouped_arc: HashMap<String, Arc<GasData>> =
+        grouped_data.into_iter().map(|(k, v)| (k, Arc::new(v))).collect();
+
+    Ok(grouped_arc)
 }
 
 pub fn query_gas(

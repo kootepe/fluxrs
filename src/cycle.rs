@@ -23,12 +23,12 @@ use crate::data_formats::timedata::TimeData;
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::prelude::*;
 use rusqlite::{params, Connection, Error, Result};
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::process;
 use tokio::sync::mpsc;
-
 // the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: f64 = 180.;
 // how many seconds to increment the moving window searching for max r
@@ -2881,15 +2881,18 @@ pub fn calculate_min_y_from_vec(values: &[Option<f64>]) -> f64 {
     values.iter().filter_map(|&v| v).filter(|v| !v.is_nan()).fold(f64::INFINITY, f64::min)
 }
 
-pub fn process_cycles(
+pub fn process_cycles<V>(
     timev: &TimeData,
-    sorted_data: &HashMap<String, GasData>,
+    gas_by_day: &HashMap<String, V>,
     meteo_data: &MeteoData,
     height_data: &HeightData,
     chamber_data: &HashMap<String, ChamberShape>,
     project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>>
+where
+    V: Borrow<GasData>, // <-- key trick
+{
     let mut cycle_vec = Vec::new();
 
     for (chamber, start, close, open, end, snow_depth, model, serial, _) in timev.iter() {
@@ -2908,94 +2911,104 @@ pub fn process_cycles(
             .min_calc_len(project.min_calc_len)
             .build()?;
 
+        let Some(cur_data) = gas_by_day.get(&day).map(|v| v.borrow()) else {
+            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(day)));
+            cycle_vec.push(None);
+            continue;
+        };
+
         let mut found_data = false;
 
-        for (data_day, cur_data) in sorted_data.iter() {
-            if data_day != &day {
+        // Iterate only the serials that actually exist that day
+        for (ser, datetimes) in &cur_data.datetime {
+            // Skip serials that don’t cover the start time
+            if datetimes.is_empty() || *start < datetimes[0] || *start > *datetimes.last().unwrap()
+            {
                 continue;
             }
 
-            for (serial, datetimes) in &cur_data.datetime {
-                if datetimes.is_empty()
-                    || start < &datetimes[0]
-                    || start > datetimes.last().unwrap()
-                {
-                    continue;
-                }
-                let diags = &cur_data.diag.get(serial).unwrap();
-
-                // Find the first datetime >= start
-                let si_time = match datetimes.iter().find(|&&t| t >= *start) {
-                    Some(&t) => t.timestamp(),
-                    None => continue,
-                };
-
-                // Compute end time window
-                let ei_time = si_time + *end;
-
-                // Collect matching indices
-                let matching_indices: Vec<usize> = datetimes
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, &t)| t.timestamp() >= si_time && t.timestamp() < ei_time)
-                    .map(|(i, _)| i)
-                    .collect();
-
-                if matching_indices.is_empty() {
-                    println!("No data found betweeni {} and {}", si_time, ei_time);
-                    continue;
-                }
-
-                // Insert timestamp vector
-                let dt_slice: Vec<f64> =
-                    matching_indices.iter().map(|&i| datetimes[i].timestamp() as f64).collect();
-                // BUG: Sometimes data that isnt within start time and end time gets assigned to the
-                // cycle, problematic data 2024-08-12
-                // HACK: this is a hack, need to fix root cause
-                if cycle.start_time.timestamp() as f64 != *dt_slice.first().unwrap() {
-                    println!("{} {}", cycle.start_time.timestamp(), dt_slice.first().unwrap());
-                    continue;
-                }
-                println!("{}", dt_slice.len());
-                cycle.dt_v.insert(serial.clone(), dt_slice);
-
-                // Insert diag vector once (shared across instruments for now)
-                let diag_slice: Vec<i64> =
-                    matching_indices.iter().filter_map(|&i| diags.get(i).copied()).collect();
-                println!("{}", diag_slice.len());
-                cycle.diag_v.insert(serial.clone(), diag_slice);
-                // if cycle.diag_v.is_empty() {
-                //     cycle.diag_v = matching_indices.iter().map(|&i| cur_data.diag[i]).collect();
-                // }
-
-                // Set model and serial
-                cycle.instrument_serial = serial.clone();
-                cycle.instrument_model = *cur_data.model_key.get(serial).unwrap();
-
-                // Insert gas values
-                for (key, gas_values) in &cur_data.gas {
-                    if &key.label != serial {
+            // Use binary search instead of linear find to align start index exactly
+            // (avoids the equality “hack” later).
+            let si_idx = match datetimes.binary_search(start) {
+                Ok(i) => i,
+                Err(i) => {
+                    // first >= start; if start isn’t exactly present, we still align to the window
+                    if i >= datetimes.len() {
                         continue;
                     }
+                    i
+                },
+            };
 
-                    if cur_data
-                        .model_key
-                        .get(&key.label)
-                        .unwrap()
-                        .available_gases()
-                        .contains(&key.gas_type)
-                    {
-                        let gas_slice: Vec<Option<f64>> = matching_indices
-                            .iter()
-                            .filter_map(|&i| gas_values.get(i).copied())
-                            .collect();
-                        println!("{}", gas_slice.len());
-                        cycle.gas_v.insert(key.clone(), gas_slice);
-                    }
+            let si_time = datetimes[si_idx].timestamp();
+            let ei_time = si_time + *end;
+
+            // Find end index (first index with ts >= ei_time). This emulates
+            // std::slice::partition_point (stable since 1.52 in Rust core nightly; manual here).
+            let mut lo = si_idx;
+            let mut hi = datetimes.len();
+            while lo < hi {
+                let mid = (lo + hi) / 2;
+                if datetimes[mid].timestamp() < ei_time {
+                    lo = mid + 1;
+                } else {
+                    hi = mid;
+                }
+            }
+            let end_idx = lo;
+
+            if end_idx <= si_idx {
+                continue;
+            }
+
+            // Now we can build slices by index range — no per-item filter scans
+            let idx_range = si_idx..end_idx;
+
+            // Timestamp vector (keep as i64 where possible; only cast when storing if required)
+            let dt_slice: Vec<f64> =
+                datetimes[idx_range.clone()].iter().map(|t| t.timestamp() as f64).collect();
+
+            // If you still want to enforce exact start alignment, compare to seconds (no FP issues)
+            if cycle.start_time.timestamp() != si_time {
+                // If this is *too strict*, you can relax or log instead of skipping entirely.
+                continue;
+            }
+
+            // Diag vector
+            if let Some(diags) = cur_data.diag.get(ser) {
+                let diag_slice: Vec<i64> = diags[idx_range.clone()].iter().copied().collect();
+                cycle.diag_v.insert(ser.clone(), diag_slice);
+            }
+
+            // Model + serial for this cycle (uses the matched serial)
+            cycle.instrument_serial = ser.clone();
+            cycle.instrument_model = *cur_data.model_key.get(ser).unwrap();
+
+            // Gas values for this serial only
+            for (key, gas_values) in &cur_data.gas {
+                if &key.label != ser {
+                    continue;
                 }
 
-                found_data = true;
+                if cur_data
+                    .model_key
+                    .get(&key.label)
+                    .unwrap()
+                    .available_gases()
+                    .contains(&key.gas_type)
+                {
+                    let gas_slice: Vec<Option<f64>> =
+                        gas_values[idx_range.clone()].iter().copied().collect();
+                    cycle.gas_v.insert(key.clone(), gas_slice);
+                }
             }
+
+            // Timestamps for this serial
+            cycle.dt_v.insert(ser.clone(), dt_slice);
+
+            found_data = true;
+            // If one serial is enough per cycle, you can break here
+            // break;
         }
 
         if found_data {
@@ -3004,65 +3017,35 @@ pub fn process_cycles(
             cycle.main_instrument_serial = project.instrument_serial.clone();
             cycle.main_instrument_model = project.instrument;
 
-            // for key in cycle.gas_v.keys() {
-            //     let new_key = GasKey::from((&key.gas_type, project.instrument_serial.as_str()));
-            //     if !cycle.gas_v.contains_key(&new_key) {
-            //     } else {
-            //         println!("No data found for main instrument");
-            //         println!("{}", &key);
-            //         continue;
-            //     }
-            // }
-            // if let Some(dt_v) = cycle.dt_v.get(cycle.main_instrument_serial.as_str()) {
-            //     // println!("{:?}", dt_v);
-            // } else {
-            //     println!("No main data found");
-            //     continue;
-            // }
-            // if let Some(dt_v) = cycle.dt_v.get(cycle.instrument_serial.as_str()) {
-            //     println!("{}", cycle.instrument_serial.as_str());
-            //     // println!("{:?}", dt_v[0]);
-            // } else {
-            //     println!("No data found");
-            // }
-
             let target = (*start + chrono::TimeDelta::seconds(*close)).timestamp();
 
-            // Add meteo data
+            // Meteo
             let (temp, pressure) = meteo_data.get_nearest(target).unwrap_or((10.0, 1000.0));
             cycle.air_temperature = temp;
             cycle.air_pressure = pressure;
 
-            // Add height data
+            // Height
             let maybe_height = height_data.get_nearest_previous_height(target, &cycle.chamber_id);
-
             cycle.chamber = chamber_data.get(chamber).cloned().unwrap_or_default();
-
-            match maybe_height {
-                Some(h) => {
-                    // if there's a measured height, replace the metadata height
-                    cycle.chamber_height = h;
-                    match &mut cycle.chamber {
-                        ChamberShape::Cylinder { height_m, .. } => *height_m = h,
-                        ChamberShape::Box { height_m, .. } => *height_m = h,
-                    }
-                },
-                None => {
-                    // if there's no measured height, replace it with metadata height which defaults to
-                    // 1
-                    cycle.chamber_height = match &cycle.chamber {
-                        ChamberShape::Cylinder { height_m, .. } => *height_m,
-                        ChamberShape::Box { height_m, .. } => *height_m,
-                    };
-                },
+            if let Some(h) = maybe_height {
+                cycle.chamber_height = h;
+                match &mut cycle.chamber {
+                    ChamberShape::Cylinder { height_m, .. }
+                    | ChamberShape::Box { height_m, .. } => *height_m = h,
+                }
+            } else {
+                cycle.chamber_height = match &cycle.chamber {
+                    ChamberShape::Cylinder { height_m, .. }
+                    | ChamberShape::Box { height_m, .. } => *height_m,
+                };
             }
-            // Add deadbands
+
+            // Deadbands
             for gas in &cycle.gases {
                 cycle.deadbands.insert(gas.clone(), project.deadband);
             }
 
-            // Initialize model
-            println!("Running init.");
+            // Init
             cycle.init(project.mode == Mode::BestPearsonsR, project.deadband);
 
             cycle_vec.push(Some(cycle));
@@ -3074,6 +3057,7 @@ pub fn process_cycles(
 
     Ok(cycle_vec)
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

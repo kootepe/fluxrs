@@ -2,11 +2,11 @@ use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
 use crate::ui::project_ui::Project;
-use crate::ui::validation_ui::{run_processing_dynamic, Mode};
 use crate::ui::validation_ui::{
     upload_cycle_data_async, upload_gas_data_async, upload_height_data_async,
     upload_meteo_data_async, DataType,
 };
+use crate::ui::validation_ui::{Datasets, Infra, Mode, Processor};
 
 use crate::chamber::query_chamber_async;
 use crate::data_formats::gasdata::query_gas_async;
@@ -393,7 +393,7 @@ impl Config {
                     // let progress_receiver = Some(progress_receiver);
                     // handle_progress_messages(progress_receiver);
 
-                    let proj = project;
+                    let proj = project.clone();
                     let runtime =
                         tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
@@ -444,17 +444,17 @@ impl Config {
                                 let _ = progress_sender
                                     .send(ProcessEvent::Query(QueryEvent::QueryComplete));
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
-                                    run_processing_dynamic(
-                                        times,
-                                        gas_data,
-                                        meteo_data,
-                                        height_data,
-                                        chamber_data,
-                                        proj.clone(),
-                                        arc_conn.clone(),
-                                        progress_sender,
-                                    )
-                                    .await;
+                                    let processor = Processor::new(
+                                        project.clone(),
+                                        Datasets {
+                                            gas: Arc::new(gas_data),
+                                            meteo: meteo_data,
+                                            height: height_data,
+                                            chambers: chamber_data,
+                                        },
+                                        Infra { conn: arc_conn, progress: progress_sender },
+                                    );
+                                    processor.run_processing_dynamic(times).await;
                                     let _ = sender.send(());
                                 } else {
                                     // let _ = progress_sender.send(ProcessEvent::Query(
