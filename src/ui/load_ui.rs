@@ -39,7 +39,7 @@ impl ValidationApp {
         } else {
             self.date_picker(ui);
 
-            if ui.button("Init from db").clicked() {
+            if ui.button("Load measurements").clicked() {
                 self.commit_all_dirty_cycles();
                 let sender = self.task_done_sender.clone();
                 let result_slot = self.load_result.clone();

@@ -57,7 +57,7 @@ impl ValidationApp {
                 if ui
                     .add_enabled(
                         self.init_enabled && !self.init_in_progress,
-                        egui::Button::new("Use range"),
+                        egui::Button::new("Initiate measurements"),
                     )
                     .clicked()
                 {
