@@ -673,6 +673,8 @@ impl ValidationApp {
                 let value = selector(cycle, key); // Extract value using selector
                 let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
 
+                // BUG: Thresholds need to be enabled/disabled within the app, otherwise it causes
+                // issues with showing which measurements are valid.
                 if let Some(best_kind) = cycle.best_model_by_aic(key) {
                     let gas_key = GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()));
                     let is_valid = cycle.is_valid_by_threshold(
@@ -683,6 +685,7 @@ impl ValidationApp {
                         self.rmse_thresh as f64,
                         self.t0_thresh as f64,
                     ) && cycle.error_code.0 == 0;
+                    // ) && cycle.is_valid;
 
                     if is_valid {
                         valid_traces.entry(chamber_id).or_default().push([start_time, value]);
@@ -1734,6 +1737,8 @@ impl ValidationApp {
         }
     }
     pub fn handle_drag_polygon(&mut self, plot_ui: &mut PlotUi, is_left: bool, key: &GasKey) {
+        // BUG: Dragging when the start/end markers are out of data bounds will cause the plot to
+        // shrink/enlargen and then the dragged items can lose focus
         let dx = self.current_delta.trunc();
         self.current_delta -= dx;
 
@@ -1743,6 +1748,8 @@ impl ValidationApp {
 
         let close_time = self.get_measurement_start();
         let open_time = self.get_measurement_end();
+        // TODO: minimum calc range should be adjustable in app, so automated calculation uses what
+        // is defined within the project and manual validation can use another
         let at_min_range = calc_range <= self.get_min_calc_area_len();
 
         if is_left {
