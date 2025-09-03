@@ -10,7 +10,9 @@ use crate::ui::plotting_ui::{
     init_standardized_residuals_plot,
 };
 
-use crate::data_formats::chamberdata::{insert_chamber_metadata, read_chamber_metadata, ChamberShape};
+use crate::data_formats::chamberdata::{
+    insert_chamber_metadata, read_chamber_metadata, ChamberShape,
+};
 use crate::data_formats::gasdata::{insert_measurements, GasData};
 use crate::data_formats::heightdata::{
     insert_height_data, query_height, read_height_csv, HeightData,
@@ -961,7 +963,7 @@ impl ValidationApp {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.toggle_manual_valid();
-                cycle.error_code.toggle(ErrorCode::BadOpenClose);
+                cycle.error_code.toggle(ErrorCode::FailedMeasurement);
 
                 self.update_plots();
             }

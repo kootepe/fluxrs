@@ -14,7 +14,7 @@ pub enum ErrorCode {
     FewUnique,
     ManualInvalid,
     TooManyDiagErrors,
-    BadOpenClose,
+    FailedMeasurement,
 }
 
 impl ErrorCode {
@@ -26,19 +26,26 @@ impl ErrorCode {
     pub const TOO_FEW_MEASUREMENTS: u16 = 1 << 4;
     pub const MANUAL_INVALID: u16 = 1 << 5;
     pub const MOSTLY_DIAG_ERRORS: u16 = 1 << 6;
-    pub const BAD_OPEN_CLOSE: u16 = 1 << 7;
+    pub const FAILED_MEASUREMENT: u16 = 1 << 7;
 
     /// Convert an `ErrorCode` to its corresponding bitmask
     pub fn to_mask(&self) -> u16 {
         match self {
+            // measurement area has diagonstic errors
             ErrorCode::ErrorsInMeasurement => Self::DIAG_ERROR_IN_MEASUREMENT,
+            // R value of the whole measurement is below threshold
             ErrorCode::LowR => Self::LOW_R,
+            // if there are only a few unique values, there's likely an error
             ErrorCode::FewUnique => Self::FEW_UNIQUE,
+            // too many datapoints, eg duplicate time values, shouldn't be possible
             ErrorCode::TooManyMeasurements => Self::TOO_MANY_MEASUREMENTS,
+            // too few measurements compared to difference of start and end
             ErrorCode::TooFewMeasurements => Self::TOO_FEW_MEASUREMENTS,
+            // manually set as invalid
             ErrorCode::ManualInvalid => Self::MANUAL_INVALID,
             ErrorCode::TooManyDiagErrors => Self::MOSTLY_DIAG_ERRORS,
-            ErrorCode::BadOpenClose => Self::BAD_OPEN_CLOSE,
+            // Currently used for marking a bad measurement
+            ErrorCode::FailedMeasurement => Self::FAILED_MEASUREMENT,
         }
     }
 
@@ -53,7 +60,7 @@ impl ErrorCode {
             ErrorCode::TooFewMeasurements,
             ErrorCode::ManualInvalid,
             ErrorCode::TooManyDiagErrors,
-            ErrorCode::BadOpenClose,
+            ErrorCode::FailedMeasurement,
         ] {
             if mask & error.to_mask() != 0 {
                 errors.push(error);
@@ -117,7 +124,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::TooFewMeasurements => "Too few values",
             ErrorCode::ManualInvalid => "Manual invalid",
             ErrorCode::TooManyDiagErrors => "Too many instrument diagnostic errors",
-            ErrorCode::BadOpenClose => "Bad opening and/or closing of chamber",
+            ErrorCode::FailedMeasurement => "Failed measurement",
         };
         write!(f, "{}", message)
     }

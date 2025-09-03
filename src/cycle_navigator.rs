@@ -223,7 +223,7 @@ fn is_cycle_visible(
             && cycle.error_code.0 == 0;
 
     let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
-    let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::BadOpenClose);
+    let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::FailedMeasurement);
     let valid_ok = show_valids || !is_valid;
     let invalid_ok = show_invalids || is_valid;
     trace_visible && valid_ok && invalid_ok && bad_ok
