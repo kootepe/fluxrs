@@ -3,14 +3,25 @@ use crate::gastype::GasType;
 use crate::ui::main_app::AppEvent;
 use crate::ui::validation_ui::Mode;
 use crate::InstrumentType;
+use std::error::Error;
 use std::fmt;
 use std::process;
 
-use rusqlite;
-// use rusqlite::Connection;
 use rusqlite::{params, Connection, Result};
-
 use std::collections::HashMap;
+
+#[derive(Debug)]
+struct ProjectExistsError {
+    project_id: String,
+}
+
+impl fmt::Display for ProjectExistsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Project with id '{}' already exists", self.project_id)
+    }
+}
+
+impl Error for ProjectExistsError {}
 
 #[derive(Clone)]
 pub struct Project {
@@ -156,6 +167,7 @@ pub struct ProjectApp {
     deadband: f64,
     min_calc_len: f64,
     mode: Mode,
+    message: Option<String>,
 }
 
 impl Default for ProjectApp {
@@ -170,6 +182,7 @@ impl Default for ProjectApp {
             min_calc_len: MIN_CALC_AREA_RANGE,
             deadband: 30.,
             mode: Mode::default(),
+            message: None,
         }
     }
 }
@@ -297,17 +310,22 @@ impl ProjectApp {
         if ui.button("Add Project").clicked() {
             if let Some(project) = self.build_project_from_form() {
                 if let Err(err) = self.save_project_to_db(&project) {
-                    ui.colored_label(
-                        egui::Color32::RED,
-                        format!("Failed to save project: {}", err),
-                    );
-                } else {
-                    self.project = Some(project.clone());
-                    self.all_projects.push(project); // Optional: update list
+                    let msg = err
+                        .source()
+                        .map(|source| source.to_string())
+                        .unwrap_or_else(|| err.to_string());
+
+                    self.message = Some(msg);
                 }
             } else {
                 ui.colored_label(egui::Color32::YELLOW, "Please fill out all required fields.");
             }
+        }
+        if self.message.is_some() {
+            ui.colored_label(
+                egui::Color32::RED,
+                format!("Failed to save project: {}", self.message.clone().unwrap()),
+            );
         }
     }
 
@@ -450,6 +468,13 @@ impl ProjectApp {
 
         let tx = conn.transaction()?; //   Use transaction for consistency
 
+        if self.check_exists(&self.project_name)? {
+            return Err(rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Text,
+                Box::new(ProjectExistsError { project_id: self.project_name.clone() }),
+            ));
+        }
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
         tx.execute(
@@ -468,5 +493,16 @@ impl ProjectApp {
         self.load_projects_from_db()?;
 
         Ok(())
+    }
+    fn check_exists(&self, project_id: &str) -> Result<bool> {
+        let conn = Connection::open("fluxrs.db")?;
+
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE project_id = ?1 LIMIT 1)",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+
+        Ok(exists)
     }
 }
