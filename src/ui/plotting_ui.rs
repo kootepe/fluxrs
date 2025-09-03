@@ -864,6 +864,7 @@ impl ValidationApp {
         let mode = self.get_project_mode();
         if let Some(c) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             c.manual_adjusted = false;
+            c.override_valid = None;
             c.close_lag_s = 0.;
             c.open_lag_s = 0.;
             c.reset_deadbands(self.selected_project.as_ref().unwrap().deadband);
