@@ -12,9 +12,9 @@ title: File formats
 - Columns positions are read from the header so old formats should also work.
 - Only SECONDS, NANOSECONDS, DIAG, N2O and H2O columns are used.
 
-# Cycle / time data
-2 file formats are supported.
-### The "default" format
+# Cycle files
+2 file formats are supported. One is used for automated chamber measurements and one for manual measurements.
+### __The "default" format__
 
 ```
 plot_id,start_time,close_offset,open_offset,end_offset
@@ -33,7 +33,7 @@ plot_id,start_time,close_offset,open_offset,end_offset
   - Offset of cycle end from the start_time in seconds
   - Set to open_offset + 60 seconds if not set
 
-### The manual measurement format
+### __The manual measurement format__
 This is the format we use for collecting measurements manually in the field.
 
 ```
@@ -57,7 +57,7 @@ plot_id,start_time,snow_depth
   - Height of snow inside the chamber in centimeters (optional)
   - Snow depth will be set to 0 when if this column can't be parsed.
 
-# Chamber height data
+# Chamber height file
 Use this for chambers which positions are static and have depths measured every
 now and then.
 
@@ -66,7 +66,7 @@ datetime,plot_id,height_m
 YYYY-MM-DD HH:MM:SS,12,0.78
 ```
 
-# Meteo data
+# Meteo file
 - Simple format for air temperature and pressure data
 - Air temperature in C°
 - Air pressure in hPa
@@ -78,12 +78,13 @@ YYYY-MM-DD HH:MM:SS,10,994
 ```
 
 
-# Chamber metadata
-Some info about your plots / chambers.
-diameter, height, width and length have to either be numeric or empty.
-For Box type chamber, diameter isn't used, so you can either use a placeholder
-value or leave it empty
-For Cylinder type chamber, width and length aren't used so you can again either
+# Chamber metadata file
+Some info about your plots / chambers. diameter, height, width and length have
+to either be numeric or empty.
+
+- For Box type chamber, diameter isn't used, so you
+can either use a placeholder value or leave it empty
+- For Cylinder type chamber, width and length aren't used so you can again either
 use a placeholder value or leave them empty.
 
 
