@@ -8,7 +8,7 @@ use crate::ui::validation_ui::{
 };
 use crate::ui::validation_ui::{Datasets, Infra, Mode, Processor};
 
-use crate::chamber::query_chamber_async;
+use crate::data_formats::chamberdata::query_chamber_async;
 use crate::data_formats::gasdata::query_gas_async;
 use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
@@ -22,7 +22,6 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 use std::process;
-// use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 

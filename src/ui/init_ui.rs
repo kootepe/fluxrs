@@ -1,4 +1,4 @@
-use crate::chamber::query_chamber_async;
+use crate::data_formats::chamberdata::query_chamber_async;
 use crate::data_formats::gasdata::query_gas_async;
 use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;

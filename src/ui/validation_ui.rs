@@ -10,7 +10,7 @@ use crate::ui::plotting_ui::{
     init_standardized_residuals_plot,
 };
 
-use crate::chamber::{insert_chamber_metadata, read_chamber_metadata, ChamberShape};
+use crate::data_formats::chamberdata::{insert_chamber_metadata, read_chamber_metadata, ChamberShape};
 use crate::data_formats::gasdata::{insert_measurements, GasData};
 use crate::data_formats::heightdata::{
     insert_height_data, query_height, read_height_csv, HeightData,

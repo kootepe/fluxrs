@@ -14,7 +14,7 @@ use crate::ui::project_ui::Project;
 use crate::ui::validation_ui::GasKey;
 use crate::ui::validation_ui::Mode;
 
-use crate::chamber::{query_chambers, ChamberShape};
+use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
 use crate::data_formats::gasdata::GasData;
 use crate::data_formats::heightdata::HeightData;
 use crate::data_formats::meteodata::MeteoData;
