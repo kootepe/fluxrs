@@ -873,6 +873,7 @@ impl ValidationApp {
             c.reset_deadbands(self.selected_project.as_ref().unwrap().deadband);
             c.end_lag_s = 0.;
             c.start_lag_s = 0.;
+            c.error_code.0 = 0;
             c.reload_gas_data();
             c.check_diag();
             c.check_missing();
