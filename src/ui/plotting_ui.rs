@@ -684,8 +684,8 @@ impl ValidationApp {
                         self.r2_thresh as f64,
                         self.rmse_thresh as f64,
                         self.t0_thresh as f64,
-                    ) && cycle.error_code.0 == 0;
-                    // ) && cycle.is_valid;
+                    ) && cycle.is_valid;
+                    // ) && cycle.error_code.0 == 0;
 
                     if is_valid {
                         valid_traces.entry(chamber_id).or_default().push([start_time, value]);
@@ -1061,7 +1061,8 @@ impl ValidationApp {
                         self.r2_thresh as f64,
                         self.rmse_thresh as f64,
                         self.t0_thresh as f64,
-                    ) && cycle.error_code.0 == 0;
+                    ) && cycle.is_valid;
+                    // ) && cycle.error_code.0 == 0;
                     let entry = (best_kind, [start_time, value]);
 
                     if is_valid {
