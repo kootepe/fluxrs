@@ -344,12 +344,12 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            start_date: NaiveDate::from_ymd_opt(2023, 10, 11)
+            start_date: NaiveDate::from_ymd_opt(2022, 8, 1)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_utc(),
-            end_date: NaiveDate::from_ymd_opt(2023, 10, 30)
+            end_date: NaiveDate::from_ymd_opt(2022, 12, 30)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
@@ -962,7 +962,8 @@ impl ValidationApp {
         if mark_bad {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                cycle.toggle_manual_valid();
+                // BUG: Marking as bads adds bad correctly but also marks the measurement as valid
+                // cycle.toggle_manual_valid();
                 cycle.error_code.toggle(ErrorCode::FailedMeasurement);
 
                 self.update_plots();
@@ -2665,9 +2666,8 @@ pub fn upload_gas_data_async(
                         },
                     }
 
-                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileRows(
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
                         path.to_str().unwrap().to_owned(),
-                        rows,
                     )));
                 }
             },
