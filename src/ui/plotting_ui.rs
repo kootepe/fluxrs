@@ -878,7 +878,7 @@ impl ValidationApp {
             c.check_diag();
             c.check_missing();
 
-            if !c.has_error(ErrorCode::TooManyDiagErrors)
+            if !c.has_error(ErrorCode::ErrorsInMeasurement)
                 || !c.has_error(ErrorCode::TooFewMeasurements)
             {
                 c.search_open_lag(
