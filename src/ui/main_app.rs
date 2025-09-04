@@ -165,7 +165,7 @@ impl MainApp {
             ui.group(|ui| {
                 ui.label("Adjust hiding thresholds");
                 ui.label("These are based on the main gas.");
-                ui.label("Will not mark measurements as invalid, but allows hiding measurements in current view.");
+                ui.label("Will not mark measurements as invalid in the data, but allows hiding measurements in current view.");
                 ui.label("Double click to reset");
                 egui::Grid::new("thresholds_grid").min_col_width(100.).show(ui,|ui| {
                 ui.label("RMSE");
