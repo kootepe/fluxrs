@@ -102,10 +102,10 @@ pub struct Cycle {
     pub gas_v_mole: HashMap<GasKey, Vec<Option<f64>>>,
     pub calc_gas_v: HashMap<GasKey, Vec<Option<f64>>>,
     pub measurement_gas_v: HashMap<GasKey, Vec<Option<f64>>>,
-    pub measurement_diag_v: Vec<i64>,
     pub t0_concentration: HashMap<GasKey, f64>,
 
     pub diag_v: HashMap<String, Vec<i64>>,
+    pub measurement_diag_v: HashMap<String, Vec<i64>>,
     pub min_calc_len: f64,
 }
 
@@ -743,7 +743,6 @@ impl Cycle {
     pub fn search_open_lag(&mut self, key: GasKey) -> Option<f64> {
         if let Some(gas_v) = self.gas_v.get(&key) {
             let len = gas_v.len();
-            println!("{}", len);
             if len < 120 {
                 return None;
             }
@@ -767,7 +766,10 @@ impl Cycle {
         None
     }
     pub fn check_diag(&mut self) {
-        let total_count = self.diag_v.len();
+        // let diag_v = self.get_measurement_diag(&self.main_key());
+        // let total_count = diag_v.len();
+        // let nonzero_count = diag_v.iter().filter(|&&x| x != 0).count();
+        // println!("{}/{}", nonzero_count, total_count);
         let nonzero_count = self
             .diag_v
             .get(&self.main_instrument_serial)
@@ -775,24 +777,27 @@ impl Cycle {
             .iter()
             .filter(|&&x| x != 0)
             .count();
+        let total_count = self.diag_v.len();
 
+        println!("{}/{}", nonzero_count, total_count);
         // Check if more than 50% of the values are nonzero
-        let check = nonzero_count as f64 / total_count as f64 > 0.5;
-        if check {
-            self.add_error(ErrorCode::TooManyDiagErrors)
-        } else {
-            self.remove_error(ErrorCode::TooManyDiagErrors)
-        }
-    }
-    pub fn check_measurement_diag(&mut self) -> bool {
-        let check = self.measurement_diag_v.iter().sum::<i64>() != 0;
+        let check = (nonzero_count as f64 / total_count as f64) > 0.5;
+        println!("{}", check);
         if check {
             self.add_error(ErrorCode::ErrorsInMeasurement)
         } else {
             self.remove_error(ErrorCode::ErrorsInMeasurement)
         }
-        check
     }
+    // pub fn check_measurement_diag(&mut self) -> bool {
+    //     let check = self.measurement_diag_v.iter().sum::<i64>() != 0;
+    //     if check {
+    //         self.add_error(ErrorCode::ErrorsInMeasurement)
+    //     } else {
+    //         self.remove_error(ErrorCode::ErrorsInMeasurement)
+    //     }
+    //     check
+    // }
 
     pub fn calculate_max_y(&mut self) {
         for (key, gas_v) in &self.gas_v {
@@ -999,6 +1004,10 @@ impl Cycle {
         }
     }
 
+    pub fn main_key(&self) -> GasKey {
+        GasKey::from((&self.main_gas, self.main_instrument_serial.as_str()))
+    }
+
     pub fn check_main_r(&mut self) {
         if let Some(r2) = self
             .measurement_r2
@@ -1033,7 +1042,8 @@ impl Cycle {
     }
     pub fn check_errors(&mut self) {
         self.check_main_r();
-        self.check_measurement_diag();
+        // self.get_measurement_diag(&self.main_key());
+        self.check_diag();
         self.check_missing();
         if self.error_code.0 == 0 || self.override_valid == Some(true) {
             self.is_valid = true
@@ -1045,16 +1055,16 @@ impl Cycle {
         }
     }
     pub fn init(&mut self, use_best_r: bool, deadband: f64) {
-        // println!("Running init");
         self.manual_adjusted = false;
         self.close_lag_s = 0.;
         self.open_lag_s = 0.;
         self.reset_deadbands(deadband);
+        // self.get_measurement_diag(&self.main_key());
 
-        self.check_diag();
+        // self.check_diag();
         self.check_missing();
 
-        if !self.has_error(ErrorCode::TooManyDiagErrors)
+        if !self.has_error(ErrorCode::ErrorsInMeasurement)
             || !self.has_error(ErrorCode::TooFewMeasurements)
         {
             self.search_open_lag(GasKey::from((
@@ -1105,6 +1115,7 @@ impl Cycle {
     // }
     pub fn recalc_r(&mut self) {
         // self.find_highest_r_windows();
+        self.find_best_r_indices();
         self.compute_all_fluxes();
     }
 
@@ -1171,6 +1182,34 @@ impl Cycle {
         }
         ret[s..e].to_vec()
     }
+    pub fn get_measurement_diag(&mut self, key: &GasKey) -> Vec<i64> {
+        let start_time = self.get_adjusted_close();
+        let end_time = self.get_adjusted_open();
+
+        let dt_vec = match self.dt_v.get(&key.label) {
+            Some(vec) => vec,
+            None => &vec![],
+        };
+
+        let diag_vec = match self.diag_v.get(key.label()) {
+            Some(vec) => vec,
+            None => &vec![],
+        };
+
+        let mut filtered_dt = Vec::new();
+        let mut filtered_diag = Vec::new();
+
+        for (i, &t) in dt_vec.iter().enumerate() {
+            if t >= start_time && t < end_time {
+                filtered_dt.push(t);
+                let value = diag_vec.get(i).copied().unwrap_or(0);
+                filtered_diag.push(value);
+            }
+        }
+
+        filtered_diag
+    }
+
     pub fn get_measurement_data(&self, key: &GasKey) -> (Vec<f64>, Vec<f64>) {
         let start_time = self.get_adjusted_close();
         let end_time = self.get_adjusted_open();
@@ -1784,7 +1823,7 @@ impl CycleBuilder {
             calc_dt_v: HashMap::new(),
             measurement_gas_v: HashMap::new(),
             measurement_dt_v: vec![],
-            measurement_diag_v: Vec::new(),
+            measurement_diag_v: HashMap::new(),
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
@@ -1855,7 +1894,7 @@ impl CycleBuilder {
             calc_dt_v: HashMap::new(),
             measurement_gas_v: HashMap::new(),
             measurement_dt_v: vec![],
-            measurement_diag_v: Vec::new(),
+            measurement_diag_v: HashMap::new(),
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
@@ -2406,7 +2445,7 @@ pub fn load_cycles(
         let gases = Vec::new();
         let gas_v = HashMap::new();
         let measurement_dt_v = Vec::new();
-        let measurement_diag_v = Vec::new();
+        let measurement_diag_v = HashMap::new();
         let measurement_gas_v = HashMap::new();
         let min_y = HashMap::new();
         let max_y = HashMap::new();
