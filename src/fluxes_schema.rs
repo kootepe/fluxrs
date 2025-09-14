@@ -1,6 +1,6 @@
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, OptionalExtension, Result};
 
-const DB_VERSION: i32 = 7;
+const DB_VERSION: i32 = 1;
 
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
@@ -359,89 +359,32 @@ pub fn create_flux_history_table() -> String {
     .to_owned()
 }
 
+fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
+    // NOTE: the table name has to be a literal in the pragma call.
+    // We safely embed it by escaping single quotes.
+    fn esc(s: &str) -> String {
+        s.replace('\'', "''")
+    }
+
+    let sql = format!("SELECT 1 FROM pragma_table_info('{}') WHERE name = ?1 LIMIT 1;", esc(table));
+    conn.query_row(&sql, [column], |_| Ok(true)).optional().map(|opt| opt.unwrap_or(false))
+}
+
 pub fn migrate_db() -> Result<i32> {
     let conn = Connection::open("fluxrs.db")?;
     // user_version is 0 by default
     let current_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
     let mut migrated = 0;
 
-    if current_version < 1 {
-        println!("Applying migration 1: Setting PRAGMA to 1");
+    let has_col = column_exists(&conn, "projects", "tz")?;
+    // this is a migration needed for couple of the first users... remove later
+    if current_version == 7 && !has_col {
+        println!("Applying migration 1: Setting user_version to 1");
         conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        migrated = 1;
+        conn.execute("ALTER TABLE projects ADD COLUMN tz TEXT NOT NULL DEFAULT 'UTC';", [])?;
+        migrated = 1
     }
-    if current_version < 2 {
-        println!("Applying migration 2: Adding flux_history table");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute(&create_flux_history_table(), [])?;
-        migrated = 2;
-    }
-    if current_version < 3 {
-        println!("Applying migration 3: New lag variables");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute("ALTER TABLE fluxes RENAME COLUMN lag_s TO open_lag_s;", [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN close_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
-        migrated = 3;
-    }
-    if current_version < 4 {
-        println!("Applying migration 4: More lag variables");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN end_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN start_lag_s INTEGER NOT NULL DEFAULT 0;", [])?;
-        migrated = 4;
-    }
-    if current_version < 5 {
-        println!("Applying migration 5: Added linfit intercept");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN ch4_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN co2_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN h2o_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
-        conn.execute("ALTER TABLE fluxes ADD COLUMN n2o_intercept FLOAT NOT NULL DEFAULT 0;", [])?;
-        migrated = 5;
-    }
-    if current_version < 6 {
-        println!("Applying migration 6: Add t0 concentration");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute(
-            "ALTER TABLE fluxes ADD COLUMN ch4_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE fluxes ADD COLUMN co2_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE fluxes ADD COLUMN h2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE fluxes ADD COLUMN n2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE flux_history ADD COLUMN ch4_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE flux_history ADD COLUMN co2_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE flux_history ADD COLUMN h2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        conn.execute(
-            "ALTER TABLE flux_history ADD COLUMN n2o_t0_concentration FLOAT NOT NULL DEFAULT 0;",
-            [],
-        )?;
-        migrated = 6;
-    }
-    if current_version < 7 {
-        println!("Applying migration 7: Add snow depth to cycles");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute("ALTER TABLE cycles ADD COLUMN snow_depth FLOAT NOT NULL DEFAULT 0;", [])?;
-        migrated = 7;
-    }
+
     Ok(migrated)
 }
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
@@ -511,6 +454,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             min_calc_len FLOAT NOT NULL,
             instrument_model TEXT NOT NULL,
             instrument_serial TEXT NOT NULL,
+            tz TEXT NOT NULL,
             current INTEGER NOT NULL
         )",
         [],

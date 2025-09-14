@@ -7,4 +7,5 @@ pub mod main_frame;
 pub mod plotting_ui;
 pub mod project_ui;
 pub mod table_ui;
+pub mod tz_picker;
 pub mod validation_ui;

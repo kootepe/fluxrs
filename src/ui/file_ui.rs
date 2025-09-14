@@ -1,5 +1,6 @@
 use crate::instruments::InstrumentType;
 use crate::mpsc;
+use crate::ui::tz_picker::timezone_combo;
 use crate::ui::validation_ui::upload_chamber_metadata_async;
 use crate::ui::validation_ui::upload_cycle_data_async;
 use crate::ui::validation_ui::upload_gas_data_async;
@@ -10,7 +11,8 @@ use crate::Connection;
 use crate::ProcessEvent;
 use crate::Project;
 use crate::QueryEvent;
-use egui::{Context, Ui};
+use chrono_tz::{Tz, UTC};
+use egui::{Context, Id, Ui};
 use egui_file::FileDialog;
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -22,6 +24,7 @@ use std::sync::Mutex;
 impl ValidationApp {
     pub fn file_ui(&mut self, ui: &mut Ui, ctx: &Context) {
         self.handle_progress_messages();
+        self.show_timezone_prompt(ctx);
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
@@ -99,20 +102,38 @@ impl ValidationApp {
                     let selected_paths: Vec<PathBuf> =
                         dialog.selection().into_iter().map(|p: &Path| p.to_path_buf()).collect();
 
-                    let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-                    self.progress_receiver = Some(progress_receiver);
-                    let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
-                    if !selected_paths.is_empty() {
+                    // let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+                    // self.progress_receiver = Some(progress_receiver);
+                    // let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
+
+                    if selected_paths.is_empty() {
+                        self.log_messages.push_front("No files selected.".to_string());
+                    } else {
                         self.opened_files = Some(selected_paths.clone());
-                        self.process_files_async(
-                            selected_paths,
-                            self.selected_data_type.clone(),
-                            self.get_project(),
-                            arc_msgs,
-                            progress_sender.clone(),
-                            &self.runtime,
-                        );
+                        // open the timezone prompt next frame
+                        self.tz_prompt_open = true;
+
+                        self.tz_state.focus_search_once = true; // autofocus the search field
+                                                                // self.process_files_async(
+                                                                //     selected_paths,
+                                                                //     self.selected_data_type.clone(),
+                                                                //     self.get_project(),
+                                                                //     arc_msgs,
+                                                                //     progress_sender.clone(),
+                                                                //     &self.runtime,
+                                                                // );
                     }
+                    // if !selected_paths.is_empty() {
+                    //     self.opened_files = Some(selected_paths.clone());
+                    //     self.process_files_async(
+                    //         selected_paths,
+                    //         self.selected_data_type.clone(),
+                    //         self.get_project(),
+                    //         arc_msgs,
+                    //         progress_sender.clone(),
+                    //         &self.runtime,
+                    //     );
+                    // }
 
                     self.open_file_dialog = None; //   Close the dialog
                 },
@@ -124,11 +145,86 @@ impl ValidationApp {
             }
         }
     }
+
+    pub fn show_timezone_prompt(&mut self, ctx: &egui::Context) {
+        if !self.tz_prompt_open {
+            return;
+        }
+
+        use egui::{Align2, Frame};
+
+        egui::Area::new(Id::from("tz_prompt_layer"))
+        .fixed_pos(ctx.screen_rect().center()) // center-ish
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Window::new("Choose timezone for the selected files")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label("Type to search and pick the timezone used to interpret these files.");
+
+                    // Searchable ComboBox
+                    if let Some(tz) = timezone_combo(ui, "file_tz_combo_v031", &mut self.tz_state) {
+                        self.tz_for_files = Some(tz);
+                    }
+
+                    // Current selection preview
+                    if let Some(tz) = self.tz_for_files {
+                        ui.label(format!("Selected timezone: {}", tz));
+                    } else {
+                        ui.label("No timezone selected (will default to UTC).");
+                    }
+
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("OK").clicked() {
+                            let tz = self.tz_for_files.unwrap_or(UTC);
+
+                            // set up progress only when we're actually starting work
+                            let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+                            self.progress_receiver = Some(progress_receiver);
+
+                            let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
+
+                            if let Some(paths) = self.opened_files.clone() {
+                                // OPTION A: if your processor can accept tz explicitly, pass it:
+                                // self.process_files_async(paths, self.selected_data_type.clone(), self.get_project(), tz, arc_msgs, progress_sender, &self.runtime);
+
+                                // OPTION B: stash tz onto your Project or app state, then call as-is:
+                                // if let Some(mut project) = self.get_project_mut() {
+                                //     project.timezone = Some(tz.to_string());
+                                // }
+                                self.process_files_async(
+                                    paths,
+                                    self.selected_data_type.clone(),
+                                    self.get_project(),
+                                    tz,
+                                    arc_msgs,
+                                    progress_sender,
+                                    &self.runtime,
+                                );
+                            }
+
+                            self.tz_prompt_open = false;
+                            // keep `opened_files` if you want “re-run” ability; otherwise clear it
+                            self.opened_files = None;
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            self.tz_prompt_open = false;
+                            self.opened_files = None;
+                        }
+                    });
+                });
+        });
+    }
     pub fn process_files_async(
         &self,
         path_list: Vec<PathBuf>,
         data_type: Option<DataType>,
         project: &Project,
+        tz: Tz,
         log_messages: Arc<Mutex<VecDeque<String>>>,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
         runtime: &tokio::runtime::Runtime,
@@ -149,6 +245,7 @@ impl ValidationApp {
                                         path_list,
                                         &mut conn,
                                         &project_clone,
+                                        tz,
                                         progress_sender,
                                     )
                                 },
@@ -157,6 +254,7 @@ impl ValidationApp {
                                         path_list,
                                         &mut conn,
                                         &project_clone,
+                                        tz,
                                         progress_sender,
                                     );
                                 },
@@ -164,18 +262,21 @@ impl ValidationApp {
                                     path_list,
                                     &mut conn,
                                     &project_clone,
+                                    tz,
                                     progress_sender,
                                 ),
                                 DataType::Height => upload_height_data_async(
                                     path_list,
                                     &mut conn,
                                     &project_clone,
+                                    tz,
                                     progress_sender,
                                 ),
                                 DataType::Chamber => upload_chamber_metadata_async(
                                     path_list,
                                     &mut conn,
                                     &project_clone,
+                                    tz,
                                     progress_sender,
                                 ),
                             }

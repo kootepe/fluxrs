@@ -13,6 +13,7 @@ use crate::stats::{self, LinReg, PolyReg, RobReg};
 use crate::ui::project_ui::Project;
 use crate::ui::validation_ui::GasKey;
 use crate::ui::validation_ui::Mode;
+use chrono_tz::Tz;
 
 use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
 use crate::data_formats::gasdata::GasData;
@@ -54,7 +55,7 @@ pub struct Cycle {
     pub instrument_serial: String,
     pub chamber: ChamberShape,
     pub project_name: String,
-    pub start_time: chrono::DateTime<chrono::Utc>,
+    pub start_time: chrono::DateTime<Tz>,
     pub air_temperature: f64,
     pub air_pressure: f64,
     pub chamber_height: f64,
@@ -937,8 +938,8 @@ impl Cycle {
         for (key, start, end, _) in results {
             let start_time = dt_vecs.get(&key).unwrap()[start];
             let end_time = dt_vecs.get(&key).unwrap()[end - 1];
-            println!("{} {:?}", start_time - self.get_start(), key);
-            println!("{} {:?}", end_time - self.get_start(), key);
+            // println!("{} {:?}", start_time - self.get_start(), key);
+            // println!("{} {:?}", end_time - self.get_start(), key);
             self.set_calc_start(&key, start_time);
             self.set_calc_end(&key, end_time);
         }
@@ -1597,7 +1598,8 @@ impl Cycle {
             },
         };
 
-        match query_gas_all(&conn, start, end, self.project_name.clone()) {
+        let tz = self.start_time.timezone();
+        match query_gas_all(&conn, start, end, tz, self.project_name.clone()) {
             Ok(gasdata) => {
                 self.gas_v = gasdata.gas;
                 // self.dt_v = gasdata.datetime.iter().map(|t| t.timestamp() as f64).collect();
@@ -1687,7 +1689,7 @@ impl Cycle {
 #[derive(Debug, Default, Clone)]
 pub struct CycleBuilder {
     chamber_id: Option<String>,
-    start_time: Option<DateTime<Utc>>,
+    start_time: Option<DateTime<Tz>>,
     close_offset: Option<i64>,
     open_offset: Option<i64>,
     end_offset: Option<i64>,
@@ -1721,7 +1723,7 @@ impl CycleBuilder {
     }
 
     /// Set the start time
-    pub fn start_time(mut self, time: DateTime<Utc>) -> Self {
+    pub fn start_time(mut self, time: DateTime<Tz>) -> Self {
         self.start_time = Some(time);
         self
     }
@@ -2337,7 +2339,7 @@ pub fn load_cycles(
     let mut date: Option<String> = None;
     let start = start.timestamp();
     let end = end.timestamp();
-    let gas_data = query_gas2(conn, start, end, project.name.to_owned())?;
+    let gas_data = query_gas2(conn, start, end, project.to_owned())?;
     let chamber_metadata = query_chambers(conn, project.name.to_owned())?;
     let mut stmt = conn.prepare(
         "SELECT * FROM fluxes
@@ -2400,7 +2402,8 @@ pub fn load_cycles(
         let main_gas = GasType::from_int(main_gas_i).unwrap();
         let gas_i = row.get(*column_index.get("gas").unwrap())?;
         let gas = GasType::from_int(gas_i).unwrap();
-        let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+        let utc_start = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+        let start_time = utc_start.with_timezone(&project.tz);
         let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
         if let Some(prev_date) = date.clone() {
             if prev_date != day {
@@ -2769,7 +2772,7 @@ pub fn load_cycles(
     Ok(cycles)
 }
 fn filter_data_in_range(
-    datetimes: &[DateTime<Utc>],
+    datetimes: &[DateTime<Tz>],
     values: &[Option<f64>],
     range_start: f64,
     range_end: f64,

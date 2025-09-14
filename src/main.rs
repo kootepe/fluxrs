@@ -20,12 +20,6 @@ fn main() -> eframe::Result {
         match fluxes_schema::migrate_db() {
             Ok(0) => println!("No migrations necessary."),
             Ok(1) => println!("Successfully migrated db tables."),
-            Ok(2) => println!("Successfully migrated to db version 2"),
-            Ok(3) => println!("Successfully migrated to db version 3"),
-            Ok(4) => println!("Successfully migrated to db version 4"),
-            Ok(5) => println!("Successfully migrated to db version 5"),
-            Ok(6) => println!("Successfully migrated to db version 6"),
-            Ok(7) => println!("Successfully migrated to db version 7"),
             Ok(_) => println!("Unknown success code."),
             Err(e) => {
                 println!("Err:\n {}", e);

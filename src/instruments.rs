@@ -4,7 +4,7 @@ use crate::ui::validation_ui::GasKey;
 use chrono::offset::LocalResult;
 use chrono::prelude::DateTime;
 use chrono::{NaiveDateTime, TimeZone, Utc};
-use chrono_tz::Europe::Helsinki;
+use chrono_tz::{Tz, UTC};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt;
@@ -67,16 +67,16 @@ pub enum TimeSource {
 }
 
 impl TimeSource {
-    pub fn to_datetime(&self) -> DateTime<Utc> {
-        match self {
-            TimeSource::SecsNsecs(sec, nsec) => parse_secnsec_to_dt(*sec, *nsec),
-            TimeSource::SecondsOnly(sec) => parse_secnsec_to_dt(*sec, 0),
-            TimeSource::StringTimestamp(s, fmt) => NaiveDateTime::parse_from_str(s, fmt)
-                .ok()
-                .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
-                .unwrap(),
-        }
-    }
+    // pub fn to_datetime(&self) -> DateTime<Utc> {
+    //     match self {
+    //         TimeSource::SecsNsecs(sec, nsec) => parse_secnsec_to_dt(*sec, *nsec),
+    //         TimeSource::SecondsOnly(sec) => parse_secnsec_to_dt(*sec, 0),
+    //         TimeSource::StringTimestamp(s, fmt) => NaiveDateTime::parse_from_str(s, fmt)
+    //             .ok()
+    //             .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+    //             .unwrap(),
+    //     }
+    // }
 }
 #[derive(Debug, Clone, Copy)]
 pub enum TimeSourceKind {
@@ -112,7 +112,7 @@ impl InstrumentConfig {
             name: "LI-7810".to_string(),
             model: "LI-7810".to_string(),
             sep: b'\t',
-            skiprows: 3,
+            skiprows: 2,
             skip_after_header: 1,
             time_col: "SECONDS".to_string(),
             nsecs_col: "NANOSECONDS".to_string(),
@@ -130,7 +130,7 @@ impl InstrumentConfig {
             name: "LI-7820".to_string(),
             model: "LI-7820".to_string(),
             sep: b'\t',
-            skiprows: 3,
+            skiprows: 2,
             skip_after_header: 1,
             time_col: "SECONDS".to_owned(),
             nsecs_col: "NANOSECONDS".to_owned(),
@@ -154,6 +154,7 @@ impl InstrumentConfig {
 
         let mut instrument_serial = String::new();
         let mut instrument_model = String::new();
+        let mut tz_str = String::new();
 
         if let Some(result) = rdr.records().next() {
             instrument_model = result?.get(1).unwrap_or("").to_string();
@@ -168,10 +169,13 @@ impl InstrumentConfig {
         for _ in 0..self.skiprows {
             rdr.records().next();
         }
+        if let Some(result) = rdr.records().next() {
+            tz_str = result?.get(1).unwrap_or("").to_string();
+        }
 
         let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
         // let mut diag: Vec<i64> = Vec::new();
-        let mut datetime_map: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
+        let mut datetime_map: HashMap<String, Vec<DateTime<Tz>>> = HashMap::new();
         let mut diag_map: HashMap<String, Vec<i64>> = HashMap::new();
         let mut header = csv::StringRecord::new();
 
@@ -215,18 +219,17 @@ impl InstrumentConfig {
             let timestamp = match self.time_source {
                 TimeSourceKind::Seconds => {
                     let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
-                    parse_secnsec_to_dt(sec, 0)
+                    parse_secnsec_to_dt(sec, 0, tz_str.clone())
                 },
                 TimeSourceKind::SecondsAndNanos => {
                     let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
                     let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<i64>()?;
-                    parse_secnsec_to_dt(sec, nsec)
+                    parse_secnsec_to_dt(sec, nsec, tz_str.clone())
                 },
                 TimeSourceKind::StringFormat => {
                     let time_str = record.get(idx_secs).unwrap_or("");
                     let fmt = self.time_fmt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
-                    let naive = NaiveDateTime::parse_from_str(time_str, fmt)?;
-                    DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
+                    parse_local_in_tz(time_str, fmt, UTC)
                 },
             };
 
@@ -234,7 +237,7 @@ impl InstrumentConfig {
         }
 
         // Sort timestamps and align data accordingly
-        let mut datetime_sorted: HashMap<String, Vec<DateTime<Utc>>> = HashMap::new();
+        let mut datetime_sorted: HashMap<String, Vec<DateTime<Tz>>> = HashMap::new();
         let mut diag_sorted: HashMap<String, Vec<i64>> = HashMap::new();
         // let mut diag_sorted: Vec<i64> = Vec::new();
         let mut sorted_gas_data: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
@@ -285,123 +288,20 @@ impl InstrumentConfig {
             diag: diag_sorted,
         })
     }
-    // pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
-    //     let file = File::open(filename)?;
-    //     let mut rdr = csv::ReaderBuilder::new()
-    //         .delimiter(self.sep)
-    //         .has_headers(self.has_header)
-    //         .flexible(true)
-    //         .from_reader(file);
-    //
-    //     let mut instrument_serial = String::new();
-    //
-    //     if let Some(result) = rdr.records().next() {
-    //         instrument_serial = result?.get(1).unwrap_or("").to_string();
-    //     }
-    //
-    //     for _ in 0..self.skiprows {
-    //         rdr.records().next();
-    //     }
-    //
-    //     let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
-    //     let mut diag: Vec<i64> = Vec::new();
-    //     let mut datetime: Vec<DateTime<Utc>> = Vec::new();
-    //     // let mut time_sources: Vec<TimeSource> = Vec::new();
-    //     let mut header = csv::StringRecord::new();
-    //
-    //     if let Some(result) = rdr.records().next() {
-    //         header = result?;
-    //     }
-    //
-    //     let mut gas_indices: HashMap<GasType, usize> = HashMap::new();
-    //     let idx_diag = header.iter().position(|h| h == self.diag_col).unwrap_or(0);
-    //     let idx_secs = header.iter().position(|h| h == self.time_col).unwrap_or(0);
-    //     let idx_nsecs = header.iter().position(|h| h == self.nsecs_col).unwrap_or(0);
-    //
-    //     for gas_col in &self.gas_cols {
-    //         if let Some((i, _)) = header.iter().enumerate().find(|(_, h)| h == gas_col) {
-    //             if let Ok(gas_type) = gas_col.parse::<GasType>() {
-    //                 gas_indices.insert(gas_type, i);
-    //                 gas_data.insert(gas_type, Vec::new());
-    //             } else {
-    //                 eprintln!("Warning: Could not parse gas column '{}' as GasType", gas_col);
-    //             }
-    //         } else {
-    //             eprintln!("Warning: Gas column '{}' not found in header", gas_col);
-    //         }
-    //     }
-    //
-    //     for record in rdr.records().skip(self.skip_after_header) {
-    //         let record = record?;
-    //
-    //         for (&gas_type, &idx) in &gas_indices {
-    //             let value = record.get(idx).unwrap_or("NaN").parse::<f64>().unwrap_or(f64::NAN);
-    //             if let Some(gas_vector) = gas_data.get_mut(&gas_type) {
-    //                 gas_vector.push(value);
-    //             }
-    //         }
-    //
-    //         if let Ok(val) = record.get(idx_diag).unwrap_or("0").parse::<i64>() {
-    //             diag.push(val);
-    //         }
-    //
-    //         let timestamp = match self.time_source {
-    //             TimeSourceKind::Seconds => {
-    //                 let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
-    //                 parse_secnsec_to_dt(sec, 0)
-    //             },
-    //             TimeSourceKind::SecondsAndNanos => {
-    //                 let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
-    //                 let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<i64>()?;
-    //                 parse_secnsec_to_dt(sec, nsec)
-    //             },
-    //             TimeSourceKind::StringFormat => {
-    //                 let time_str = record.get(idx_secs).unwrap_or("");
-    //                 let fmt = self.time_fmt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
-    //                 let naive = NaiveDateTime::parse_from_str(time_str, fmt)?;
-    //                 DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc)
-    //             },
-    //         };
-    //         datetime.push(timestamp);
-    //     }
-    //
-    //     let mut indices: Vec<usize> = (0..datetime.len()).collect();
-    //     indices.sort_by_key(|&i| datetime[i]);
-    //
-    //     let datetime: Vec<_> = indices.iter().map(|&i| datetime[i]).collect();
-    //     let diag: Vec<_> = indices.iter().map(|&i| diag[i]).collect();
-    //
-    //     let mut sorted_gas_data: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
-    //     for (&gas_type, values) in &gas_data {
-    //         let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
-    //         sorted_gas_data.insert((gas_type, instrument_serial.clone()), sorted);
-    //     }
-    //     let mut model_key = HashMap::new();
-    //     model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
-    //
-    //     Ok(GasData {
-    //         header,
-    //         instrument_model: self.model.clone(),
-    //         instrument_serial,
-    //         model_key,
-    //         datetime,
-    //         gas: sorted_gas_data,
-    //         diag,
-    //     })
-    // }
 }
 
-pub fn parse_secnsec_to_dt(sec: i64, nsec: i64) -> DateTime<Utc> {
-    match Helsinki.timestamp_opt(sec, nsec as u32) {
-        LocalResult::Single(dt) => return dt.with_timezone(&Utc),
-        LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&Utc),
+pub fn parse_secnsec_to_dt(sec: i64, nsec: i64, tz_str: String) -> DateTime<Tz> {
+    let tz: Tz = tz_str.parse().expect("Invalid timezone string");
+    match tz.timestamp_opt(sec, nsec as u32) {
+        LocalResult::Single(dt) => return dt.with_timezone(&UTC),
+        LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&UTC),
         LocalResult::None => {
             eprintln!("Impossible local time: sec={} nsec={}", sec, nsec);
         },
     };
 
     // Default fallback timestamp if parsing fails
-    Utc.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
+    UTC.timestamp_opt(0, 0).single().unwrap() // Returns Unix epoch (1970-01-01 00:00:00 UTC)
 }
 
 pub fn get_instrument_by_model(model: InstrumentType) -> Option<InstrumentConfig> {
@@ -409,5 +309,20 @@ pub fn get_instrument_by_model(model: InstrumentType) -> Option<InstrumentConfig
         InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
         InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
         _ => None,
+    }
+}
+
+fn parse_local_in_tz<Tz: TimeZone>(time_str: &str, fmt: &str, tz: Tz) -> chrono::DateTime<Tz> {
+    let naive = NaiveDateTime::parse_from_str(time_str, fmt).unwrap();
+    match tz.from_local_datetime(&naive) {
+        LocalResult::Single(dt) => dt,
+        LocalResult::Ambiguous(a, b) => {
+            // pick one or surface an error; here we choose the earlier
+            a
+        },
+        LocalResult::None => {
+            // invalid local time (skipped by DST); decide how to handle
+            tz.from_local_datetime(&(naive - chrono::Duration::hours(1))).unwrap()
+        },
     }
 }

@@ -1,8 +1,10 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::gastype::GasType;
 use crate::ui::main_app::AppEvent;
+use crate::ui::tz_picker::{timezone_combo, TimezonePickerState};
 use crate::ui::validation_ui::Mode;
 use crate::InstrumentType;
+use chrono_tz::Tz;
 use std::error::Error;
 use std::fmt;
 use std::process;
@@ -32,6 +34,7 @@ pub struct Project {
     pub deadband: f64,
     pub min_calc_len: f64,
     pub mode: Mode,
+    pub tz: Tz,
     pub upload_from: Option<InstrumentType>,
 }
 
@@ -45,6 +48,7 @@ impl Default for Project {
             deadband: 0.0,
             min_calc_len: 0.0,
             mode: Mode::default(),
+            tz: Tz::UTC,
             upload_from: None,
         }
     }
@@ -75,8 +79,8 @@ impl Project {
             conn = Connection::open(db_path.unwrap()).ok()?;
         }
 
-        let result: Result<(String, String, String, usize, f64, f64, u8), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode FROM projects WHERE project_id = ?",
+        let result: Result<(String, String, String, usize, f64, f64, u8, String), _> = conn.query_row(
+            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode, tz FROM projects WHERE project_id = ?",
             [name],
             |row| Ok((
                 row.get(0)?, // project_id
@@ -86,6 +90,7 @@ impl Project {
                 row.get(4)?, // deadband
                 row.get(5)?, // min_calc_len
                 row.get(6)?, // mode
+                row.get(7)?, // tz
             )),
         );
 
@@ -97,10 +102,13 @@ impl Project {
             deadband,
             min_calc_len,
             mode_i,
+            tz_str,
         ) = result.ok()?;
 
         let main_gas = GasType::from_int(gas_i);
         let mode = Mode::from_int(mode_i)?;
+
+        let tz = tz_str.parse().expect("Invalid timezone string");
         // let instrument = InstrumentType::from_str(&instrument_string);
         // let instrument =
         //     instrument_string.parse::<InstrumentType>().expect("Invalid instrument type");
@@ -121,6 +129,7 @@ impl Project {
             deadband,
             min_calc_len,
             mode,
+            tz,
             upload_from: None,
         })
     }
@@ -167,6 +176,9 @@ pub struct ProjectApp {
     deadband: f64,
     min_calc_len: f64,
     mode: Mode,
+    tz_state: TimezonePickerState,
+    project_timezone: Option<Tz>, // store the choice (or keep as String if you prefer)
+    project_timezone_str: String,
     message: Option<String>,
 }
 
@@ -181,6 +193,9 @@ impl Default for ProjectApp {
             main_gas: Some(GasType::default()),
             min_calc_len: MIN_CALC_AREA_RANGE,
             deadband: 30.,
+            tz_state: TimezonePickerState::default(),
+            project_timezone: None,
+            project_timezone_str: String::new(),
             mode: Mode::default(),
             message: None,
         }
@@ -243,6 +258,28 @@ impl ProjectApp {
 
         ui.label("Project name:");
         ui.text_edit_singleline(&mut self.project_name);
+
+        ui.add_space(6.0);
+
+        ui.label("Project display timezone");
+        ui.label("Data will be shown in this timezone");
+        if let Some(tz) = timezone_combo(ui, "project_timezone_combo_v031", &mut self.tz_state) {
+            self.project_timezone = Some(tz);
+            self.project_timezone_str = tz.to_string();
+        }
+        if let Some(tz) = self.project_timezone {
+            ui.label(format!("Selected timezone: {}", tz));
+        } else {
+            ui.label("No timezone selected");
+        }
+
+        if ui.button("Clear timezone").clicked() {
+            self.project_timezone_str = String::new();
+            self.project_timezone = None;
+            self.tz_state.selected = None;
+            self.tz_state.query.clear();
+        }
+        ui.add_space(6.0);
 
         ui.label("Select instrument:");
         egui::ComboBox::from_label("Instrument")
@@ -307,7 +344,12 @@ impl ProjectApp {
         );
 
         ui.add_space(10.0);
-        if ui.button("Add Project").clicked() {
+
+        let enable_add_proj = !self.project_name.trim().is_empty()
+            && self.project_timezone.is_some()
+            && !self.selected_serial.trim().is_empty();
+
+        if ui.add_enabled(enable_add_proj, egui::Button::new("Add Project")).clicked() {
             if let Some(project) = self.build_project_from_form() {
                 if let Err(err) = self.save_project_to_db(&project) {
                     let msg = err
@@ -341,6 +383,7 @@ impl ProjectApp {
             deadband: self.deadband,
             mode: self.mode,
             min_calc_len: self.min_calc_len,
+            tz: self.project_timezone.unwrap_or_default(),
             upload_from: None,
         })
     }
@@ -377,6 +420,8 @@ impl ProjectApp {
             let mode = Mode::from_int(mode_int).unwrap();
             let deadband = row.get(*column_index.get("deadband").unwrap())?;
             let min_calc_len = row.get(*column_index.get("min_calc_len").unwrap())?;
+            let tz_str: String = row.get(*column_index.get("tz").unwrap())?;
+            let tz: Tz = tz_str.parse().expect("Invalid timezone string");
 
             self.all_projects.push(Project {
                 name,
@@ -386,15 +431,16 @@ impl ProjectApp {
                 min_calc_len,
                 main_gas,
                 mode,
+                tz,
                 upload_from: None,
             })
         }
 
         println!("loading current project");
-        let result: Result<(String, String,String, usize, f64, f64, u8), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode FROM projects WHERE current = 1",
+        let result: Result<(String, String,String, usize, f64, f64, u8, String), _> = conn.query_row(
+            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode, tz FROM projects WHERE current = 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?,row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+            |row| Ok((row.get(0)?, row.get(1)?,row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
         );
 
         match result {
@@ -406,6 +452,7 @@ impl ProjectApp {
                 deadband,
                 min_calc_len,
                 mode_i,
+                tz_str,
             )) => {
                 let name = project_id.clone();
                 let serial = instrument_serial.clone();
@@ -423,6 +470,7 @@ impl ProjectApp {
                         process::exit(1);
                     },
                 };
+                let tz: Tz = tz_str.parse().expect("Invalid timezone string");
 
                 let project = Project {
                     name,
@@ -432,6 +480,7 @@ impl ProjectApp {
                     deadband,
                     min_calc_len,
                     mode,
+                    tz,
                     upload_from: None,
                 };
 
@@ -465,6 +514,7 @@ impl ProjectApp {
         let deadband = self.deadband;
         let mode = self.mode.as_int();
         let min_calc_len = self.min_calc_len;
+        let tz = &self.project_timezone_str;
 
         let tx = conn.transaction()?; //   Use transaction for consistency
 
@@ -478,9 +528,9 @@ impl ProjectApp {
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
         tx.execute(
-            "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, deadband, min_calc_len, mode, current)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)",
-            params![&self.project_name, &main_gas, &instrument_model, &self.selected_serial, &deadband, min_calc_len, &mode],
+            "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, deadband, min_calc_len, mode, tz, current)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
+            params![&self.project_name, &main_gas, &instrument_model, &self.selected_serial, &deadband, min_calc_len, &mode, tz],
         )?;
 
         tx.commit()?; //   Commit the transaction

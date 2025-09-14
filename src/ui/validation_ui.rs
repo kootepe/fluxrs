@@ -9,6 +9,7 @@ use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
+use crate::ui::tz_picker::TimezonePickerState;
 
 use crate::data_formats::chamberdata::{
     insert_chamber_metadata, read_chamber_metadata, ChamberShape,
@@ -36,6 +37,7 @@ use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
@@ -278,6 +280,9 @@ pub struct ValidationApp {
     pub current_delta: f64,
     pub current_z_delta: f64,
     pub current_ydelta: f64,
+    pub tz_prompt_open: bool,
+    pub tz_state: TimezonePickerState, // from the widget we made
+    pub tz_for_files: Option<Tz>,      // what the user picked for these files
 }
 
 impl Default for ValidationApp {
@@ -386,6 +391,9 @@ impl Default for ValidationApp {
             current_delta: 0.,
             current_z_delta: 0.,
             current_ydelta: 0.,
+            tz_prompt_open: false,
+            tz_state: TimezonePickerState::default(),
+            tz_for_files: Some(UTC), // sensible default
         }
     }
 }
@@ -2634,6 +2642,7 @@ pub fn upload_gas_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
+    tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
@@ -2684,12 +2693,13 @@ pub fn upload_cycle_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
+    tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
-        match try_all_formats(path, project) {
+        match try_all_formats(path, &tz, project) {
             //   Pass `path` directly
             Ok((res, parser_name)) => {
                 if res.validate_lengths() {
@@ -2736,6 +2746,7 @@ pub fn upload_meteo_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
+    tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     let mut meteos = MeteoData::default();
@@ -2769,6 +2780,7 @@ pub fn upload_height_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
+    tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     let mut heights = HeightData::default();
@@ -2803,6 +2815,7 @@ pub fn upload_chamber_metadata_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
+    tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {

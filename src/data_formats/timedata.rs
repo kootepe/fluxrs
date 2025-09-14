@@ -3,6 +3,7 @@ use crate::ui::project_ui::Project;
 use crate::EqualLen;
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
+use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
 use std::io::Read;
@@ -24,16 +25,17 @@ impl TimeFormatParser for ParserType {
         }
     }
 
-    fn parse(&self, path: &Path, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+    fn parse(&self, path: &Path, tz: &Tz, project: &Project) -> Result<TimeData, Box<dyn Error>> {
         match self {
-            ParserType::Oulanka(p) => p.parse(path, project),
-            ParserType::Default(p) => p.parse(path, project),
+            ParserType::Oulanka(p) => p.parse(path, tz, project),
+            ParserType::Default(p) => p.parse(path, tz, project),
         }
     }
 }
 
 pub trait TimeFormatParser {
-    fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>>;
+    fn parse(&self, path: &Path, tz: &Tz, project_id: &Project)
+        -> Result<TimeData, Box<dyn Error>>;
 
     fn name(&self) -> &'static str;
 }
@@ -41,7 +43,7 @@ pub trait TimeFormatParser {
 #[derive(Debug)]
 pub struct TimeData {
     pub chamber_id: Vec<String>,
-    pub start_time: Vec<DateTime<Utc>>,
+    pub start_time: Vec<DateTime<Tz>>,
     pub close_offset: Vec<i64>,
     pub open_offset: Vec<i64>,
     pub end_offset: Vec<i64>,
@@ -82,7 +84,8 @@ impl OulankaManualFormat {
         &self,
         reader: R,
         path: &Path,
-        project_id: &Project,
+        tz: &Tz,
+        project: &Project,
     ) -> Result<TimeData, Box<dyn Error>> {
         let mut rdr =
             csv::ReaderBuilder::new().flexible(true).has_headers(false).from_reader(reader);
@@ -95,11 +98,11 @@ impl OulankaManualFormat {
         let mut measurement_time: i64 = 0;
 
         let mut chamber_id: Vec<String> = Vec::new();
-        let mut start_time: Vec<DateTime<Utc>> = Vec::new();
+        let mut start_time: Vec<DateTime<Tz>> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
-        let mut project: Vec<String> = Vec::new();
+        let mut project_vec: Vec<String> = Vec::new();
         let mut snow_in_chamber: Vec<f64> = Vec::new();
 
         let mut records = rdr.records();
@@ -153,7 +156,7 @@ impl OulankaManualFormat {
             match NaiveTime::parse_from_str(&record[1], "%H%M") {
                 Ok(naive_time) => {
                     let naive_dt = date.and_time(naive_time);
-                    let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
+                    let dt_utc = match tz.from_local_datetime(&naive_dt) {
                         LocalResult::Single(dt) => dt.with_timezone(&Utc),
                         LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
                         LocalResult::None => {
@@ -161,7 +164,9 @@ impl OulankaManualFormat {
                             continue;
                         },
                     };
-                    start_time.push(dt_utc - Duration::seconds(60));
+
+                    let dt_utc_hack = dt_utc.with_timezone(&UTC);
+                    start_time.push(dt_utc_hack - Duration::seconds(60));
                 },
                 Err(_) => {
                     println!(
@@ -192,7 +197,7 @@ impl OulankaManualFormat {
             close_offset.push(60);
             open_offset.push(measurement_time + 60);
             end_offset.push(measurement_time + 120);
-            project.push(project_id.name.to_owned());
+            project_vec.push(project.name.to_owned());
         }
 
         Ok(TimeData {
@@ -202,7 +207,7 @@ impl OulankaManualFormat {
             open_offset,
             end_offset,
             snow_depth: snow_in_chamber,
-            project,
+            project: project_vec,
             instrument_serial,
             instrument_model,
         })
@@ -213,9 +218,14 @@ impl TimeFormatParser for OulankaManualFormat {
         "Oulanka Manual Format"
     }
 
-    fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>> {
+    fn parse(
+        &self,
+        path: &Path,
+        tz: &Tz,
+        project_id: &Project,
+    ) -> Result<TimeData, Box<dyn Error>> {
         let file = std::fs::File::open(path)?;
-        self.parse_reader(file, path, project_id)
+        self.parse_reader(file, path, tz, project_id)
     }
 }
 
@@ -226,6 +236,7 @@ impl DefaultFormat {
         &self,
         reader: R,
         path: &Path,
+        tz: &Tz,
         project: &Project,
     ) -> Result<TimeData, Box<dyn Error>> {
         let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(reader);
@@ -233,7 +244,7 @@ impl DefaultFormat {
         let mut chamber_id: Vec<String> = Vec::new();
         let mut instrument_model: Vec<InstrumentType> = Vec::new();
         let mut instrument_serial: Vec<String> = Vec::new();
-        let mut start_time: Vec<DateTime<Utc>> = Vec::new();
+        let mut start_time: Vec<DateTime<Tz>> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
@@ -254,7 +265,8 @@ impl DefaultFormat {
                             process::exit(1)
                         },
                     };
-                    start_time.push(dt_utc)
+                    let dt_utc_hack = dt_utc.with_timezone(&UTC);
+                    start_time.push(dt_utc_hack)
                 },
                 Err(e) => {
                     println!("Failed to parse timestamp: {}", e);
@@ -294,9 +306,14 @@ impl TimeFormatParser for DefaultFormat {
         "Default time format"
     }
 
-    fn parse(&self, path: &Path, project_id: &Project) -> Result<TimeData, Box<dyn Error>> {
+    fn parse(
+        &self,
+        path: &Path,
+        tz: &Tz,
+        project_id: &Project,
+    ) -> Result<TimeData, Box<dyn Error>> {
         let file = std::fs::File::open(path)?;
-        self.parse_reader(file, path, project_id)
+        self.parse_reader(file, path, tz, project_id)
     }
 }
 impl Default for TimeData {
@@ -345,7 +362,7 @@ impl TimeData {
     pub fn iter(
         &self,
     ) -> impl Iterator<
-        Item = (&String, &DateTime<Utc>, &i64, &i64, &i64, &f64, &InstrumentType, &String, &String),
+        Item = (&String, &DateTime<Tz>, &i64, &i64, &i64, &f64, &InstrumentType, &String, &String),
     > {
         self.chamber_id
             .iter()
@@ -371,7 +388,7 @@ pub fn query_cycles(
     conn: &Connection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    project: String,
+    project: Project,
 ) -> Result<TimeData> {
     println!("Querying cycles");
     let mut stmt = conn.prepare(
@@ -384,7 +401,7 @@ pub fn query_cycles(
 
     let mut times = TimeData::new();
     let cycle_iter =
-        stmt.query_map(params![start.timestamp(), end.timestamp(), project], |row| {
+        stmt.query_map(params![start.timestamp(), end.timestamp(), project.name], |row| {
             let chamber_id: String = row.get(0)?;
             let start_timestamp: i64 = row.get(1)?; // Start time as UNIX timestamp
             let close_offset: i64 = row.get(2)?;
@@ -409,7 +426,8 @@ pub fn query_cycles(
                     ));
                 },
             };
-            let start_time = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+            let utc_start = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+            let start_time = utc_start.with_timezone(&project.tz);
             times.chamber_id.push(chamber_id);
             times.start_time.push(start_time);
             times.close_offset.push(close_offset);
@@ -438,7 +456,7 @@ pub async fn query_cycles_async(
 ) -> Result<TimeData> {
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_cycles(&conn, start, end, project.name)
+        query_cycles(&conn, start, end, project)
     })
     .await;
     match result {
@@ -547,6 +565,7 @@ pub fn insert_cycles(
 
 pub fn try_all_formats(
     path: &Path,
+    tz: &Tz,
     project: &Project,
 ) -> Result<(TimeData, &'static str), Box<dyn Error>> {
     let parsers =
@@ -554,7 +573,7 @@ pub fn try_all_formats(
 
     for parser in parsers {
         println!("Trying parser: {}", parser.name());
-        match parser.parse(path, project) {
+        match parser.parse(path, tz, project) {
             Ok(data) => return Ok((data, parser.name())),
             Err(e) => {
                 continue;
@@ -592,7 +611,7 @@ CH2,1250,0";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
 
         assert!(result.is_ok(), "Expected successful parsing");
         let data = result.unwrap();
@@ -612,7 +631,7 @@ CH1,1234,0";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
 
         assert!(result.is_err(), "Expected parsing to fail on invalid date");
     }
@@ -629,7 +648,7 @@ CH1,1234,0";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
 
         assert!(result.is_err(), "Expected parsing to fail on invalid instrument model");
     }
@@ -647,7 +666,7 @@ CH2,1250,";
 
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &mock_project());
+        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
 
         assert!(result.is_ok());
         let data = result.unwrap();
