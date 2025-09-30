@@ -14,8 +14,8 @@ use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 
-use chrono::TimeZone;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use chrono_tz::Tz;
 use glob::glob;
 use rusqlite::{Connection, Result};
 use std::error::Error;
@@ -46,33 +46,36 @@ pub struct Config {
     pub deadband: Option<f64>,
     pub min_calc_len: Option<f64>,
     pub mode: Option<Mode>,
+    pub tz: Option<Tz>,
 }
 impl fmt::Debug for Config {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // let len: usize = self.measurement_dt_v.len();
         write!(
             f,
-            "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+            "name: {:?} \ninstrument: {:?} \nserial: {:?} \ngas: {:?} \ndeadband: {:?} \nmin_calc_len: {:?} \nmode: {:?} \ntz: {:?}",
             self.name,
             self.instrument,
             self.instrument_serial,
             self.main_gas,
             self.deadband,
             self.min_calc_len,
-            self.mode
+            self.mode,
+            self.tz
         )
     }
 }
 impl Config {
     pub fn print_proj(&self) {
         println!(
-            "{:?} {:?} {:?} {:?} {:?} {:?}",
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
             self.name,
             self.instrument_serial,
             self.main_gas,
             self.deadband,
             self.min_calc_len,
-            self.mode
+            self.tz,
+            self.mode,
         );
     }
     pub fn build(mut args: impl Iterator<Item = String>) -> Result<Config, &'static str> {
@@ -96,6 +99,7 @@ impl Config {
         let mut deadband = None;
         let mut min_calc_len = None;
         let mut mode = None;
+        let mut tz = None;
 
         while let Some(arg) = args.next() {
             match arg.as_str() {
@@ -130,6 +134,11 @@ impl Config {
                     // if let Some(gas_str) = args.next() {
                     //     main_gas = gas_str.parse::<GasType>().ok();
                     // }
+                },
+                "--tz" => {
+                    if let Some(tz_str) = args.next() {
+                        tz = tz_str.parse().ok();
+                    }
                 },
                 "--deadband" => {
                     if let Some(db) = args.next() {
@@ -254,6 +263,7 @@ impl Config {
             main_gas,
             deadband,
             min_calc_len,
+            tz,
             mode,
         })
     }
@@ -266,6 +276,7 @@ impl Config {
                 Some(main_gas),
                 Some(deadband),
                 Some(min_calc_len),
+                Some(tz_str),
                 Some(mode),
             ) = (
                 &self.name,
@@ -274,6 +285,7 @@ impl Config {
                 self.main_gas,
                 self.deadband,
                 self.min_calc_len,
+                self.tz,
                 &self.mode,
             ) {
                 let project = Project {
@@ -284,6 +296,7 @@ impl Config {
                     deadband,
                     min_calc_len,
                     mode: *mode,
+                    tz: tz_str,
                     upload_from: None,
                 };
 
@@ -335,7 +348,13 @@ impl Config {
                         },
                         DataType::Cycle => {
                             if !files.is_empty() {
-                                upload_cycle_data_async(files, &mut conn, &project, sender_clone);
+                                upload_cycle_data_async(
+                                    files,
+                                    &mut conn,
+                                    &project,
+                                    self.tz,
+                                    sender_clone,
+                                );
                             } else {
                                 println!("No files found with {}", self.paths.as_ref().unwrap(),)
                             }
