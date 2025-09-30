@@ -60,7 +60,7 @@ type TimeDataSet = TimeData;
 // height_data: HeightData,
 // chamber_data: HashMap<String, ChamberShape>,
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum DataType {
     Gas,
     Cycle,
@@ -88,6 +88,16 @@ pub enum Adjuster {
     CloseLag,
 }
 
+#[derive(Debug)]
+pub struct ParseModeError(String);
+
+impl fmt::Display for ParseModeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for ParseModeError {}
+
 // how to find the flux calculation area
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub enum Mode {
@@ -96,14 +106,14 @@ pub enum Mode {
 }
 
 impl FromStr for Mode {
-    type Err = ();
+    type Err = ParseModeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
             "deadband" => Ok(Mode::AfterDeadband),
             "pearsons" => Ok(Mode::BestPearsonsR),
             "bestr" => Ok(Mode::BestPearsonsR),
-            _ => Err(()),
+            other => Err(ParseModeError(format!("invalid mode: {other}"))),
         }
     }
 }
