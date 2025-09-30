@@ -12,6 +12,16 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
+#[derive(Debug)]
+pub struct ParseInstrumentError(String);
+
+impl fmt::Display for ParseInstrumentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for ParseInstrumentError {}
+
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InstrumentType {
     #[default]
@@ -29,7 +39,7 @@ impl fmt::Display for InstrumentType {
 }
 
 impl FromStr for InstrumentType {
-    type Err = ();
+    type Err = ParseInstrumentError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
@@ -37,7 +47,7 @@ impl FromStr for InstrumentType {
             "li-7820" => Ok(InstrumentType::LI7820),
             "li7810" => Ok(InstrumentType::LI7810),
             "li7820" => Ok(InstrumentType::LI7820),
-            _ => Err(()),
+            other => Err(ParseInstrumentError(format!("invalid instrument: {other}"))),
         }
     }
 }
