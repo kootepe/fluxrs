@@ -2,6 +2,16 @@ use egui::Color32;
 use std::fmt;
 use std::str::FromStr;
 
+#[derive(Debug)]
+pub struct ParseGasError(String);
+
+impl fmt::Display for ParseGasError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl std::error::Error for ParseGasError {}
+
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub enum GasType {
     #[default]
@@ -23,7 +33,7 @@ impl fmt::Display for GasType {
 }
 
 impl FromStr for GasType {
-    type Err = ();
+    type Err = ParseGasError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
@@ -31,7 +41,7 @@ impl FromStr for GasType {
             "co2" => Ok(GasType::CO2),
             "h2o" => Ok(GasType::H2O),
             "n2o" => Ok(GasType::N2O),
-            _ => Err(()),
+            other => Err(ParseGasError(format!("Invalid gas: {other}"))),
         }
     }
 }
