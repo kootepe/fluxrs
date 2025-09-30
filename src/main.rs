@@ -3,7 +3,10 @@ use std::env;
 use std::path::Path;
 use std::process;
 
-use fluxrs::cmd::Config;
+use clap::Parser;
+
+use fluxrs::cmd::cli::Cli;
+use fluxrs::cmd::config::Config;
 use fluxrs::fluxes_schema;
 use fluxrs::ui::main_frame::MyApp;
 
@@ -18,7 +21,7 @@ fn main() -> eframe::Result {
         }
     } else {
         match fluxes_schema::migrate_db() {
-            Ok(0) => println!("No migrations necessary."),
+            Ok(0) => (),
             Ok(1) => println!("Successfully migrated db tables."),
             Ok(_) => println!("Unknown success code."),
             Err(e) => {
@@ -30,11 +33,15 @@ fn main() -> eframe::Result {
 
     let inputs = env::args();
     if inputs.len() > 1 {
-        let config = Config::build(inputs).unwrap_or_else(|err| {
-            println!("Parsing problem {err}");
-            process::exit(1)
-        });
-        config.run();
+        let cli = Cli::parse();
+
+        // Convert into your existing Config and run the current pipeline
+        let cfg: crate::Config = cli.into_config();
+        if let Err(e) = cfg.run() {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
     }
 
     let app = MyApp::new();
