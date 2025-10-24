@@ -25,12 +25,15 @@ use crate::gastype::GasType;
 use crate::instruments::InstrumentConfig;
 use crate::instruments::InstrumentType;
 use crate::keybinds::{Action, KeyBindings};
-use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::processevent::{
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+};
 use crate::ui::project_ui::Project;
 use crate::Cycle;
 use crate::EqualLen;
 use std::str::FromStr;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
 use eframe::egui::{Color32, Context, Label, Stroke, TextWrapMode, Ui};
 use egui_file::FileDialog;
@@ -157,7 +160,7 @@ impl std::fmt::Debug for Mode {
     }
 }
 type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
-type ProgReceiver = Option<tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>;
+type ProgReceiver = Option<UnboundedReceiver<ProcessEvent>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GasKey {
@@ -1879,104 +1882,18 @@ impl ValidationApp {
 
         ui.heading("Plot selection");
     }
-
     pub fn handle_progress_messages(&mut self) {
-        if let Some(receiver) = &mut self.progress_receiver {
-            while let Ok(msg) = receiver.try_recv() {
-                match msg {
-                    ProcessEvent::Query(query_event) => match query_event {
-                        QueryEvent::InitStarted => {
-                            self.init_in_progress = true;
-                        },
-                        QueryEvent::InitEnded => {
-                            self.init_in_progress = false;
-                        },
-                        QueryEvent::QueryComplete => {
-                            self.query_in_progress = false;
-                            self.log_messages.push_front("Finished queries.".to_owned());
-                        },
-                        QueryEvent::NoGasData(start_time) => {
-                            self.log_messages.push_front(format!(
-                                "No gas data found for cycle at {}",
-                                start_time
-                            ));
-                        },
-                        QueryEvent::NoGasDataDay(day) => {
-                            self.log_messages
-                                .push_front(format!("No gas data found for cycles at day {}", day));
-                        },
-                    },
+        if let Some(mut receiver) = self.progress_receiver.take() {
+            drain_progress_messages(self, &mut receiver);
 
-                    ProcessEvent::Progress(progress_event) => match progress_event {
-                        ProgressEvent::Rows(current, total) => {
-                            self.cycles_state = Some((current, total));
-                            self.cycles_progress += current;
-                        },
-                        ProgressEvent::Day(date) => {
-                            self.log_messages.push_front(format!("Loaded cycles from {}", date));
-                        },
-                        ProgressEvent::NoGas(msg) => {
-                            self.log_messages.push_front(format!("Gas missing: {}", msg));
-                        },
-                    },
-
-                    ProcessEvent::Read(read_event) => match read_event {
-                        ReadEvent::File(filename) => {
-                            self.log_messages.push_front(format!("Read file: {}", filename));
-                        },
-                        ReadEvent::FileRows(filename, rows) => {
-                            self.log_messages
-                                .push_front(format!("Read file: {} with {} rows", filename, rows));
-                        },
-                        ReadEvent::RowFail(row_msg, msg) => {
-                            self.log_messages.push_front(format!("{}", row_msg));
-                            self.log_messages.push_front(format!("{}", msg));
-                        },
-                        ReadEvent::FileFail(filename, e) => {
-                            self.log_messages.push_front(format!(
-                                "Failed to read file {}, error: {}",
-                                filename, e
-                            ));
-                        },
-                    },
-
-                    ProcessEvent::Insert(insert_event) => match insert_event {
-                        InsertEvent::Ok(rows) => {
-                            self.log_messages.push_front(format!("Inserted {} rows", rows));
-                        },
-                        InsertEvent::OkSkip(rows, duplicates) => {
-                            self.log_messages.push_front(format!(
-                                "Inserted {} rows, skipped {} duplicates.",
-                                rows, duplicates
-                            ));
-                        },
-                        InsertEvent::Fail(e) => {
-                            self.log_messages.push_front(format!("Failed to insert rows: {}", e));
-                        },
-                    },
-
-                    // ProcessEvent::Error(e) | ProcessEvent::NoGasError(e) => {
-                    //     self.log_messages.push_front(format!("Error: {}", e));
-                    // },
-                    ProcessEvent::Done(result) => {
-                        match result {
-                            Ok(()) => {
-                                self.log_messages.push_front("All processing finished.".into());
-                            },
-                            Err(e) => {
-                                self.log_messages
-                                    .push_front(format!("Processing finished with error: {}", e));
-                            },
-                        }
-                        self.cycles_progress = 0;
-                        self.init_in_progress = false;
-                        self.init_enabled = true;
-                        self.query_in_progress = false;
-                    },
-                }
-            }
+            self.progress_receiver = Some(receiver);
         }
     }
+    // pub fn handle_progress_messages(&mut self) {
+    //     if let Some(receiver) = &mut self.progress_receiver {
+    //         drain_progress_messages(self, receiver);
+    //     }
+    // }
 
     pub fn get_project(&self) -> &Project {
         self.selected_project.as_ref().unwrap()
@@ -2409,6 +2326,97 @@ impl ValidationApp {
     }
 }
 
+impl ProcessEventSink for ValidationApp {
+    fn on_query_event(&mut self, ev: &QueryEvent) {
+        match ev {
+            QueryEvent::InitStarted => {
+                self.init_in_progress = true;
+            },
+            QueryEvent::InitEnded => {
+                self.init_in_progress = false;
+            },
+            QueryEvent::QueryComplete => {
+                self.query_in_progress = false;
+                self.log_messages.push_front("Finished queries.".to_owned());
+            },
+            QueryEvent::NoGasData(start_time) => {
+                self.log_messages
+                    .push_front(format!("No gas data found for cycle at {}", start_time));
+            },
+            QueryEvent::NoGasDataDay(day) => {
+                self.log_messages
+                    .push_front(format!("No gas data found for cycles at day {}", day));
+            },
+        }
+    }
+
+    fn on_progress_event(&mut self, ev: &ProgressEvent) {
+        match ev {
+            ProgressEvent::Rows(current, total) => {
+                self.cycles_state = Some((*current, *total));
+                self.cycles_progress += current;
+            },
+            ProgressEvent::Day(date) => {
+                self.log_messages.push_front(format!("Loaded cycles from {}", date));
+            },
+            ProgressEvent::NoGas(msg) => {
+                self.log_messages.push_front(format!("Gas missing: {}", msg));
+            },
+        }
+    }
+
+    fn on_read_event(&mut self, ev: &ReadEvent) {
+        match ev {
+            ReadEvent::File(filename) => {
+                self.log_messages.push_front(format!("Read file: {}", filename));
+            },
+            ReadEvent::FileRows(filename, rows) => {
+                self.log_messages.push_front(format!("Read file: {} with {} rows", filename, rows));
+            },
+            ReadEvent::RowFail(row_msg, msg) => {
+                self.log_messages.push_front(format!("{}", row_msg));
+                self.log_messages.push_front(format!("{}", msg));
+            },
+            ReadEvent::FileFail(filename, e) => {
+                self.log_messages
+                    .push_front(format!("Failed to read file {}, error: {}", filename, e));
+            },
+        }
+    }
+
+    fn on_insert_event(&mut self, ev: &InsertEvent) {
+        match ev {
+            InsertEvent::Ok(rows) => {
+                self.log_messages.push_front(format!("Inserted {} rows", rows));
+            },
+            InsertEvent::OkSkip(rows, duplicates) => {
+                self.log_messages.push_front(format!(
+                    "Inserted {} rows, skipped {} duplicates.",
+                    rows, duplicates
+                ));
+            },
+            InsertEvent::Fail(e) => {
+                self.log_messages.push_front(format!("Failed to insert rows: {}", e));
+            },
+        }
+    }
+
+    fn on_done(&mut self, res: &Result<(), String>) {
+        match res {
+            Ok(()) => {
+                self.log_messages.push_front("All processing finished.".into());
+            },
+            Err(e) => {
+                self.log_messages.push_front(format!("Processing finished with error: {}", e));
+            },
+        }
+
+        self.cycles_progress = 0;
+        self.init_in_progress = false;
+        self.init_enabled = true;
+        self.query_in_progress = false;
+    }
+}
 pub fn is_inside_polygon(
     point: egui_plot::PlotPoint,
     start_x: f64,
@@ -2460,7 +2468,7 @@ pub struct Datasets {
 }
 pub struct Infra {
     pub conn: Arc<Mutex<rusqlite::Connection>>,
-    pub progress: mpsc::UnboundedSender<ProcessEvent>,
+    pub progress: UnboundedSender<ProcessEvent>,
 }
 
 pub struct Processor {
@@ -2861,4 +2869,30 @@ pub fn keybind_triggered(
         }
     }
     false
+}
+pub fn drain_progress_messages<T: ProcessEventSink>(
+    sink: &mut T,
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>,
+) {
+    loop {
+        match receiver.try_recv() {
+            Ok(msg) => match msg {
+                ProcessEvent::Query(ev) => sink.on_query_event(&ev),
+                ProcessEvent::Progress(ev) => sink.on_progress_event(&ev),
+                ProcessEvent::Read(ev) => sink.on_read_event(&ev),
+                ProcessEvent::Insert(ev) => sink.on_insert_event(&ev),
+                ProcessEvent::Done(res) => sink.on_done(&res),
+            },
+
+            Err(TryRecvError::Empty) => {
+                // nothing waiting right now -> we're done draining for this tick
+                break;
+            },
+
+            Err(TryRecvError::Disconnected) => {
+                // channel is closed, also done. you *could* choose to store a flag here.
+                break;
+            },
+        }
+    }
 }
