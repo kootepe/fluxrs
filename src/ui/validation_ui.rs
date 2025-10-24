@@ -2499,6 +2499,7 @@ impl Processor {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let processed = Arc::new(AtomicUsize::new(0));
 
+        let mut total_inserts = 0;
         while !time_chunks.is_empty() || !active_tasks.is_empty() {
             while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
                 let chunk = time_chunks.pop_front().unwrap();
@@ -2554,11 +2555,12 @@ impl Processor {
                 Ok(Ok(cycles)) => {
                     if !cycles.is_empty() {
                         let mut conn = self.infra.conn.lock().unwrap();
-                        if let Ok((_, _)) = insert_fluxes_ignore_duplicates(
+                        if let Ok((inserts, _)) = insert_fluxes_ignore_duplicates(
                             &mut conn,
                             &cycles,
                             self.project.name.clone(),
                         ) {
+                            total_inserts += inserts;
                             for cycle_opt in cycles.into_iter().flatten() {
                                 let cycle_id: i64 = conn.query_row(
                                 "SELECT id FROM fluxes
@@ -2589,6 +2591,11 @@ impl Processor {
             }
         }
 
+        let progress_sender = self.infra.progress.clone();
+        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
+            " rows of fluxes inserted.".to_owned(),
+            total_inserts,
+        )));
         // Send Done exactly once, here.
         let _ = self.infra.progress.send(ProcessEvent::Done(Ok(())));
     }
@@ -2786,7 +2793,10 @@ pub fn upload_meteo_data_async(
     }
     match insert_meteo_data(conn, &project.name, &meteos) {
         Ok(row_count) => {
-            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(row_count)));
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
+                " of meteo data inserted.".to_owned(),
+                row_count,
+            )));
         },
         Err(e) => {
             let msg = format!("Failed to insert cycle data to db.Error {}", e);
@@ -2820,7 +2830,10 @@ pub fn upload_height_data_async(
     }
     match insert_height_data(conn, &project.name, &heights) {
         Ok(row_count) => {
-            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(row_count)));
+            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
+                " of height data inserted.".to_owned(),
+                row_count,
+            )));
         },
         Err(e) => {
             let msg = format!("Failed to insert cycle data to db.Error {}", e);
