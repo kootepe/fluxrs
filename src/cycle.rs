@@ -1921,6 +1921,7 @@ pub fn insert_fluxes_ignore_duplicates(
     project: String,
 ) -> Result<(usize, usize)> {
     let mut inserted = 0;
+    // BUG: figure out this skipped logic... it starts in cycle processing when inserting nones
     let mut skipped = 0;
     let tx = conn.transaction()?; // Start transaction for bulk insertion
 
@@ -2960,7 +2961,7 @@ where
             .build()?;
 
         let Some(cur_data) = gas_by_day.get(&day).map(|v| v.borrow()) else {
-            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(day)));
+            // let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(day)));
             cycle_vec.push(None);
             continue;
         };
