@@ -197,6 +197,7 @@ impl Config {
     }
 
     fn run_process(&mut self, r: &Run) -> Result<(), AppError> {
+        self.handle_progress_messages();
         let dbp_str = self.db_path.display().to_string();
         let project = Project::load(Some(dbp_str.clone()), &r.project)
             .ok_or_else(|| AppError::Msg(format!("No project found with name: {}", r.project)))?;
@@ -227,7 +228,6 @@ impl Config {
         //         self.handle_progress_messages();
         //     }
         // });
-        self.handle_progress_messages();
 
         let handle = runtime.spawn(async move {
             let cycles_result =
@@ -255,16 +255,34 @@ impl Config {
                             Infra { conn: arc_conn, progress: progress_sender },
                         );
                         processor.run_processing_dynamic(times).await;
+                    } else if times.start_time.is_empty() && gas_data.is_empty() {
+                        let msg = "No gas data or cycles found.";
+                        let _ = progress_sender.send(ProcessEvent::Done(Err(msg.to_owned())));
+                    } else if times.start_time.is_empty() {
+                        let msg = "No cycles found.";
+                        let _ = progress_sender.send(ProcessEvent::Done(Err(msg.to_owned())));
                     } else {
-                        let _ = progress_sender
-                            .send(ProcessEvent::Done(Err("No data available.".to_owned())));
+                        let msg = "No gas data found.";
+                        let _ = progress_sender.send(ProcessEvent::Done(Err(msg.to_owned())));
                     }
                 },
                 e => eprintln!("Failed to query database: {:?}", e),
             }
         });
+        loop {
+            // drain anything that arrived since last tick
+            self.drain_progress_messages();
 
+            // if the async task is finished, break out
+            if handle.is_finished() {
+                break;
+            }
+
+            // avoid busy-spinning a core at 100%
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         runtime.block_on(handle).unwrap();
+        self.drain_progress_messages();
         // let _ = progress_receiver_thread.join();
         Ok(())
     }
@@ -277,6 +295,32 @@ impl Config {
 
             // Step 3: put it back
             self.progress_receiver = Some(receiver);
+        }
+    }
+    fn apply_single_event(&mut self, msg: ProcessEvent) {
+        match msg {
+            ProcessEvent::Query(ev) => self.on_query_event(&ev),
+            ProcessEvent::Progress(ev) => self.on_progress_event(&ev),
+            ProcessEvent::Read(ev) => self.on_read_event(&ev),
+            ProcessEvent::Insert(ev) => self.on_insert_event(&ev),
+            ProcessEvent::Done(res) => self.on_done(&res),
+        }
+    }
+    fn drain_progress_messages(&mut self) {
+        if let Some(mut rx) = self.progress_receiver.take() {
+            loop {
+                match rx.try_recv() {
+                    Ok(msg) => {
+                        self.apply_single_event(msg);
+                    },
+                    Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => {
+                        break;
+                    },
+                }
+            }
+
+            // put it back so we can keep using it later
+            self.progress_receiver = Some(rx);
         }
     }
 }
