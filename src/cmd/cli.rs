@@ -202,6 +202,7 @@ impl Cli {
             Commands::Project { cmd } => match cmd {
                 ProjectCmd::Create(args) => Config {
                     db_path,
+                    progress_receiver: None,
                     action: Action::ProjectCreate(ProjectCreate {
                         name: args.name,
                         instrument: args.instrument,
@@ -231,6 +232,7 @@ impl Cli {
 
                 Config {
                     db_path,
+                    progress_receiver: None,
                     action: Action::Upload(UploadCfg {
                         project,
                         file_type,
@@ -243,6 +245,7 @@ impl Cli {
 
             Commands::Run(run) => Config {
                 db_path,
+                progress_receiver: None,
                 action: Action::Run(RunCfg {
                     project: run.project,
                     instrument: run.instrument,

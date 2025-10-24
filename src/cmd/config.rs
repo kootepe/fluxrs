@@ -5,7 +5,9 @@ use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
-use crate::processevent::{InsertEvent, ProcessEvent, ProgressEvent, QueryEvent, ReadEvent};
+use crate::processevent::{
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+};
 use crate::ui::validation_ui::{
     upload_cycle_data_async, upload_gas_data_async, upload_height_data_async,
     upload_meteo_data_async, DataType,
@@ -21,14 +23,19 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use tokio::sync::mpsc;
+// use tokio::sync::mpsc;
+use std::sync::mpsc;
+use tokio::sync::mpsc::{
+    error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
+};
 
 /* =================== Public configuration types =================== */
-
-#[derive(Debug, Clone)]
+// std::sync::mpsc::Receiver<processevent::ProcessEvent>
+#[derive(Debug)]
 pub struct Config {
     pub db_path: PathBuf,
     pub action: Action,
+    pub progress_receiver: Option<UnboundedReceiver<ProcessEvent>>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,8 +92,8 @@ pub enum AppError {
 /* =================== Entry point =================== */
 
 impl Config {
-    pub fn run(&self) -> Result<(), AppError> {
-        match &self.action {
+    pub fn run(&mut self) -> Result<(), AppError> {
+        match &self.action.clone() {
             Action::ProjectCreate(p) => self.run_project_create(p),
             Action::Upload(u) => self.run_upload(u),
             Action::Run(r) => self.run_process(r),
@@ -123,12 +130,13 @@ impl Config {
         }
     }
 
-    fn run_upload(&self, u: &Upload) -> Result<(), AppError> {
+    fn run_upload(&mut self, u: &Upload) -> Result<(), AppError> {
         let dbp_str = self.db_path.display().to_string();
         let mut conn = Connection::open(&self.db_path)?;
 
-        let mut project = Project::load(Some(dbp_str.clone()), &u.project)
-            .ok_or_else(|| AppError::Msg(format!("No project found with name: {}", u.project)))?;
+        let mut project = Project::load(Some(dbp_str.clone()), &u.project).ok_or_else(|| {
+            AppError::Msg(format!("No project found in {} with name: {}", dbp_str, u.project))
+        })?;
 
         // prefer CLI tz, then project tz, then UTC
         let tz = u.tz.or(Some(project.tz)).unwrap_or(UTC);
@@ -161,13 +169,13 @@ impl Config {
             return Ok(());
         }
 
-        let (progress_sender, mut progress_receiver) =
-            tokio::sync::mpsc::unbounded_channel::<ProcessEvent>();
-        let progress_thread = std::thread::spawn(move || {
-            while let Some(event) = progress_receiver.blocking_recv() {
-                handle_progress_messages(event);
-            }
-        });
+        let (progress_sender, progress_receiver) = unbounded_channel::<ProcessEvent>();
+        self.progress_receiver = Some(progress_receiver);
+        // let progress_thread = std::thread::spawn(move || {
+        //     while let Some(event) = progress_receiver.blocking_recv() {
+        //         handle_progress_messages(event);
+        //     }
+        // });
 
         let sender_clone = progress_sender.clone();
         match u.file_type {
@@ -184,11 +192,11 @@ impl Config {
         }
 
         drop(progress_sender);
-        let _ = progress_thread.join();
+        // let _ = progress_thread.join();
         Ok(())
     }
 
-    fn run_process(&self, r: &Run) -> Result<(), AppError> {
+    fn run_process(&mut self, r: &Run) -> Result<(), AppError> {
         let dbp_str = self.db_path.display().to_string();
         let project = Project::load(Some(dbp_str.clone()), &r.project)
             .ok_or_else(|| AppError::Msg(format!("No project found with name: {}", r.project)))?;
@@ -208,16 +216,18 @@ impl Config {
 
         let arc_conn = Arc::new(Mutex::new(conn));
 
-        let (progress_sender, mut progress_receiver) = mpsc::unbounded_channel::<ProcessEvent>();
+        let (progress_sender, mut progress_receiver) = unbounded_channel::<ProcessEvent>();
+        self.progress_receiver = Some(progress_receiver);
 
         let proj = project.clone();
         let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(); // keep as-is (per your request to skip #8)
 
-        let progress_receiver_thread = std::thread::spawn(move || {
-            while let Some(msg) = progress_receiver.blocking_recv() {
-                handle_progress_messages(msg);
-            }
-        });
+        // let progress_receiver_thread = std::thread::spawn(move || {
+        //     while let Some(_) = progress_receiver.blocking_recv() {
+        //         self.handle_progress_messages();
+        //     }
+        // });
+        self.handle_progress_messages();
 
         let handle = runtime.spawn(async move {
             let cycles_result =
@@ -255,16 +265,42 @@ impl Config {
         });
 
         runtime.block_on(handle).unwrap();
-        let _ = progress_receiver_thread.join();
+        // let _ = progress_receiver_thread.join();
         Ok(())
     }
+
+    pub fn handle_progress_messages(&mut self) {
+        // Step 1: take the receiver out, leaving None in its place
+        if let Some(mut receiver) = self.progress_receiver.take() {
+            // Step 2: process all pending events
+            drain_progress_messages(self, &mut receiver);
+
+            // Step 3: put it back
+            self.progress_receiver = Some(receiver);
+        }
+    }
 }
+pub fn drain_progress_messages<T: ProcessEventSink>(
+    sink: &mut T,
+    receiver: &mut UnboundedReceiver<ProcessEvent>,
+) {
+    loop {
+        match receiver.try_recv() {
+            Ok(msg) => match msg {
+                ProcessEvent::Query(ev) => sink.on_query_event(&ev),
+                ProcessEvent::Progress(ev) => sink.on_progress_event(&ev),
+                ProcessEvent::Read(ev) => sink.on_read_event(&ev),
+                ProcessEvent::Insert(ev) => sink.on_insert_event(&ev),
+                ProcessEvent::Done(res) => sink.on_done(&res),
+            },
 
-/* =================== Helpers (kept in this file) =================== */
-
-pub fn handle_progress_messages(msg: ProcessEvent) {
-    match msg {
-        ProcessEvent::Query(query_event) => match query_event {
+            Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+        }
+    }
+}
+impl ProcessEventSink for Config {
+    fn on_query_event(&mut self, ev: &QueryEvent) {
+        match ev {
             QueryEvent::InitStarted => {},
             QueryEvent::InitEnded => {},
             QueryEvent::QueryComplete => {
@@ -273,10 +309,14 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             QueryEvent::NoGasData(start_time) => {
                 println!("No gas data found for cycle at {}", start_time);
             },
-            QueryEvent::NoGasDataDay(_) => {},
-        },
+            QueryEvent::NoGasDataDay(day) => {
+                println!("No gas data found for cycles at day {}", day);
+            },
+        }
+    }
 
-        ProcessEvent::Progress(progress_event) => match progress_event {
+    fn on_progress_event(&mut self, ev: &ProgressEvent) {
+        match ev {
             ProgressEvent::Rows(_, _) => {},
             ProgressEvent::Day(date) => {
                 println!("Loaded cycles from {}", date);
@@ -284,9 +324,11 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             ProgressEvent::NoGas(msg) => {
                 println!("Gas missing: {}", msg);
             },
-        },
+        }
+    }
 
-        ProcessEvent::Read(read_event) => match read_event {
+    fn on_read_event(&mut self, ev: &ReadEvent) {
+        match ev {
             ReadEvent::File(filename) => {
                 println!("Read file: {}", filename);
             },
@@ -300,9 +342,11 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             ReadEvent::FileFail(filename, e) => {
                 println!("Failed to read file {}, error: {}", filename, e);
             },
-        },
+        }
+    }
 
-        ProcessEvent::Insert(insert_event) => match insert_event {
+    fn on_insert_event(&mut self, ev: &InsertEvent) {
+        match ev {
             InsertEvent::Ok(rows) => {
                 println!("Inserted {} rows", rows);
             },
@@ -312,12 +356,18 @@ pub fn handle_progress_messages(msg: ProcessEvent) {
             InsertEvent::Fail(e) => {
                 println!("Failed to insert rows: {}", e);
             },
-        },
+        }
+    }
 
-        ProcessEvent::Done(result) => match result {
-            Ok(()) => println!("All processing finished."),
-            Err(e) => println!("Processing finished with error: {}", e),
-        },
+    fn on_done(&mut self, res: &Result<(), String>) {
+        match res {
+            Ok(()) => {
+                println!("All processing finished.");
+            },
+            Err(e) => {
+                println!("Processing finished with error: {}", e);
+            },
+        }
     }
 }
 

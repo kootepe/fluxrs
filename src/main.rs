@@ -36,7 +36,7 @@ fn main() -> eframe::Result {
         let cli = Cli::parse();
 
         // Convert into your existing Config and run the current pipeline
-        let cfg: crate::Config = cli.into_config();
+        let mut cfg: crate::Config = cli.into_config();
         if let Err(e) = cfg.run() {
             eprintln!("{e}");
             std::process::exit(1);
