@@ -778,12 +778,10 @@ impl Cycle {
             .iter()
             .filter(|&&x| x != 0)
             .count();
-        let total_count = self.diag_v.len();
+        let total_count = self.diag_v.get(&self.main_instrument_serial).unwrap().len();
 
-        println!("{}/{}", nonzero_count, total_count);
         // Check if more than 50% of the values are nonzero
         let check = (nonzero_count as f64 / total_count as f64) > 0.5;
-        println!("{}", check);
         if check {
             self.add_error(ErrorCode::ErrorsInMeasurement)
         } else {
