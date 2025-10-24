@@ -37,3 +37,11 @@ pub enum ProgressEvent {
     Rows(usize, usize),
     NoGas(String),
 }
+
+pub trait ProcessEventSink {
+    fn on_query_event(&mut self, ev: &QueryEvent);
+    fn on_progress_event(&mut self, ev: &ProgressEvent);
+    fn on_read_event(&mut self, ev: &ReadEvent);
+    fn on_insert_event(&mut self, ev: &InsertEvent);
+    fn on_done(&mut self, res: &Result<(), String>);
+}
