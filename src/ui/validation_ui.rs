@@ -2386,8 +2386,8 @@ impl ProcessEventSink for ValidationApp {
 
     fn on_insert_event(&mut self, ev: &InsertEvent) {
         match ev {
-            InsertEvent::Ok(rows) => {
-                self.log_messages.push_front(format!("Inserted {} rows", rows));
+            InsertEvent::Ok(msg, rows) => {
+                self.log_messages.push_front(format!("{}{}", rows, msg));
             },
             InsertEvent::OkSkip(rows, duplicates) => {
                 self.log_messages.push_front(format!(

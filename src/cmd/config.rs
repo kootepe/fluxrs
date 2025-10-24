@@ -347,8 +347,8 @@ impl ProcessEventSink for Config {
 
     fn on_insert_event(&mut self, ev: &InsertEvent) {
         match ev {
-            InsertEvent::Ok(rows) => {
-                println!("Inserted {} rows", rows);
+            InsertEvent::Ok(msg, rows) => {
+                println!("{}{}", rows, msg);
             },
             InsertEvent::OkSkip(rows, duplicates) => {
                 println!("Inserted {} rows, skipped {} duplicates.", rows, duplicates);

@@ -26,7 +26,7 @@ pub enum ReadEvent {
 
 #[derive(Debug)]
 pub enum InsertEvent {
-    Ok(usize),
+    Ok(String, usize),
     OkSkip(usize, usize),
     Fail(String),
 }
