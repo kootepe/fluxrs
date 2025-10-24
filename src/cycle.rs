@@ -788,15 +788,23 @@ impl Cycle {
             self.remove_error(ErrorCode::ErrorsInMeasurement)
         }
     }
-    // pub fn check_measurement_diag(&mut self) -> bool {
-    //     let check = self.measurement_diag_v.iter().sum::<i64>() != 0;
-    //     if check {
-    //         self.add_error(ErrorCode::ErrorsInMeasurement)
-    //     } else {
-    //         self.remove_error(ErrorCode::ErrorsInMeasurement)
-    //     }
-    //     check
-    // }
+    pub fn check_measurement_diag(&mut self) -> bool {
+        let nonzero_count = self
+            .diag_v
+            .get(&self.main_instrument_serial)
+            .unwrap()
+            .iter()
+            .filter(|&&x| x != 0)
+            .count();
+        // let check = self.measurement_diag_v.iter().sum::<i64>() != 0;
+        let check = nonzero_count > 0;
+        if check {
+            self.add_error(ErrorCode::ErrorsInMeasurement)
+        } else {
+            self.remove_error(ErrorCode::ErrorsInMeasurement)
+        }
+        check
+    }
 
     pub fn calculate_max_y(&mut self) {
         for (key, gas_v) in &self.gas_v {
