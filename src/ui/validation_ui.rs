@@ -1903,7 +1903,7 @@ impl ValidationApp {
                         },
                         QueryEvent::NoGasDataDay(day) => {
                             self.log_messages
-                                .push_front(format!("No gas data found for day {}", day));
+                                .push_front(format!("No gas data found for cycles at day {}", day));
                         },
                     },
 

@@ -3092,7 +3092,8 @@ where
 
             cycle_vec.push(Some(cycle));
         } else {
-            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasDataDay(day)));
+            let msg = format!("{}, ID: {}", start, chamber);
+            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(msg)));
             cycle_vec.push(None);
         }
     }
