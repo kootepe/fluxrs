@@ -148,8 +148,8 @@ impl Project {
         }
         conn.execute(
             "INSERT OR IGNORE INTO projects (
-                project_id, instrument_model, instrument_serial, main_gas, deadband, min_calc_len, mode, current
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                project_id, instrument_model, instrument_serial, main_gas, deadband, min_calc_len, mode, tz, current
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 project.name,
                 project.instrument.to_string(),
@@ -158,6 +158,7 @@ impl Project {
                 project.deadband,
                 project.min_calc_len,
                 project.mode.as_int(),
+                project.tz.to_string(),
                 0,
             ],
         )?;
