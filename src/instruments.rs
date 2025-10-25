@@ -98,6 +98,7 @@ pub enum TimeSourceKind {
 pub struct InstrumentConfig {
     pub name: String,
     pub model: String,
+    pub serial: Option<String>,
     pub sep: u8,
     pub skiprows: usize,
     pub skip_after_header: usize,
@@ -113,7 +114,10 @@ pub struct InstrumentConfig {
 }
 impl fmt::Display for InstrumentConfig {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}, {}", self.model, self.name,)
+        match self.serial {
+            None => write!(f, "{}", self.model),
+            _ => write!(f, "{} {}", self.model, self.serial.clone().unwrap()),
+        }
     }
 }
 impl InstrumentConfig {
@@ -121,6 +125,7 @@ impl InstrumentConfig {
         Self {
             name: "LI-7810".to_string(),
             model: "LI-7810".to_string(),
+            serial: None,
             sep: b'\t',
             skiprows: 2,
             skip_after_header: 1,
@@ -139,6 +144,7 @@ impl InstrumentConfig {
         Self {
             name: "LI-7820".to_string(),
             model: "LI-7820".to_string(),
+            serial: None,
             sep: b'\t',
             skiprows: 2,
             skip_after_header: 1,

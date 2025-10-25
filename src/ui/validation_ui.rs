@@ -2681,36 +2681,41 @@ pub fn upload_gas_data_async(
                 InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
             };
         }
-        match instrument.clone().unwrap().read_data_file(path) {
-            Ok(data) => {
-                if data.validate_lengths() && !data.any_col_invalid() {
-                    let rows = data.datetime.len();
-                    println!("Loaded: {} from {}", path.to_string_lossy(), instrument.unwrap());
-                    match insert_measurements(conn, &data, project) {
-                        Ok((count, duplicates)) => {
-                            let _ = progress_sender
-                                .send(ProcessEvent::Insert(InsertEvent::OkSkip(count, duplicates)));
-                            let _ =
-                                progress_sender.send(ProcessEvent::Query(QueryEvent::InitEnded));
-                        },
-                        Err(e) => {
-                            println!("{}", e);
-                            let _ = progress_sender
-                                .send(ProcessEvent::Insert(InsertEvent::Fail(format!("{}", e))));
-                        },
-                    }
+        if let Some(ref mut inst) = instrument {
+            match inst.read_data_file(path) {
+                Ok(data) => {
+                    inst.serial = Some(data.instrument_serial.clone());
+                    if data.validate_lengths() && !data.any_col_invalid() {
+                        let rows = data.datetime.len();
+                        println!("Loaded: {} from {}", path.to_string_lossy(), instrument.unwrap(),);
+                        match insert_measurements(conn, &data, project) {
+                            Ok((count, duplicates)) => {
+                                let _ = progress_sender.send(ProcessEvent::Insert(
+                                    InsertEvent::OkSkip(count, duplicates),
+                                ));
+                                let _ = progress_sender
+                                    .send(ProcessEvent::Query(QueryEvent::InitEnded));
+                            },
+                            Err(e) => {
+                                println!("{}", e);
+                                let _ = progress_sender.send(ProcessEvent::Insert(
+                                    InsertEvent::Fail(format!("{}", e)),
+                                ));
+                            },
+                        }
 
-                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
+                        let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
+                            path.to_str().unwrap().to_owned(),
+                        )));
+                    }
+                },
+                Err(e) => {
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
                         path.to_str().unwrap().to_owned(),
+                        format!("{}", e),
                     )));
-                }
-            },
-            Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
-                    path.to_str().unwrap().to_owned(),
-                    format!("{}", e),
-                )));
-            },
+                },
+            }
         }
     }
 }
