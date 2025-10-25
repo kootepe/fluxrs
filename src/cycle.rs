@@ -2141,7 +2141,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
         let lin = linear.map(|m| m.model.as_ref());
         let poly = polynomial.map(|m| m.model.as_ref());
         let roblin = robustlinear.map(|m| m.model.as_ref());
-        // NOTE: for a specific
+        // NOTE: FluxRecord is gas specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
         let deadband = cycle.deadbands.get(&key);
         let measurement_r2 = cycle.measurement_r2.get(&key);
