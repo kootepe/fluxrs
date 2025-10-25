@@ -75,13 +75,13 @@ pub struct ProjectCreateArgs {
     #[arg(long = "main-gas")]
     pub main_gas: GasType,
 
-    /// Deadband threshold in seconds
+    /// Deadband threshold in seconds (positive integer)
     #[arg(long)]
-    pub deadband: f64,
+    pub deadband: u64,
 
-    /// Minimum calculation duration in seconds
+    /// Minimum calculation duration in seconds (positive integer)
     #[arg(long = "min-calc-len")]
-    pub min_calc_len: f64,
+    pub min_calc_len: u64,
 
     /// Mode (e.g., bestr, deadband)
     #[arg(long)]
@@ -208,8 +208,8 @@ impl Cli {
                         instrument: args.instrument,
                         instrument_serial: args.instrument_serial,
                         main_gas: args.main_gas,
-                        deadband: args.deadband,
-                        min_calc_len: args.min_calc_len,
+                        deadband: args.deadband as f64,
+                        min_calc_len: args.min_calc_len as f64,
                         mode: args.mode,
                         tz: args.tz,
                     }),
