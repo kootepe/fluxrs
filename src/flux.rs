@@ -23,9 +23,9 @@ pub enum FluxKind {
 impl std::fmt::Display for FluxKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FluxKind::Linear => write!(f, "Lin"),
-            FluxKind::RobLin => write!(f, "RobLin"),
-            FluxKind::Poly => write!(f, "Poly"),
+            FluxKind::Linear => write!(f, "Linear"),
+            FluxKind::RobLin => write!(f, "Robust linear"),
+            FluxKind::Poly => write!(f, "Polynomial"),
         }
     }
 }
