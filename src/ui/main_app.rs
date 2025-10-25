@@ -1,4 +1,5 @@
 use crate::keybinds::{Action, KeyBind, KeyBindings};
+use crate::ui::dl_ui::DownloadApp;
 use crate::ui::project_ui::{Project, ProjectApp};
 use crate::ui::table_ui::TableApp;
 use crate::ui::validation_ui::ValidationApp;
@@ -36,6 +37,7 @@ pub struct MainApp {
     live_panel: Panel,
     pub validation_panel: ValidationApp,
     table_panel: TableApp,
+    dl_panel: DownloadApp,
     proj_panel: ProjectApp,
     empty_panel: EmptyPanel,
 }
@@ -117,6 +119,7 @@ impl MainApp {
         });
         ui.separator();
 
+        let project = self.validation_panel.selected_project.clone();
         match self.live_panel {
             Panel::Validation => {
                 self.validation_panel.ui(ui, ctx);
@@ -134,7 +137,7 @@ impl MainApp {
                 self.table_panel.table_ui(ui, ctx);
             },
             Panel::DownloadData => {
-                self.validation_panel.dl_ui(ui, ctx);
+                self.dl_panel.dl_ui(ui, ctx, project);
             },
             Panel::ProjInit => {
                 self.proj_panel.proj_ui(ui);

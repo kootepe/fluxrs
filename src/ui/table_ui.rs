@@ -1,4 +1,5 @@
 use rusqlite::{params, types::ValueRef, Connection, Result, Row};
+
 #[derive(Default)]
 pub struct TableApp {
     table_names: Vec<String>,
