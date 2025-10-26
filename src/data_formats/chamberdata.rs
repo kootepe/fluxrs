@@ -50,24 +50,26 @@ impl FromStr for ChamberShapeType {
 }
 #[derive(Debug, Clone)]
 pub enum ChamberShape {
-    Cylinder { diameter_m: f64, height_m: f64 },
-    Box { width_m: f64, length_m: f64, height_m: f64 },
+    Cylinder { diameter_m: f64, height_m: f64, snow_height_m: f64 },
+    Box { width_m: f64, length_m: f64, height_m: f64, snow_height_m: f64 },
 }
 
 impl Default for ChamberShape {
     fn default() -> Self {
-        ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1. }
+        ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1., snow_height_m: 0. }
     }
 }
 
 impl ChamberShape {
     pub fn volume_m3(&self) -> f64 {
         match self {
-            ChamberShape::Cylinder { diameter_m, height_m } => {
+            ChamberShape::Cylinder { diameter_m, height_m, snow_height_m, .. } => {
                 let r = diameter_m / 2.0;
-                std::f64::consts::PI * r * r * height_m
+                std::f64::consts::PI * r * r * (height_m - snow_height_m)
             },
-            ChamberShape::Box { width_m, length_m, height_m } => width_m * length_m * height_m,
+            ChamberShape::Box { width_m, length_m, height_m, snow_height_m, .. } => {
+                width_m * length_m * (height_m - snow_height_m)
+            },
         }
     }
 
@@ -83,13 +85,17 @@ impl ChamberShape {
 
     pub fn internal_height(&self) -> f64 {
         match self {
-            ChamberShape::Cylinder { height_m, .. } => *height_m,
-            ChamberShape::Box { height_m, .. } => *height_m,
+            ChamberShape::Cylinder { height_m, snow_height_m, .. } => {
+                (*height_m - *snow_height_m).max(0.0)
+            },
+            ChamberShape::Box { height_m, snow_height_m, .. } => {
+                (*height_m - *snow_height_m).max(0.0)
+            },
         }
     }
 
-    pub fn adjusted_volume(&self, snow_height_m: f64) -> f64 {
-        let adjusted_height = (self.internal_height() - snow_height_m).max(0.0);
+    pub fn adjusted_volume(&self) -> f64 {
+        let adjusted_height = self.internal_height();
         match self {
             ChamberShape::Cylinder { diameter_m, .. } => {
                 let r = diameter_m / 2.0;
@@ -111,19 +117,29 @@ impl ChamberShape {
             ChamberShape::Box { height_m, .. } => *height_m = new_height,
         }
     }
+    pub fn set_snow_height(&mut self, new_snow_height: f64) {
+        match self {
+            ChamberShape::Cylinder { snow_height_m, .. } => *snow_height_m = new_snow_height,
+            ChamberShape::Box { snow_height_m, .. } => *snow_height_m = new_snow_height,
+        }
+    }
 }
 
 impl fmt::Display for ChamberShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChamberShape::Cylinder { diameter_m, height_m } => {
-                write!(f, "Cylinder: height = {:.2} m, diameter = {:.2} m", height_m, diameter_m)
-            },
-            ChamberShape::Box { width_m, length_m, height_m } => {
+            ChamberShape::Cylinder { diameter_m, height_m, snow_height_m } => {
                 write!(
                     f,
-                    "Box: height = {:.2} m, length = {:.2} m, width = {:.2} m",
-                    height_m, length_m, width_m
+                    "Cylinder: height = {:.2} m, diameter = {:.2} m, snow height = {:.2}",
+                    height_m, diameter_m, snow_height_m
+                )
+            },
+            ChamberShape::Box { width_m, length_m, height_m, snow_height_m } => {
+                write!(
+                    f,
+                    "Box: height = {:.2} m, length = {:.2} m, width = {:.2} m, snow height = {:.2}",
+                    height_m, length_m, width_m, snow_height_m
                 )
             },
         }
@@ -146,6 +162,7 @@ pub fn query_chambers(conn: &Connection, project: String) -> Result<HashMap<Stri
         let width_m: f64 = row.get("width")?;
         let length_m: f64 = row.get("length")?;
         let height_m: f64 = row.get("height")?;
+        let snow_height_m = 0.;
 
         // Parse and build ChamberShape
         let shape_type = shape_str.parse::<ChamberShapeType>().map_err(|_| {
@@ -157,8 +174,12 @@ pub fn query_chambers(conn: &Connection, project: String) -> Result<HashMap<Stri
         })?;
 
         let chamber_shape = match shape_type {
-            ChamberShapeType::Box => ChamberShape::Box { width_m, length_m, height_m },
-            ChamberShapeType::Cylinder => ChamberShape::Cylinder { diameter_m, height_m },
+            ChamberShapeType::Box => {
+                ChamberShape::Box { width_m, length_m, height_m, snow_height_m }
+            },
+            ChamberShapeType::Cylinder => {
+                ChamberShape::Cylinder { diameter_m, height_m, snow_height_m }
+            },
         };
 
         Ok((chamber_id, chamber_shape))
@@ -198,10 +219,10 @@ pub fn insert_chamber_metadata(
 
     for (chamber_id, shape) in chambers {
         let (shape_str, diameter, width, length, height) = match shape {
-            ChamberShape::Cylinder { diameter_m, height_m } => {
+            ChamberShape::Cylinder { diameter_m, height_m, snow_height_m } => {
                 ("cylinder", *diameter_m, 0., 0., *height_m)
             },
-            ChamberShape::Box { width_m, length_m, height_m } => {
+            ChamberShape::Box { width_m, length_m, height_m, snow_height_m } => {
                 ("box", 0., *width_m, *length_m, *height_m)
             },
         };
@@ -227,10 +248,12 @@ impl TryFrom<&Row<'_>> for ChamberShape {
                 width_m: row.get("width")?,
                 length_m: row.get("length")?,
                 height_m: row.get("height")?,
+                snow_height_m: 0.,
             }),
             "cylinder" => Ok(ChamberShape::Cylinder {
                 diameter_m: row.get("diameter")?,
                 height_m: row.get("height")?,
+                snow_height_m: 0.,
             }),
             _ => Err(rusqlite::Error::FromSqlConversionFailure(
                 0,
@@ -260,8 +283,15 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
         let length = parse_f64_field(&record, 5)?;
 
         let chamber = match shape.as_str() {
-            "cylinder" => ChamberShape::Cylinder { diameter_m: diameter, height_m: height },
-            "box" => ChamberShape::Box { width_m: width, length_m: length, height_m: height },
+            "cylinder" => {
+                ChamberShape::Cylinder { diameter_m: diameter, height_m: height, snow_height_m: 0. }
+            },
+            "box" => ChamberShape::Box {
+                width_m: width,
+                length_m: length,
+                height_m: height,
+                snow_height_m: 0.,
+            },
             _ => {
                 eprintln!("Unknown shape '{}', skipping chamber {}", shape, chamber_id);
                 continue;
