@@ -99,52 +99,56 @@ impl DownloadApp {
             "poly_range_start",
             "poly_range_end",
         ];
+        let lin_drops = [
+            "lin_flux",
+            "lin_r2",
+            "lin_adj_r2",
+            "lin_intercept",
+            "lin_slope",
+            "lin_sigma",
+            "lin_p_value",
+            "lin_aic",
+            "lin_rmse",
+        ];
 
-        if !self.model_checked.get(&FluxKind::Linear).copied().unwrap_or(false) {
-            drop_after_processing.extend([
-                "lin_flux",
-                "lin_r2",
-                "lin_adj_r2",
-                "lin_intercept",
-                "lin_slope",
-                "lin_sigma",
-                "lin_p_value",
-                "lin_aic",
-                "lin_rmse",
-            ]);
+        let roblin_drops = [
+            "roblin_flux",
+            "roblin_r2",
+            "roblin_adj_r2",
+            "roblin_intercept",
+            "roblin_slope",
+            "roblin_sigma",
+            "roblin_p_value",
+            "roblin_aic",
+            "roblin_rmse",
+        ];
+        let poly_drops = [
+            "poly_flux",
+            "poly_r2",
+            "poly_adj_r2",
+            "poly_intercept",
+            "poly_slope",
+            "poly_sigma",
+            "poly_p_value",
+            "poly_aic",
+            "poly_rmse",
+            "poly_a0",
+            "poly_a1",
+            "poly_a2",
+        ];
+        if !self.dl_best {
+            if !self.model_checked.get(&FluxKind::Linear).copied().unwrap_or(false) {
+                drop_after_processing.extend(lin_drops);
+            }
+
+            if !self.model_checked.get(&FluxKind::RobLin).copied().unwrap_or(false) {
+                drop_after_processing.extend(roblin_drops);
+            }
+
+            if !self.model_checked.get(&FluxKind::Poly).copied().unwrap_or(false) {
+                drop_after_processing.extend(poly_drops);
+            }
         }
-
-        if !self.model_checked.get(&FluxKind::RobLin).copied().unwrap_or(false) {
-            drop_after_processing.extend([
-                "roblin_flux",
-                "roblin_r2",
-                "roblin_adj_r2",
-                "roblin_intercept",
-                "roblin_slope",
-                "roblin_sigma",
-                "roblin_p_value",
-                "roblin_aic",
-                "roblin_rmse",
-            ]);
-        }
-
-        if !self.model_checked.get(&FluxKind::Poly).copied().unwrap_or(false) {
-            drop_after_processing.extend([
-                "poly_flux",
-                "poly_r2",
-                "poly_adj_r2",
-                "poly_intercept",
-                "poly_slope",
-                "poly_sigma",
-                "poly_p_value",
-                "poly_aic",
-                "poly_rmse",
-                "poly_a0",
-                "poly_a1",
-                "poly_a2",
-            ]);
-        }
-
         // Final output column order
         let final_columns: Vec<String> = column_names
             .iter()
