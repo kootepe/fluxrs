@@ -51,7 +51,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-type InstrumentSerial = String;
+pub type InstrumentSerial = String;
 type GasDataSet = HashMap<String, Arc<GasData>>;
 type HeightDataSet = HeightData;
 type ChamberDataSet = HashMap<String, ChamberShape>;
@@ -362,12 +362,12 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            start_date: NaiveDate::from_ymd_opt(2022, 8, 1)
+            start_date: NaiveDate::from_ymd_opt(2024, 9, 20)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_utc(),
-            end_date: NaiveDate::from_ymd_opt(2022, 12, 30)
+            end_date: NaiveDate::from_ymd_opt(2024, 9, 30)
                 .unwrap()
                 .and_hms_opt(0, 0, 0)
                 .unwrap()

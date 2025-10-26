@@ -1,4 +1,6 @@
+use crate::concentrationunit::ConcentrationUnit;
 use crate::data_formats::chamberdata::ChamberShape;
+use crate::gaschannel::{self, GasChannel};
 use crate::gastype::GasType;
 use crate::stats::{pearson_correlation, LinReg, PolyReg, RobReg};
 use dyn_clone::DynClone;
@@ -75,7 +77,7 @@ impl FluxKind {
 
 pub trait FluxModel: Sync + Send + DynClone {
     fn fit_id(&self) -> FluxKind;
-    fn gas_type(&self) -> GasType;
+    fn gas_channel(&self) -> GasChannel;
     fn flux(&self) -> Option<f64>;
     fn r2(&self) -> Option<f64>;
     fn adj_r2(&self) -> Option<f64>;
@@ -101,7 +103,7 @@ impl fmt::Display for dyn FluxModel {
             f,
             "{:?}, {:?}, flux: {:?}, r2: {:?}, len: {:?}",
             self.fit_id(),
-            self.gas_type(),
+            self.gas_channel().gas,
             self.flux(),
             self.r2(),
             match (self.range_start(), self.range_end()) {
@@ -117,7 +119,7 @@ impl fmt::Display for LinearFlux {
             f,
             "{}, {}, flux: {}, r2: {}, len: {}",
             self.model,
-            self.gas_type,
+            self.gas_channel.gas,
             self.flux,
             self.r2,
             (self.range_end - self.range_start)
@@ -130,7 +132,7 @@ impl fmt::Display for PolyFlux {
             f,
             "{}, {}, flux: {}, r2: {}, len: {}",
             self.model,
-            self.gas_type,
+            self.gas_channel.gas,
             self.flux,
             self.r2,
             (self.range_end - self.range_start)
@@ -143,7 +145,7 @@ impl fmt::Display for RobustFlux {
             f,
             "{}, {}, flux: {}, r2: {}, len: {}",
             self.model,
-            self.gas_type,
+            self.gas_channel.gas,
             self.flux,
             self.r2,
             (self.range_end - self.range_start)
@@ -153,7 +155,7 @@ impl fmt::Display for RobustFlux {
 #[derive(Clone)]
 pub struct LinearFlux {
     pub fit_id: String,
-    pub gas_type: GasType,
+    pub gas_channel: GasChannel,
     pub flux: f64,
     pub r2: f64,
     pub adjusted_r2: f64,
@@ -182,8 +184,8 @@ impl FluxModel for LinearFlux {
     fn fit_id(&self) -> FluxKind {
         FluxKind::Linear
     }
-    fn gas_type(&self) -> GasType {
-        self.gas_type
+    fn gas_channel(&self) -> GasChannel {
+        self.gas_channel.clone()
     }
     fn predict(&self, x: f64) -> Option<f64> {
         Some(self.model.calculate(x - self.range_start)) // normalized input
@@ -230,7 +232,7 @@ impl FluxModel for LinearFlux {
 impl LinearFlux {
     pub fn from_data(
         fit_id: &str,
-        gas_type: GasType,
+        channel: GasChannel,
         x: &[f64],
         y: &[f64],
         start: f64,
@@ -271,11 +273,11 @@ impl LinearFlux {
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
         let adjusted_r2 = adjusted_r2(r2, n as usize, 1);
 
-        let flux = calculate_flux(gas_type, model.slope, air_temperature, air_pressure, chamber);
+        let flux = flux_umol_m2_s(&channel, model.slope, air_temperature, air_pressure, &chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
-            gas_type,
+            gas_channel: channel,
             flux,
             adjusted_r2,
             r2,
@@ -290,7 +292,7 @@ impl LinearFlux {
     }
     pub fn from_values(
         fit_id: &str,
-        gas_type: GasType,
+        gas_channel: GasChannel,
         flux: f64,
         r2: f64,
         adjusted_r2: f64,
@@ -304,7 +306,7 @@ impl LinearFlux {
     ) -> Option<Self> {
         Some(Self {
             fit_id: fit_id.to_string(),
-            gas_type,
+            gas_channel,
             flux,
             r2,
             adjusted_r2,
@@ -326,11 +328,11 @@ impl LinearFlux {
         volume: f64,
     ) {
         self.model = LinReg::train(&x, &y);
-        self.calculate_flux(temperature, pressure, volume)
+        self.flux_umol_m2_s(temperature, pressure, volume)
     }
-    fn calculate_flux(&mut self, temperature: f64, pressure: f64, volume: f64) {
-        let mol_mass = self.gas_type.mol_mass();
-        let slope_ppm = self.model.slope / self.gas_type.conv_factor();
+    fn flux_umol_m2_s(&mut self, temperature: f64, pressure: f64, volume: f64) {
+        let mol_mass = self.gas_channel.gas.mol_mass();
+        let slope_ppm = self.model.slope / self.gas_channel.gas.conv_factor();
         let slope_ppm_hour = slope_ppm * 60. * 60.;
         let p = pressure * 100.0;
         let t = temperature + 273.15;
@@ -343,7 +345,7 @@ impl LinearFlux {
 #[derive(Clone)]
 pub struct PolyFlux {
     pub fit_id: String,
-    pub gas_type: GasType,
+    pub gas_channel: GasChannel,
     pub flux: f64,
     pub r2: f64,
     pub adjusted_r2: f64,
@@ -374,8 +376,8 @@ impl FluxModel for PolyFlux {
     fn predict(&self, x: f64) -> Option<f64> {
         Some(self.model.calculate(x - self.x_offset))
     }
-    fn gas_type(&self) -> GasType {
-        self.gas_type
+    fn gas_channel(&self) -> GasChannel {
+        self.gas_channel.clone()
     }
 
     fn set_range_start(&mut self, value: f64) {
@@ -428,7 +430,7 @@ impl FluxModel for PolyFlux {
 impl PolyFlux {
     pub fn from_data(
         fit_id: &str,
-        gas_type: GasType,
+        channel: GasChannel,
         x: &[f64],
         y: &[f64],
         start: f64,
@@ -462,11 +464,11 @@ impl PolyFlux {
         let x_mid = ((start - x0) + (end - x0)) / 2.0;
         let slope_at_mid = model.a1 + 2.0 * model.a2 * x_mid;
 
-        let flux = calculate_flux(gas_type, slope_at_mid, air_temperature, air_pressure, chamber);
+        let flux = flux_umol_m2_s(&channel, slope_at_mid, air_temperature, air_pressure, &chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
-            gas_type,
+            gas_channel: channel,
             flux,
             r2,
             adjusted_r2,
@@ -484,7 +486,7 @@ impl PolyFlux {
 #[derive(Clone)]
 pub struct RobustFlux {
     pub fit_id: String,
-    pub gas_type: GasType,
+    pub gas_channel: GasChannel,
     pub flux: f64,
     pub r2: f64,
     pub adjusted_r2: f64,
@@ -513,8 +515,8 @@ impl FluxModel for RobustFlux {
         FluxKind::RobLin
     }
 
-    fn gas_type(&self) -> GasType {
-        self.gas_type
+    fn gas_channel(&self) -> GasChannel {
+        self.gas_channel.clone()
     }
     fn predict(&self, x: f64) -> Option<f64> {
         Some(self.model.calculate(x - self.range_start))
@@ -571,7 +573,7 @@ impl FluxModel for RobustFlux {
 impl RobustFlux {
     pub fn from_data(
         fit_id: &str,
-        gas_type: GasType,
+        channel: GasChannel,
         x: &[f64],
         y: &[f64],
         start: f64,
@@ -604,11 +606,11 @@ impl RobustFlux {
         // slope at midpoint of range (normalized x)
         let slope_at_mid = model.slope; // constant for linear model
 
-        let flux = calculate_flux(gas_type, slope_at_mid, air_temperature, air_pressure, chamber);
+        let flux = flux_umol_m2_s(&channel, slope_at_mid, air_temperature, air_pressure, &chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
-            gas_type,
+            gas_channel: channel,
             flux,
             r2,
             adjusted_r2,
@@ -622,23 +624,150 @@ impl RobustFlux {
     }
 }
 
-pub fn calculate_flux(
-    gas_type: GasType,
-    slope: f64,
-    air_temperature: f64,
-    air_pressure: f64,
-    chamber: ChamberShape,
+fn flux_umol_m2_s_core(
+    channel: &GasChannel,
+    slope_x_per_s: f64, // instrument slope (whatever that is)
+    air_temperature_c: f64,
+    air_pressure_hpa: f64,
+    chamber: &ChamberShape,
 ) -> f64 {
-    let mol_mass = gas_type.mol_mass();
-    let slope_ppm = slope / gas_type.conv_factor();
-    let slope_ppm_hour = slope_ppm * 60. * 60.;
-    let p = air_pressure * 100.0;
-    let t = air_temperature + 273.15;
-    let r = 8.314;
-    let volume = chamber.volume_m3();
+    // phys constants + env
+    let p_pa = air_pressure_hpa * 100.0; // hPa -> Pa
+    let t_k = air_temperature_c + 273.15; // °C -> K
+    let r = 8.314_f64; // Pa·m3/(mol·K)
 
-    slope_ppm_hour / 1_000_000.0 * volume * ((mol_mass * p) / (r * t)) * 1000.0
+    // convert slope to ppm/s in dry mole fraction terms
+    let slope_ppm_per_s = channel.slope_ppm_per_s(slope_x_per_s);
+
+    // ideal gas concentration (mol/m³)
+    let mol_per_m3_air = p_pa / (r * t_k);
+
+    // ppm/s (µmol/mol/s) -> mol/mol/s
+    let slope_mol_per_mol_per_s = slope_ppm_per_s * 1e-6;
+
+    // dC/dt in mol/m³/s
+    let dmol_per_m3_per_s = slope_mol_per_mol_per_s * mol_per_m3_air;
+
+    // chamber geometry
+    let chamber_volume_m3 = chamber.adjusted_volume();
+    let chamber_area_m2 = chamber.area_m2();
+
+    // flux (mol/m²/s)
+    let flux_mol_m2_s = dmol_per_m3_per_s * chamber_volume_m3 / chamber_area_m2;
+
+    // mol/m²/s -> µmol/m²/s
+    flux_mol_m2_s * 1e6
 }
+
+/// Flux in µmol m⁻² s⁻¹
+pub fn flux_umol_m2_s(
+    channel: &GasChannel,
+    slope_x_per_s: f64,
+    air_temperature_c: f64,
+    air_pressure_hpa: f64,
+    chamber: &ChamberShape,
+) -> f64 {
+    flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber)
+}
+
+/// Flux in mg m⁻² s⁻¹
+pub fn flux_mg_m2_s(
+    channel: &GasChannel,
+    slope_x_per_s: f64,
+    air_temperature_c: f64,
+    air_pressure_hpa: f64,
+    chamber: &ChamberShape,
+) -> f64 {
+    let flux_umol =
+        flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
+
+    // convert µmol m⁻² s⁻¹ → mg m⁻² s⁻¹
+    //
+    // 1 µmol = 1e-6 mol
+    // mass (g) = mol * mol_mass_g_per_mol
+    // mg       = g * 1000
+    //
+    // combine: 1 µmol = mol_mass_g_per_mol * 1e-3 mg
+    let mol_mass = channel.gas.mol_mass(); // g/mol
+    flux_umol * (mol_mass * 1e-3)
+}
+
+/// Flux in mg m⁻² h⁻¹
+pub fn flux_mg_m2_h(
+    channel: GasChannel,
+    slope_x_per_s: f64,
+    air_temperature_c: f64,
+    air_pressure_hpa: f64,
+    chamber: &ChamberShape,
+) -> f64 {
+    // start from mg m⁻² s⁻¹ then scale by 3600
+    let flux_mg_s =
+        flux_mg_m2_s(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
+    flux_mg_s * 3600.0
+}
+// pub fn flux_umol_m2_s(
+//     channel: &GasChannel,
+//     slope_x_per_s: f64, // dC/dt in ppm/s (CH4 conc rise rate)
+//     air_temperature_c: f64,
+//     air_pressure_hpa: f64,
+//     chamber: ChamberShape,
+// ) -> f64 {
+//     // Convert environment
+//     let p_pa = air_pressure_hpa * 100.0; // hPa → Pa
+//     let t_k = air_temperature_c + 273.15; // °C → K
+//     let r = 8.314_f64; // J/(mol·K) = Pa·m³/(mol·K)
+//     let slope_ppm_per_s = channel.slope_ppm_per_s(slope_x_per_s);
+//
+//     // Ideal gas law gives mol/m³ in the chamber air:
+//     // n/V = p / (R T)
+//     // => mol_per_m3_air = p_pa / (r * t_k)
+//     let mol_per_m3_air = p_pa / (r * t_k);
+//
+//     // slope in ppm/s (µmol/mol/s) → mol/mol/s = slope * 1e-6
+//     let slope_mol_per_mol_per_s = slope_ppm_per_s * 1e-6;
+//
+//     // concentration change rate in mol/m³/s inside chamber air:
+//     // dC/dt (mol/mol/s) * mol_per_m3_air (mol/m³) = mol/m³/s
+//     let dmol_per_m3_per_s = slope_mol_per_mol_per_s * mol_per_m3_air;
+//
+//     // Turn that into flux per surface area:
+//     //
+//     // The chamber traps gas coming off area A into volume V.
+//     // d(n)/dt in mol/s = dC/dt (mol/m³/s) * V (m³)
+//     // Flux (mol/m²/s)  = (1/A) * d(n)/dt
+//     //                  = dC/dt * V / A
+//     //
+//     // So:
+//     let chamber_volume_m3 = chamber.adjusted_volume();
+//     let chamber_area_m2 = chamber.area_m2();
+//
+//     let flux_mol_per_m2_per_s = dmol_per_m3_per_s * chamber_volume_m3 / chamber_area_m2;
+//
+//     // Convert mol/m²/s → µmol/m²/s:
+//     let flux_umol_per_m2_per_s = flux_mol_per_m2_per_s * 1e6;
+//
+//     // Now convert to requested unit.
+//     let mol_mass = channel.gas.mol_mass(); // g/mol
+//     unit.convert_from_umol_m2_s(flux_umol_per_m2_per_s, mol_mass)
+// }
+
+// pub fn flux_umol_m2_s(
+//     gas_type: GasType,
+//     slope: f64,
+//     air_temperature: f64,
+//     air_pressure: f64,
+//     chamber: ChamberShape,
+// ) -> f64 {
+//     let mol_mass = gas_type.mol_mass();
+//     let slope_ppm = slope / gas_type.conv_factor();
+//     let slope_ppm_hour = slope_ppm * 60. * 60.;
+//     let p = air_pressure * 100.0;
+//     let t = air_temperature + 273.15;
+//     let r = 8.314;
+//     let volume = chamber.volume_m3();
+//
+//     slope_ppm_hour / 1_000_000.0 * volume * ((mol_mass * p) / (r * t)) * 1000.0
+// }
 
 pub fn r2_from_predictions(y: &[f64], y_hat: &[f64]) -> Option<f64> {
     if y.len() != y_hat.len() || y.len() < 2 {
@@ -681,6 +810,8 @@ pub fn aic_from_rss(rss: f64, n: usize, k: usize) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::concentrationunit;
+
     use super::*;
 
     #[test]
@@ -695,10 +826,20 @@ mod tests {
         let temperature = 20.0; // °C
         let pressure = 1013.25; // hPa
         let chamber = ChamberShape::default();
+        let channel = GasChannel::new(gas, ConcentrationUnit::Ppb, fit_id.to_owned());
 
-        let flux =
-            RobustFlux::from_data(fit_id, gas, &x, &y, start, end, temperature, pressure, chamber)
-                .expect("RobustFlux creation failed");
+        let flux = RobustFlux::from_data(
+            fit_id,
+            channel,
+            &x,
+            &y,
+            start,
+            end,
+            temperature,
+            pressure,
+            chamber,
+        )
+        .expect("RobustFlux creation failed");
 
         // Check computed values
         dbg!(flux.r2, flux.adjusted_r2, flux.rmse, flux.sigma, flux.aic);

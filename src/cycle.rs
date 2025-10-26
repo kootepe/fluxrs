@@ -1,3 +1,4 @@
+use crate::concentrationunit::ConcentrationUnit;
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::data_formats::gasdata::{query_gas2, query_gas_all};
 use crate::errorcode::{ErrorCode, ErrorMask};
@@ -6,13 +7,14 @@ use crate::fluxes_schema::{
     make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
     make_update_fluxes,
 };
+use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
 use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::stats::{self, LinReg, PolyReg, RobReg};
 use crate::ui::project_ui::Project;
 use crate::ui::validation_ui::GasKey;
-use crate::ui::validation_ui::Mode;
+use crate::ui::validation_ui::{InstrumentSerial, Mode};
 use chrono_tz::Tz;
 
 use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
@@ -35,7 +37,7 @@ pub const MIN_WINDOW_SIZE: f64 = 180.;
 // how many seconds to increment the moving window searching for max r
 pub const WINDOW_INCREMENT: usize = 1;
 
-type InstrumentSerial = String;
+// type InstrumentSerial = String;
 
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 struct CycleKey {
@@ -108,6 +110,7 @@ pub struct Cycle {
     pub diag_v: HashMap<String, Vec<i64>>,
     pub measurement_diag_v: HashMap<String, Vec<i64>>,
     pub min_calc_len: f64,
+    pub gas_channels: HashMap<GasKey, GasChannel>,
 }
 
 impl fmt::Debug for Cycle {
@@ -1404,6 +1407,8 @@ impl Cycle {
         // println!("{:?}", key);
         // let x = self.get_calc_dt2(&key);
         // let y = self.get_calc_gas_v2(&key);
+        println!("{}", &key);
+        println!("{:?}", self.gas_channels);
         let (x, y) = self.get_calc_data2(&key);
         // println!("diff {}", x.first().unwrap() - self.get_start());
         // println!("y1 {}", self.get_calc_start_i(&key));
@@ -1438,9 +1443,10 @@ impl Cycle {
             return; // Not enough data to fit
         }
 
+        let channel = self.gas_channels.get(&key).unwrap().clone();
         if let Some(data) = LinearFlux::from_data(
             "lin",
-            key.gas_type,
+            channel,
             &x,
             &y,
             *s,
@@ -1488,10 +1494,11 @@ impl Cycle {
             return;
         }
 
+        let channel = self.gas_channels.get(&key).unwrap().clone();
         // Fit and insert if successful
         if let Some(data) = PolyFlux::from_data(
             "poly",
-            key.gas_type,
+            channel,
             &x,
             &y,
             *s,
@@ -1527,9 +1534,10 @@ impl Cycle {
             return; // Not enough data to fit
         }
 
+        let channel = self.gas_channels.get(&key).unwrap().clone();
         if let Some(data) = RobustFlux::from_data(
             "roblin",
-            key.gas_type,
+            channel,
             &x,
             &y,
             *s,
@@ -1845,6 +1853,7 @@ impl CycleBuilder {
             gas_is_valid: HashMap::new(),
             override_valid: None,
             manual_valid: false,
+            gas_channels: HashMap::new(),
         })
     }
     pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error + Send + Sync>> {
@@ -1921,6 +1930,7 @@ impl CycleBuilder {
             gas_is_valid: HashMap::new(),
             override_valid: None,
             manual_valid: false,
+            gas_channels: HashMap::new(),
         })
     }
 }
@@ -1981,7 +1991,7 @@ pub fn insert_flux_results(
                 stmt.execute(params![
                     cycle_id,
                     lin.fit_id,
-                    lin.gas_type.to_string(),
+                    lin.gas_channel.gas.to_string(),
                     lin.flux,
                     lin.r2,
                     lin.model.intercept,
@@ -2480,6 +2490,56 @@ pub fn load_cycles(
 
         if let Some(gas_data_day) = gas_data.get(&day) {
             let serial = instrument_serial.clone();
+            let gas_key = GasKey::from((&gas, serial.as_str()));
+            let mut gas_channels = HashMap::new();
+            let instrument_cfg = instrument_model.get_config();
+            for ch in &instrument_cfg.channels {
+                let gas_key = GasKey::from((&ch.gas, main_instrument_serial.as_str()));
+                match ch.gas {
+                    GasType::CH4 => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    GasType::CO2 => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    GasType::H2O => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    GasType::N2O => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    _ => {},
+                }
+            }
+            println!("{:?}", gas_channels);
             // for (serial, dt_values) in &gas_data_day.datetime {
             //     for (i, gas) in InstrumentType::from_str(
             //         &gas_data_day.model_key.get(serial).unwrap().to_string(),
@@ -2488,7 +2548,6 @@ pub fn load_cycles(
             //     .iter()
             //     .enumerate()
             //     {
-            let gas_key = GasKey::from((&gas, serial.as_str()));
             let dt_values = gas_data_day.datetime.get(&serial.clone()).unwrap();
             let diag_values = gas_data_day.diag.get(&serial.clone()).unwrap();
             // let g_values = gas_data_day.gas.get(&gas_key.clone()).unwrap();
@@ -2546,6 +2605,7 @@ pub fn load_cycles(
                 t0_concentration,
                 diag_v,
                 min_calc_len,
+                gas_channels: gas_channels.clone(),
             });
             if let Some(g_values) = gas_data_day.gas.get(&gas_key) {
                 let start_target = start_time.timestamp() + start_lag_s as i64;
@@ -2644,11 +2704,12 @@ pub fn load_cycles(
                 let gas_type = GasType::from_int(gas_i).unwrap();
                 let serial: String = instrument_serial;
                 let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.calc_range_start.insert(gk.clone(), calc_start);
                 cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
                 let lin = LinearFlux {
                     fit_id: "linear".to_string(),
-                    gas_type: gk.gas_type,
+                    gas_channel,
                     flux,
                     r2,
                     adjusted_r2,
@@ -2699,11 +2760,12 @@ pub fn load_cycles(
                 }
                 let serial: String = instrument_serial;
                 let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.calc_range_start.insert(gk.clone(), calc_start);
                 cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
-                let lin = RobustFlux {
+                let roblin = RobustFlux {
                     fit_id: "roblin".to_string(),
-                    gas_type: gk.gas_type,
+                    gas_channel,
                     flux,
                     r2,
                     adjusted_r2,
@@ -2717,7 +2779,7 @@ pub fn load_cycles(
                 // println!("{}", lin);
                 cycle.fluxes.insert(
                     (gk.clone(), FluxKind::RobLin),
-                    FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
+                    FluxRecord { model: Box::new(roblin), is_valid: gas_is_valid },
                 );
             }
             if let (
@@ -2755,11 +2817,12 @@ pub fn load_cycles(
                 }
                 let serial: String = instrument_serial;
                 let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.calc_range_start.insert(gk.clone(), calc_start);
                 cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
-                let lin = PolyFlux {
-                    fit_id: "linear".to_string(),
-                    gas_type: gk.gas_type,
+                let poly = PolyFlux {
+                    fit_id: "poly".to_string(),
+                    gas_channel,
                     flux,
                     r2,
                     adjusted_r2,
@@ -2774,7 +2837,7 @@ pub fn load_cycles(
                 // println!("{}", lin);
                 cycle.fluxes.insert(
                     (gk, FluxKind::Poly),
-                    FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
+                    FluxRecord { model: Box::new(poly), is_valid: gas_is_valid },
                 );
                 // }
             }
@@ -3075,6 +3138,55 @@ where
             cycle.main_gas = project.main_gas.unwrap();
             cycle.main_instrument_serial = project.instrument_serial.clone();
             cycle.main_instrument_model = project.instrument;
+            let mut gas_channels = HashMap::new();
+            let instrument_cfg = project.instrument.get_config();
+            for ch in &instrument_cfg.channels {
+                let gas_key = GasKey::from((&ch.gas, cycle.main_instrument_serial.as_str()));
+                match ch.gas {
+                    GasType::CH4 => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    GasType::CO2 => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    GasType::H2O => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    GasType::N2O => {
+                        gas_channels.insert(
+                            gas_key.clone(),
+                            GasChannel {
+                                gas: ch.gas,
+                                unit: ch.unit,
+                                instrument_id: ch.instrument_id.clone(),
+                            },
+                        );
+                    },
+                    _ => {},
+                }
+            }
+            cycle.gas_channels = gas_channels;
 
             let target = (*start + chrono::TimeDelta::seconds(*close)).timestamp();
 
@@ -3100,8 +3212,8 @@ where
             }
 
             // Deadbands
-            for gas in &cycle.gases {
-                cycle.deadbands.insert(gas.clone(), project.deadband);
+            for gas_key in &cycle.gases {
+                cycle.deadbands.insert(gas_key.clone(), project.deadband);
             }
 
             // Init
@@ -3146,8 +3258,12 @@ mod tests {
             FluxKind::Linear
         }
 
-        fn gas_type(&self) -> GasType {
-            GasType::CH4
+        fn gas_channel(&self) -> GasChannel {
+            GasChannel {
+                gas: GasType::CH4,
+                unit: ConcentrationUnit::Ppb,
+                instrument_id: "asd".to_owned(),
+            }
         }
 
         fn r2(&self) -> Option<f64> {

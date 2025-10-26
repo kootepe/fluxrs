@@ -1,4 +1,6 @@
+use crate::concentrationunit::ConcentrationUnit;
 use crate::data_formats::gasdata::GasData;
+use crate::gaschannel::{ChannelConfig, GasChannel};
 use crate::gastype::GasType;
 use crate::ui::validation_ui::GasKey;
 use chrono::offset::LocalResult;
@@ -64,6 +66,12 @@ impl InstrumentType {
             InstrumentType::LI7820 => InstrumentConfig::li7820().available_gases,
         }
     }
+    pub fn get_config(&self) -> InstrumentConfig {
+        match self {
+            InstrumentType::LI7810 => InstrumentConfig::li7810(),
+            InstrumentType::LI7820 => InstrumentConfig::li7820(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +117,7 @@ pub struct InstrumentConfig {
     pub diag_col: String,
     pub has_header: bool,
     pub available_gases: Vec<GasType>,
+    pub channels: Vec<ChannelConfig>,
     pub time_source: TimeSourceKind,
     pub time_fmt: Option<String>,
 }
@@ -123,19 +132,39 @@ impl fmt::Display for InstrumentConfig {
 impl InstrumentConfig {
     pub fn li7810() -> Self {
         Self {
-            name: "LI-7810".to_string(),
-            model: "LI-7810".to_string(),
+            name: "LI-7810".to_owned(),
+            model: "LI-7810".to_owned(),
             serial: None,
             sep: b'\t',
             skiprows: 2,
             skip_after_header: 1,
-            time_col: "SECONDS".to_string(),
-            nsecs_col: "NANOSECONDS".to_string(),
-            gas_cols: vec!["CO2".to_string(), "CH4".to_string(), "H2O".to_string()],
-            flux_cols: vec!["CO2".to_string(), "CH4".to_string()],
-            diag_col: "DIAG".to_string(),
+            time_col: "SECONDS".to_owned(),
+            nsecs_col: "NANOSECONDS".to_owned(),
+            gas_cols: vec!["CO2".to_owned(), "CH4".to_owned(), "H2O".to_owned()],
+            flux_cols: vec!["CO2".to_owned(), "CH4".to_owned()],
+            diag_col: "DIAG".to_owned(),
             has_header: false,
             available_gases: vec![GasType::CO2, GasType::CH4, GasType::H2O],
+            channels: vec![
+                ChannelConfig {
+                    gas: GasType::CO2,
+                    concentration_col: "CO2".to_owned(),
+                    unit: ConcentrationUnit::Ppm,
+                    instrument_id: "LI-7810".to_owned(),
+                },
+                ChannelConfig {
+                    gas: GasType::CH4,
+                    concentration_col: "CH4".to_owned(),
+                    unit: ConcentrationUnit::Ppb,
+                    instrument_id: "LI-7810".to_owned(),
+                },
+                ChannelConfig {
+                    gas: GasType::H2O,
+                    concentration_col: "H2O".to_owned(),
+                    unit: ConcentrationUnit::Ppm,
+                    instrument_id: "LI-7810".to_owned(),
+                },
+            ],
             time_source: TimeSourceKind::SecondsAndNanos,
             time_fmt: None,
         }
@@ -155,6 +184,20 @@ impl InstrumentConfig {
             diag_col: "DIAG".to_owned(),
             has_header: false,
             available_gases: vec![GasType::N2O, GasType::H2O],
+            channels: vec![
+                ChannelConfig {
+                    gas: GasType::N2O,
+                    concentration_col: "N2O".to_owned(),
+                    unit: ConcentrationUnit::Ppb,
+                    instrument_id: "LI-7820".to_owned(),
+                },
+                ChannelConfig {
+                    gas: GasType::H2O,
+                    concentration_col: "H2O".to_owned(),
+                    unit: ConcentrationUnit::Ppm,
+                    instrument_id: "LI-7820".to_owned(),
+                },
+            ],
             time_source: TimeSourceKind::SecondsAndNanos,
             time_fmt: None,
         }
@@ -303,6 +346,21 @@ impl InstrumentConfig {
             gas: sorted_gas_data,
             diag: diag_sorted,
         })
+    }
+
+    pub fn gas_channels(&self) -> Vec<GasChannel> {
+        self.channels
+            .iter()
+            .map(|ch| GasChannel {
+                gas: ch.gas,
+                unit: ch.unit,
+                instrument_id: format!(
+                    "{}{}",
+                    self.model,
+                    self.serial.as_deref().map(|s| format!(" S/N {}", s)).unwrap_or_default()
+                ),
+            })
+            .collect()
     }
 }
 
