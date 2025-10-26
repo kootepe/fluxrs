@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use ui::project_ui::Project;
 
 pub mod cmd;
+pub mod concentrationunit;
 mod config;
 pub mod constants;
 pub mod cycle;
@@ -20,6 +21,7 @@ pub mod errorcode;
 pub mod flux;
 pub mod fluxes_schema;
 mod gas_plot;
+pub mod gaschannel;
 pub mod gastype;
 mod get_paths;
 mod html_report;
