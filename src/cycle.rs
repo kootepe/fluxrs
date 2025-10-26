@@ -1447,7 +1447,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber.adjusted_volume(self.snow_depth_m),
+            self.chamber.clone(),
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1498,7 +1498,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber.adjusted_volume(self.snow_depth_m),
+            self.chamber.clone(),
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1536,7 +1536,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber.adjusted_volume(self.snow_depth_m),
+            self.chamber.clone(),
         ) {
             // println!("{}", data);
             self.fluxes.insert(
@@ -1795,7 +1795,12 @@ impl CycleBuilder {
             main_instrument_serial: String::new(),
             instrument_model: InstrumentType::LI7810,
             instrument_serial: String::new(),
-            chamber: ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1. },
+            chamber: ChamberShape::Box {
+                width_m: 1.,
+                length_m: 1.,
+                height_m: 1.,
+                snow_height_m: 0.,
+            },
             snow_depth_m: 0.,
             project_name: String::new(),
             min_calc_len: MIN_CALC_AREA_RANGE,
@@ -1862,7 +1867,12 @@ impl CycleBuilder {
             main_instrument_serial: instrument_serial.clone(),
             instrument_model,
             instrument_serial,
-            chamber: ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1. },
+            chamber: ChamberShape::Box {
+                width_m: 1.,
+                length_m: 1.,
+                height_m: 1.,
+                snow_height_m: 0.,
+            },
             snow_depth_m,
             min_calc_len,
             project_name: project,
@@ -2370,7 +2380,7 @@ pub fn load_cycles(
         let project_id: String = row.get(*column_index.get("project_id").unwrap())?;
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
 
-        let chamber = chamber_metadata.get(&chamber_id).cloned().unwrap_or_default();
+        let mut chamber = chamber_metadata.get(&chamber_id).cloned().unwrap_or_default();
         let main_model_string: String =
             row.get(*column_index.get("main_instrument_model").unwrap())?;
         let main_instrument_serial: String =
@@ -2432,6 +2442,7 @@ pub fn load_cycles(
         let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
         let chamber_height: f64 = row.get(*column_index.get("chamber_height").unwrap())?;
         let snow_depth_m: f64 = row.get(*column_index.get("snow_depth_m").unwrap())?;
+        chamber.set_snow_height(snow_depth_m);
 
         let end_time = start_time + TimeDelta::seconds(end_offset);
 
@@ -3025,7 +3036,7 @@ where
 
             // Diag vector
             if let Some(diags) = cur_data.diag.get(ser) {
-                let diag_slice: Vec<i64> = diags[idx_range.clone()].iter().copied().collect();
+                let diag_slice: Vec<i64> = diags[idx_range.clone()].to_vec();
                 cycle.diag_v.insert(ser.clone(), diag_slice);
             }
 
@@ -3046,8 +3057,7 @@ where
                     .available_gases()
                     .contains(&key.gas_type)
                 {
-                    let gas_slice: Vec<Option<f64>> =
-                        gas_values[idx_range.clone()].iter().copied().collect();
+                    let gas_slice: Vec<Option<f64>> = gas_values[idx_range.clone()].to_vec();
                     cycle.gas_v.insert(key.clone(), gas_slice);
                 }
             }

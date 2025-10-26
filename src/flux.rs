@@ -1,3 +1,4 @@
+use crate::data_formats::chamberdata::ChamberShape;
 use crate::gastype::GasType;
 use crate::stats::{pearson_correlation, LinReg, PolyReg, RobReg};
 use dyn_clone::DynClone;
@@ -236,7 +237,7 @@ impl LinearFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        volume: f64,
+        chamber: ChamberShape,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -270,7 +271,7 @@ impl LinearFlux {
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
         let adjusted_r2 = adjusted_r2(r2, n as usize, 1);
 
-        let flux = calculate_flux(gas_type, model.slope, air_temperature, air_pressure, volume);
+        let flux = calculate_flux(gas_type, model.slope, air_temperature, air_pressure, chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
@@ -434,7 +435,7 @@ impl PolyFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        volume: f64,
+        chamber: ChamberShape,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -461,7 +462,7 @@ impl PolyFlux {
         let x_mid = ((start - x0) + (end - x0)) / 2.0;
         let slope_at_mid = model.a1 + 2.0 * model.a2 * x_mid;
 
-        let flux = calculate_flux(gas_type, slope_at_mid, air_temperature, air_pressure, volume);
+        let flux = calculate_flux(gas_type, slope_at_mid, air_temperature, air_pressure, chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
@@ -577,7 +578,7 @@ impl RobustFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        volume: f64,
+        chamber: ChamberShape,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -603,7 +604,7 @@ impl RobustFlux {
         // slope at midpoint of range (normalized x)
         let slope_at_mid = model.slope; // constant for linear model
 
-        let flux = calculate_flux(gas_type, slope_at_mid, air_temperature, air_pressure, volume);
+        let flux = calculate_flux(gas_type, slope_at_mid, air_temperature, air_pressure, chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
@@ -626,7 +627,7 @@ pub fn calculate_flux(
     slope: f64,
     air_temperature: f64,
     air_pressure: f64,
-    volume: f64,
+    chamber: ChamberShape,
 ) -> f64 {
     let mol_mass = gas_type.mol_mass();
     let slope_ppm = slope / gas_type.conv_factor();
@@ -634,6 +635,7 @@ pub fn calculate_flux(
     let p = air_pressure * 100.0;
     let t = air_temperature + 273.15;
     let r = 8.314;
+    let volume = chamber.volume_m3();
 
     slope_ppm_hour / 1_000_000.0 * volume * ((mol_mass * p) / (r * t)) * 1000.0
 }
@@ -692,10 +694,10 @@ mod tests {
         let end = x[x.len() - 1];
         let temperature = 20.0; // °C
         let pressure = 1013.25; // hPa
-        let volume = 10.0; // L
+        let chamber = ChamberShape::default();
 
         let flux =
-            RobustFlux::from_data(fit_id, gas, &x, &y, start, end, temperature, pressure, volume)
+            RobustFlux::from_data(fit_id, gas, &x, &y, start, end, temperature, pressure, chamber)
                 .expect("RobustFlux creation failed");
 
         // Check computed values
