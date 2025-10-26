@@ -15,7 +15,6 @@ use std::path::Path;
 
 #[derive(Default)]
 pub struct DownloadApp {
-    dl_best: bool,
     project: Option<Project>,
     pub gas_checked: std::collections::HashMap<GasType, bool>,
     pub model_checked: std::collections::HashMap<FluxKind, bool>,
@@ -57,8 +56,6 @@ impl DownloadApp {
                 ui.checkbox(checked, model.to_string());
             }
         });
-
-        ui.checkbox(&mut self.dl_best, "download fluxes from only the best model").clicked();
 
         if ui.button("download all calculated fluxes for current project.").clicked() {
             let export_name = format!("fluxrs_{}.csv", self.project.as_ref().unwrap().name);
@@ -136,18 +133,16 @@ impl DownloadApp {
             "poly_a1",
             "poly_a2",
         ];
-        if !self.dl_best {
-            if !self.model_checked.get(&FluxKind::Linear).copied().unwrap_or(false) {
-                drop_after_processing.extend(lin_drops);
-            }
+        if !self.model_checked.get(&FluxKind::Linear).copied().unwrap_or(false) {
+            drop_after_processing.extend(lin_drops);
+        }
 
-            if !self.model_checked.get(&FluxKind::RobLin).copied().unwrap_or(false) {
-                drop_after_processing.extend(roblin_drops);
-            }
+        if !self.model_checked.get(&FluxKind::RobLin).copied().unwrap_or(false) {
+            drop_after_processing.extend(roblin_drops);
+        }
 
-            if !self.model_checked.get(&FluxKind::Poly).copied().unwrap_or(false) {
-                drop_after_processing.extend(poly_drops);
-            }
+        if !self.model_checked.get(&FluxKind::Poly).copied().unwrap_or(false) {
+            drop_after_processing.extend(poly_drops);
         }
         // Final output column order
         let final_columns: Vec<String> = column_names
