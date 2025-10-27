@@ -3141,7 +3141,7 @@ where
             let mut gas_channels = HashMap::new();
             let instrument_cfg = project.instrument.get_config();
             for ch in &instrument_cfg.channels {
-                let gas_key = GasKey::from((&ch.gas, cycle.main_instrument_serial.as_str()));
+                let gas_key = GasKey::from((&ch.gas, cycle.instrument_serial.as_str()));
                 match ch.gas {
                     GasType::CH4 => {
                         gas_channels.insert(
