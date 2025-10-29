@@ -2729,7 +2729,7 @@ pub fn upload_cycle_data_async(
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
-        match try_all_formats(path, &tz, project) {
+        match try_all_formats(path, &tz, project, progress_sender.clone()) {
             //   Pass `path` directly
             Ok((res, parser_name)) => {
                 if res.validate_lengths() {

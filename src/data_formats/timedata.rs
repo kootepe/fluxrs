@@ -567,21 +567,28 @@ pub fn try_all_formats(
     path: &Path,
     tz: &Tz,
     project: &Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<(TimeData, &'static str), Box<dyn Error>> {
     let parsers =
         vec![ParserType::Oulanka(OulankaManualFormat), ParserType::Default(DefaultFormat)];
 
     for parser in parsers {
-        println!("Trying parser: {}", parser.name());
+        let _ = progress_sender.send(ProcessEvent::Progress(ProgressEvent::Generic(format!(
+            "Trying parser: {} for file {}",
+            parser.name(),
+            path.to_string_lossy()
+        ))));
         match parser.parse(path, tz, project) {
             Ok(data) => return Ok((data, parser.name())),
             Err(e) => {
+                let _ = progress_sender
+                    .send(ProcessEvent::Progress(ProgressEvent::Generic(format!("{}", e))));
                 continue;
             },
         }
     }
 
-    Err("No known time format could parse this file.".into())
+    Err("Could not parse as a cycle file, check that your file is correct.".into())
 }
 
 #[cfg(test)]
