@@ -39,7 +39,7 @@ use eframe::egui::{Color32, Context, Label, Stroke, TextWrapMode, Ui};
 use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeDelta, Utc};
 use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
 use std::collections::BTreeMap;
@@ -1814,12 +1814,7 @@ impl ValidationApp {
                         NaiveDateTime::from(picker_start),
                         Utc,
                     );
-                    if pick > self.end_date {
-                        self.log_messages
-                            .push_front("Start date can't be after end date.".to_string());
-                    } else {
-                        self.start_date = pick;
-                    }
+                    self.start_date = pick;
                 }
             });
             ui.vertical(|ui| {
@@ -1836,28 +1831,29 @@ impl ValidationApp {
                         NaiveDateTime::from(picker_end),
                         Utc,
                     );
-                    if pick < self.start_date {
-                        self.log_messages
-                            .push_front("End date can't be before start date.".to_string());
-                    } else {
-                        self.end_date = pick;
-                    }
+                    self.end_date = pick;
                 }
             });
         });
 
-        if self.start_date > self.end_date {
-            self.log_messages.push_front("End date can't be before start date.".to_owned());
+        let start_after_end = self.start_date < self.end_date;
+        let mut delta_days = TimeDelta::zero();
+        let mut days = 0;
+        if start_after_end {
+            delta_days = self.end_date - self.start_date;
+            days = delta_days.to_std().unwrap().as_secs() / 86400;
         }
-
-        let delta_days = self.end_date - self.start_date;
-        let days = delta_days.to_std().unwrap().as_secs() / 86400;
-
-        if ui.button(format!("Next {} days", days)).clicked() {
+        if ui
+            .add_enabled(start_after_end, egui::Button::new(format!("Next {} days", days)))
+            .clicked()
+        {
             self.start_date += delta_days;
             self.end_date += delta_days;
         }
-        if ui.button(format!("Previous {} days", days)).clicked() {
+        if ui
+            .add_enabled(start_after_end, egui::Button::new(format!("Previous {} days", days)))
+            .clicked()
+        {
             self.start_date -= delta_days;
             self.end_date -= delta_days;
         }

@@ -53,10 +53,11 @@ impl ValidationApp {
                 self.date_picker(ui);
                 // Date navigation buttons
 
+                let start_after_end = self.start_date < self.end_date;
                 // Trigger processing with selected date range
                 if ui
                     .add_enabled(
-                        self.init_enabled && !self.init_in_progress,
+                        self.init_enabled && !self.init_in_progress && start_after_end,
                         egui::Button::new("Initiate measurements"),
                     )
                     .clicked()
@@ -157,10 +158,10 @@ impl ValidationApp {
                         }
                     });
                 }
+                if !start_after_end {
+                    ui.label("Start date can't be later then end date");
+                }
             });
-            if self.start_date > self.end_date {
-                self.log_messages.push_front("End date can't be before start date.".to_string());
-            }
 
             ui.separator();
             render_recalculate_ui(

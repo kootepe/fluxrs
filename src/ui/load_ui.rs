@@ -39,7 +39,14 @@ impl ValidationApp {
         } else {
             self.date_picker(ui);
 
-            if ui.button("Load measurements").clicked() {
+            let start_after_end = self.start_date < self.end_date;
+            if ui
+                .add_enabled(
+                    self.init_enabled && !self.init_in_progress && start_after_end,
+                    egui::Button::new("Load measurements"),
+                )
+                .clicked()
+            {
                 self.commit_all_dirty_cycles();
                 let sender = self.task_done_sender.clone();
                 let result_slot = self.load_result.clone();
@@ -66,6 +73,9 @@ impl ValidationApp {
 
                     let _ = sender.send(()); // Notify UI
                 });
+            }
+            if !start_after_end {
+                ui.label("Start date can't be later then end date");
             }
         }
         self.log_display(ui);
