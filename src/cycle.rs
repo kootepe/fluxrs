@@ -747,11 +747,12 @@ impl Cycle {
     pub fn search_open_lag(&mut self, key: GasKey) -> Option<f64> {
         if let Some(gas_v) = self.gas_v.get(&key) {
             let len = gas_v.len();
+            let search_len = len / 4;
             if len < 120 {
                 return None;
             }
 
-            let start_index = len.saturating_sub(240);
+            let start_index = len.saturating_sub(search_len);
             let max_idx = gas_v[start_index..]
                 .iter()
                 .enumerate()
