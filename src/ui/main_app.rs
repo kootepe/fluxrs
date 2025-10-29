@@ -134,7 +134,7 @@ impl MainApp {
                 self.validation_panel.file_ui(ui, ctx);
             },
             Panel::DataTable => {
-                self.table_panel.table_ui(ui, ctx);
+                self.table_panel.table_ui(ui, ctx, project);
             },
             Panel::DownloadData => {
                 self.dl_panel.dl_ui(ui, ctx, project);

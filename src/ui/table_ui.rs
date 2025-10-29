@@ -1,7 +1,9 @@
+use crate::ui::project_ui::Project;
 use rusqlite::{params, types::ValueRef, Connection, Result, Row};
 
 #[derive(Default)]
 pub struct TableApp {
+    project: Option<Project>,
     table_names: Vec<String>,
     selected_table: Option<String>,
     column_names: Vec<String>,
@@ -47,32 +49,31 @@ impl TableApp {
             .unwrap_or_default();
 
         let mut index = None;
-        if table_name == "project" {
-            index = None
+        let mut project_col = None;
+
+        if table_name != "projects" && self.project.is_some() {
+            project_col = Some("project_id");
         }
-        if table_name == "fluxes" {
-            index = Some("start_time")
+
+        if matches!(table_name, "fluxes" | "flux_history" | "cycles") {
+            index = Some("start_time");
         }
-        if table_name == "fluxes_history" {
-            index = Some("start_time")
+
+        if matches!(table_name, "measurements" | "meteo" | "height") {
+            index = Some("datetime");
         }
-        if table_name == "cycles" {
-            index = Some("start_time")
+
+        // Build query correctly: WHERE first, then ORDER BY
+        let mut query = format!("SELECT * FROM {}", table_name);
+
+        if let Some(col) = project_col {
+            query.push_str(&format!(" WHERE {} = '{}'", col, self.project.as_ref().unwrap().name));
         }
-        if table_name == "measurements" {
-            index = Some("datetime")
+
+        if let Some(col) = index {
+            query.push_str(&format!(" ORDER BY {}", col));
         }
-        if table_name == "meteo" {
-            index = Some("datetime")
-        }
-        if table_name == "height" {
-            index = Some("datetime")
-        }
-        let query = match index {
-            None => &format!("SELECT * FROM {}", table_name),
-            Some(val) => &format!("SELECT * FROM {} ORDER BY {}", table_name, val),
-        };
-        let mut stmt = conn.prepare(query).unwrap();
+        let mut stmt = conn.prepare(&query).unwrap();
         let column_count = stmt.column_count();
 
         let rows = stmt.query_map([], |row: &Row| {
@@ -93,7 +94,9 @@ impl TableApp {
 
         self.data = rows.unwrap().filter_map(|res| res.ok()).collect(); //   Collect valid rows only
     }
-    pub fn table_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
+
+    pub fn table_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, project: Option<Project>) {
+        self.project = project;
         ui.heading("Database Table Viewer");
         if self.table_names.is_empty() {
             let conn = Connection::open("fluxrs.db").expect("Failed to open database");
