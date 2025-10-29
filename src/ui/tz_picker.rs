@@ -85,15 +85,6 @@ pub fn timezone_combo(
                 state.highlight = idx as usize;
             }
 
-            // Pick with Enter
-            if ui.input(|i| i.key_pressed(Key::Enter)) {
-                if let Some(tz) = matches.get(state.highlight).copied() {
-                    state.selected = Some(tz);
-                    state.query = tz.to_string();
-                    newly_picked = Some(tz);
-                }
-            }
-
             // Results list
             ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                 if matches.is_empty() {
@@ -118,6 +109,15 @@ pub fn timezone_combo(
                     }
                 }
             });
+            // Pick with Enter
+            if ui.input(|i| i.key_pressed(Key::Enter)) {
+                if let Some(tz) = matches.get(state.highlight).copied() {
+                    state.selected = Some(tz);
+                    state.query = tz.to_string();
+                    newly_picked = Some(tz);
+                    ui.memory_mut(|m| m.close_popup());
+                }
+            }
 
             ui.horizontal(|ui| {
                 if ui.button("Clear").clicked() {
