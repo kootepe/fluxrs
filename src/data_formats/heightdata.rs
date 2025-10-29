@@ -1,3 +1,4 @@
+use crate::data_formats::meteodata::parse_datetime;
 use crate::ui::project_ui::Project;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, Result};
@@ -153,29 +154,32 @@ pub async fn query_height_async(
         },
     }
 }
+
 pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<dyn Error>> {
     let file = File::open(file_path)?;
-
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(true) //   Ensure headers are read
-        .from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
 
     let mut datetime = Vec::new();
     let mut chamber_id = Vec::new();
     let mut height = Vec::new();
 
-    for result in rdr.records() {
-        let record = result?;
+    for (i, result) in rdr.records().enumerate() {
+        let record = result.map_err(|e| format!("CSV read error at row {}: {}", i + 2, e))?;
 
-        let ch = &record[1];
-        let datetime_str = &record[0];
-        let h: f64 = record[2].parse()?;
+        let datetime_str =
+            record.get(0).ok_or_else(|| format!("Missing datetime at row {}", i + 2))?.trim();
+        let ch =
+            record.get(1).ok_or_else(|| format!("Missing chamber_id at row {}", i + 2))?.trim();
+        let h: f64 = record
+            .get(2)
+            .ok_or_else(|| format!("Missing height at row {}", i + 2))?
+            .trim()
+            .parse()
+            .map_err(|e| format!("Invalid height at row {}: {}", i + 2, e))?;
 
-        // Convert datetime string to Unix timestamp
-        let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
-        let timestamp = Utc.from_utc_datetime(&dt).timestamp();
+        let timestamp = parse_datetime(datetime_str)
+            .map_err(|e| format!("Datetime parse error at row {}: {}", i + 2, e))?;
 
-        // Store values
         datetime.push(timestamp);
         chamber_id.push(ch.to_owned());
         height.push(h);
@@ -183,3 +187,4 @@ pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<d
 
     Ok(HeightData { datetime, chamber_id, height })
 }
+

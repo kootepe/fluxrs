@@ -2362,6 +2362,9 @@ impl ProcessEventSink for ValidationApp {
             ProgressEvent::NoGas(msg) => {
                 self.log_messages.push_front(format!("Gas missing: {}", msg));
             },
+            ProgressEvent::Generic(msg) => {
+                self.log_messages.push_front(format!("{}", msg));
+            },
         }
     }
 
@@ -2369,6 +2372,31 @@ impl ProcessEventSink for ValidationApp {
         match ev {
             ReadEvent::File(filename) => {
                 self.log_messages.push_front(format!("Read file: {}", filename));
+            },
+            ReadEvent::FileDetail(filename, detail) => {
+                self.log_messages.push_front(format!("Read file: {} {}", filename, detail));
+            },
+            ReadEvent::MeteoFail(filename, msg) => {
+                self.log_messages
+                    .push_front(format!("Could not parse as meteo file: {}, {}", filename, msg,));
+            },
+            ReadEvent::HeightFail(filename, msg) => {
+                self.log_messages
+                    .push_front(format!("Could not parse as height file: {}, {}", filename, msg));
+            },
+            ReadEvent::CycleFail(filename, msg) => {
+                self.log_messages
+                    .push_front(format!("Could not parse as cycle file: {}, {}", filename, msg));
+            },
+            ReadEvent::GasFail(filename, msg) => {
+                self.log_messages
+                    .push_front(format!("Could not parse as gas file: {}, {}", filename, msg));
+            },
+            ReadEvent::MetadataFail(filename, msg) => {
+                self.log_messages.push_front(format!(
+                    "Could not parse as chamber metadata file: {}, {}",
+                    filename, msg
+                ));
             },
             ReadEvent::FileRows(filename, rows) => {
                 self.log_messages.push_front(format!("Read file: {} with {} rows", filename, rows));
@@ -2686,8 +2714,11 @@ pub fn upload_gas_data_async(
                 Ok(data) => {
                     inst.serial = Some(data.instrument_serial.clone());
                     if data.validate_lengths() && !data.any_col_invalid() {
-                        let rows = data.datetime.len();
-                        println!("Loaded: {} from {}", path.to_string_lossy(), instrument.unwrap(),);
+                        let _rows = data.datetime.len();
+                        let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileDetail(
+                            path.to_string_lossy().to_string(),
+                            format!("from {}", instrument.unwrap()),
+                        )));
                         match insert_measurements(conn, &data, project) {
                             Ok((count, duplicates)) => {
                                 let _ = progress_sender.send(ProcessEvent::Insert(
@@ -2710,14 +2741,17 @@ pub fn upload_gas_data_async(
                     }
                 },
                 Err(e) => {
-                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
                         path.to_str().unwrap().to_owned(),
-                        format!("{}", e),
+                        e.to_string(),
                     )));
                 },
             }
         }
     }
+    // done event should be set at the end of the loop so that the init_progress gets set to false
+    // even in case of errors
+    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
 }
 pub fn upload_cycle_data_async(
     selected_paths: Vec<PathBuf>,
@@ -2749,18 +2783,20 @@ pub fn upload_cycle_data_async(
                 } else {
                     let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
                         path.to_string_lossy().to_string(),
-                        "Skipped, invalid data length".to_owned(),
+                        "Skipped, data vectors are not equal length, check your data file."
+                            .to_owned(),
                     )));
                 }
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::CycleFail(
                     path.to_string_lossy().to_string(),
-                    "Failed to read file {:?}: {}".to_owned(),
+                    e.to_string(),
                 )));
             },
         }
     }
+    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
     match insert_cycles(conn, &all_times, &project.name) {
         Ok((row_count, duplicates)) => {
             let _ = progress_sender
@@ -2788,13 +2824,14 @@ pub fn upload_meteo_data_async(
                 meteos.pressure.extend(res.pressure);
                 meteos.temperature.extend(res.temperature);
             },
-            Err(_) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+            Err(e) => {
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MeteoFail(
                     path.to_string_lossy().to_string(),
-                    "Skipped, invalid data length".to_owned(),
+                    e.to_string(),
                 )));
             },
         }
+        let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
     }
     match insert_meteo_data(conn, &project.name, &meteos) {
         Ok(row_count) => {
@@ -2826,12 +2863,13 @@ pub fn upload_height_data_async(
                 heights.height.extend(res.height);
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::HeightFail(
                     path.to_string_lossy().to_string(),
-                    "Failed to read file {:?}: {}".to_owned(),
+                    e.to_string(),
                 )));
             },
         }
+        let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
     }
     match insert_height_data(conn, &project.name, &heights) {
         Ok(row_count) => {
@@ -2864,13 +2902,14 @@ pub fn upload_chamber_metadata_async(
                 },
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MetadataFail(
                     path.to_string_lossy().to_string(),
-                    format!("Skipped, invalid data: {}", e),
+                    e.to_string(),
                 )));
             },
         }
     }
+    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
 }
 pub fn keybind_triggered(
     event: &egui::Event,

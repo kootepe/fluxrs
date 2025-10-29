@@ -1064,7 +1064,12 @@ impl Cycle {
             self.deadbands.insert(key.clone(), deadband);
         }
     }
-    pub fn init(&mut self, use_best_r: bool, deadband: f64) {
+    pub fn init(
+        &mut self,
+        use_best_r: bool,
+        deadband: f64,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) {
         self.manual_adjusted = false;
         self.close_lag_s = 0.;
         self.open_lag_s = 0.;
@@ -1407,8 +1412,6 @@ impl Cycle {
         // println!("{:?}", key);
         // let x = self.get_calc_dt2(&key);
         // let y = self.get_calc_gas_v2(&key);
-        println!("{}", &key);
-        println!("{:?}", self.gas_channels);
         let (x, y) = self.get_calc_data2(&key);
         // println!("diff {}", x.first().unwrap() - self.get_start());
         // println!("y1 {}", self.get_calc_start_i(&key));
@@ -1455,7 +1458,6 @@ impl Cycle {
             self.air_pressure,
             self.chamber.clone(),
         ) {
-            // println!("{}", data);
             self.fluxes.insert(
                 (key, FluxKind::Linear),
                 FluxRecord {
@@ -2539,7 +2541,6 @@ pub fn load_cycles(
                     _ => {},
                 }
             }
-            println!("{:?}", gas_channels);
             // for (serial, dt_values) in &gas_data_day.datetime {
             //     for (i, gas) in InstrumentType::from_str(
             //         &gas_data_day.model_key.get(serial).unwrap().to_string(),
@@ -3217,7 +3218,11 @@ where
             }
 
             // Init
-            cycle.init(project.mode == Mode::BestPearsonsR, project.deadband);
+            cycle.init(
+                project.mode == Mode::BestPearsonsR,
+                project.deadband,
+                progress_sender.clone(),
+            );
 
             cycle_vec.push(Some(cycle));
         } else {

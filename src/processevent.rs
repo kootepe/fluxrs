@@ -19,7 +19,13 @@ pub enum QueryEvent {
 #[derive(Debug)]
 pub enum ReadEvent {
     File(String),
+    FileDetail(String, String),
     FileFail(String, String),
+    GasFail(String, String),
+    MeteoFail(String, String),
+    HeightFail(String, String),
+    CycleFail(String, String),
+    MetadataFail(String, String),
     RowFail(String, String),
     FileRows(String, usize),
 }
@@ -33,6 +39,7 @@ pub enum InsertEvent {
 
 #[derive(Debug)]
 pub enum ProgressEvent {
+    Generic(String),
     Day(String),
     Rows(usize, usize),
     NoGas(String),

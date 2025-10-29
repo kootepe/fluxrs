@@ -1,4 +1,7 @@
 use crate::instruments::InstrumentType;
+use crate::processevent::{
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+};
 use crate::ui::project_ui::Project;
 use crate::EqualLen;
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
@@ -10,6 +13,7 @@ use std::io::Read;
 use std::path::Path;
 use std::process;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tokio::task;
 
 enum ParserType {
@@ -112,8 +116,7 @@ impl OulankaManualFormat {
             match NaiveDate::parse_from_str(&date_str, "%y%m%d") {
                 Ok(ndate) => date = ndate,
                 Err(_) => {
-                    let msg = format!("Failed to parse {} as YYMMDD", date_str);
-                    println!("{}", msg);
+                    let msg = format!("Failed to parse first row {} as YYMMDD", date_str);
                     return Err(msg.into());
                 },
             }
@@ -131,7 +134,7 @@ impl OulankaManualFormat {
                 // instrument_model.push(parsed_model)
                 insmodel = parsed_model
             } else {
-                return Err(format!("Couldn't parse {} as an instrument model", model).into());
+                return Err("Couldn't parse second row as instrument model".into());
             }
         }
 
@@ -218,14 +221,11 @@ impl TimeFormatParser for OulankaManualFormat {
         "Oulanka Manual Format"
     }
 
-    fn parse(
-        &self,
-        path: &Path,
-        tz: &Tz,
-        project_id: &Project,
-    ) -> Result<TimeData, Box<dyn Error>> {
-        let file = std::fs::File::open(path)?;
-        self.parse_reader(file, path, tz, project_id)
+    fn parse(&self, path: &Path, tz: &Tz, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+        let file = std::fs::File::open(path)
+            .map_err(|e| format!("failed to open file {}: {}", path.display(), e))?;
+
+        self.parse_reader(file, path, tz, project).map_err(|e| format!("{}", e).into())
     }
 }
 
@@ -251,41 +251,78 @@ impl DefaultFormat {
         let mut snow_in_chamber: Vec<f64> = Vec::new();
         let mut project_id: Vec<String> = Vec::new();
 
-        for r in rdr.records() {
-            let record: &csv::StringRecord = &r?;
-            chamber_id.push(record[0].to_owned());
+        let mut parsed_any = false;
+        let file_display = path.display().to_string();
 
-            match NaiveDateTime::parse_from_str(&record[1], "%Y-%m-%d %H:%M:%S") {
-                Ok(naive_dt) => {
-                    let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
-                        LocalResult::Single(dt) => dt.with_timezone(&Utc),
-                        LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
-                        LocalResult::None => {
-                            eprintln!("Impossible local time {}\nFix or remove.", naive_dt);
-                            process::exit(1)
-                        },
-                    };
-                    let dt_utc_hack = dt_utc.with_timezone(&UTC);
-                    start_time.push(dt_utc_hack)
+        for (row_idx, r) in rdr.records().enumerate() {
+            let record = r.map_err(|e| {
+                format!("failed to read CSV row {} from {}: {}", row_idx + 1, path.display(), e)
+            })?;
+
+            if record.len() < 5 {
+                return Err(format!(
+                    "file {} row {}: expected at least 5 columns, got {}",
+                    path.display(),
+                    row_idx + 1,
+                    record.len()
+                )
+                .into());
+            }
+
+            let ts_str = record.get(1).ok_or_else(|| {
+                Box::<dyn std::error::Error>::from(format!(
+                    "file {} row {}: missing timestamp column (index 1)",
+                    path.display(),
+                    row_idx + 1,
+                ))
+            })?; // ts_str: &str
+
+            let naive_dt =
+                NaiveDateTime::parse_from_str(ts_str, "%Y-%m-%d %H:%M:%S").map_err(|e| {
+                    Box::<dyn std::error::Error>::from(format!(
+                        "failed to parse timestamp '{}' in file {} (row {}): {}",
+                        ts_str,
+                        path.display(),
+                        row_idx + 1,
+                        e
+                    ))
+                })?;
+
+            let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
+                LocalResult::Single(dt) => dt.with_timezone(&Utc),
+                LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
+                LocalResult::None => {
+                    return Err(format!(
+                "invalid local time '{}' in file {} (row {}): nonexistent timestamp in timezone Helsinki",
+                naive_dt,
+                path.display(),
+                row_idx + 1,
+            ).into());
                 },
-                Err(e) => {
-                    println!("Failed to parse timestamp: {}", e);
-                    continue;
-                },
-            }
-            if let Ok(val) = record[2].parse::<i64>() {
-                close_offset.push(val)
-            }
-            if let Ok(val) = record[3].parse::<i64>() {
-                open_offset.push(val)
-            }
-            if let Ok(val) = record[4].parse::<i64>() {
-                end_offset.push(val)
-            }
+            };
+
+            let dt_utc_hack = dt_utc.with_timezone(&UTC);
+
+            // ✅ Now safely push — all fields align
+            chamber_id.push(record[0].to_owned());
+            start_time.push(dt_utc_hack);
+            close_offset.push(record[2].parse::<i64>().unwrap_or(0));
+            open_offset.push(record[3].parse::<i64>().unwrap_or(0));
+            end_offset.push(record[4].parse::<i64>().unwrap_or(0));
             project_id.push(project.name.to_owned());
             instrument_model.push(project.instrument);
             instrument_serial.push(project.instrument_serial.to_owned());
             snow_in_chamber.push(0.0);
+
+            parsed_any = true;
+        }
+
+        if !parsed_any {
+            return Err(format!(
+                "failed to parse cycles from file {}: no valid rows found",
+                file_display
+            )
+            .into());
         }
         let df = TimeData {
             chamber_id,
@@ -306,14 +343,13 @@ impl TimeFormatParser for DefaultFormat {
         "Default time format"
     }
 
-    fn parse(
-        &self,
-        path: &Path,
-        tz: &Tz,
-        project_id: &Project,
-    ) -> Result<TimeData, Box<dyn Error>> {
-        let file = std::fs::File::open(path)?;
-        self.parse_reader(file, path, tz, project_id)
+    fn parse(&self, path: &Path, tz: &Tz, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+        let file = std::fs::File::open(path)
+            .map_err(|e| format!("failed to open file {}: {}", path.display(), e))?;
+
+        self.parse_reader(file, path, tz, project).map_err(|e| {
+            format!("failed to parse cycles from file {}: {}", path.display(), e).into()
+        })
     }
 }
 impl Default for TimeData {
@@ -526,7 +562,6 @@ pub fn insert_cycles(
         "SELECT 1 FROM cycles WHERE start_time = ?1 AND chamber_id = ?2 AND project_id = ?3",
     )?;
 
-    println!("Pushing data!");
     for i in 0..start_vec.len() {
         // Check for duplicates first
         let mut rows = check_stmt.query(params![start_vec[i], chamber_vec[i], project])?;

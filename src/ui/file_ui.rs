@@ -250,6 +250,8 @@ impl ValidationApp {
                                     )
                                 },
                                 DataType::Cycle => {
+                                    let _ = progress_sender
+                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_cycle_data_async(
                                         path_list,
                                         &mut conn,
@@ -258,27 +260,39 @@ impl ValidationApp {
                                         progress_sender,
                                     );
                                 },
-                                DataType::Meteo => upload_meteo_data_async(
-                                    path_list,
-                                    &mut conn,
-                                    &project_clone,
-                                    tz,
-                                    progress_sender,
-                                ),
-                                DataType::Height => upload_height_data_async(
-                                    path_list,
-                                    &mut conn,
-                                    &project_clone,
-                                    tz,
-                                    progress_sender,
-                                ),
-                                DataType::Chamber => upload_chamber_metadata_async(
-                                    path_list,
-                                    &mut conn,
-                                    &project_clone,
-                                    tz,
-                                    progress_sender,
-                                ),
+                                DataType::Meteo => {
+                                    let _ = progress_sender
+                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
+                                    upload_meteo_data_async(
+                                        path_list,
+                                        &mut conn,
+                                        &project_clone,
+                                        tz,
+                                        progress_sender,
+                                    )
+                                },
+                                DataType::Height => {
+                                    let _ = progress_sender
+                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
+                                    upload_height_data_async(
+                                        path_list,
+                                        &mut conn,
+                                        &project_clone,
+                                        tz,
+                                        progress_sender,
+                                    )
+                                },
+                                DataType::Chamber => {
+                                    let _ = progress_sender
+                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
+                                    upload_chamber_metadata_async(
+                                        path_list,
+                                        &mut conn,
+                                        &project_clone,
+                                        tz,
+                                        progress_sender,
+                                    )
+                                },
                             }
                         }
                     },

@@ -50,12 +50,14 @@ impl MainApp {
             self.validation_panel.selected_project = self.proj_panel.project.clone();
             self.validation_panel.keybinds =
                 KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
-            self.validation_panel.tz_state.query =
-                self.validation_panel.selected_project.clone().unwrap().tz.to_string();
-            self.validation_panel.tz_state.selected =
-                Some(self.validation_panel.selected_project.clone().unwrap().tz);
-            self.validation_panel.tz_for_files =
-                Some(self.validation_panel.selected_project.clone().unwrap().tz);
+            if self.validation_panel.selected_project.is_some() {
+                self.validation_panel.tz_state.query =
+                    self.validation_panel.selected_project.clone().unwrap().tz.to_string();
+                self.validation_panel.tz_state.selected =
+                    Some(self.validation_panel.selected_project.clone().unwrap().tz);
+                self.validation_panel.tz_for_files =
+                    Some(self.validation_panel.selected_project.clone().unwrap().tz);
+            }
         }
         if let Some(event) = self.proj_panel.update_project() {
             match event {

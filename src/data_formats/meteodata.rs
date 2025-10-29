@@ -188,10 +188,7 @@ pub async fn query_meteo_async(
 }
 pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn Error>> {
     let file = File::open(file_path)?;
-
-    let mut rdr = csv::ReaderBuilder::new()
-        .has_headers(true) //   Ensure headers are read
-        .from_reader(file);
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
 
     let mut datetime = Vec::new();
     let mut temperature = Vec::new();
@@ -199,20 +196,39 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn
 
     for result in rdr.records() {
         let record = result?;
+        let datetime_str = record.get(0).ok_or("Missing datetime field")?;
+        let timestamp = parse_datetime(datetime_str)?;
+        let temp: f64 = record.get(1).ok_or("Missing temperature field")?.parse()?;
+        let press: f64 = record.get(2).ok_or("Missing pressure field")?.parse()?;
 
-        let datetime_str = &record[0]; // Read datetime column
-        let temp: f64 = record[1].parse()?; // Read air_temperature column
-        let press: f64 = record[2].parse()?; // Read air_pressure column
-
-        // Convert datetime string to Unix timestamp
-        let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
-        let timestamp = Utc.from_utc_datetime(&dt).timestamp();
-
-        // Store values
         datetime.push(timestamp);
         temperature.push(temp);
         pressure.push(press);
     }
 
     Ok(MeteoData { datetime, temperature, pressure })
+}
+
+pub fn parse_datetime(s: &str) -> Result<i64, Box<dyn Error>> {
+    let formats = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%d-%m-%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%.fZ",
+    ];
+
+    for fmt in &formats {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return Ok(Utc.from_utc_datetime(&dt).timestamp());
+        }
+        if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+            return Ok(dt.with_timezone(&Utc).timestamp());
+        }
+    }
+
+    Err(format!("Unrecognized datetime format: {}", s).into())
 }

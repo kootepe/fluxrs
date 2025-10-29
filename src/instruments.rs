@@ -221,9 +221,6 @@ impl InstrumentConfig {
         if let Some(result) = rdr.records().next() {
             instrument_serial = result?.get(1).unwrap_or("").to_string();
         }
-        if instrument_model != self.model {
-            return Err("Given instrument model and file instrument model don't match.".into());
-        }
 
         for _ in 0..self.skiprows {
             rdr.records().next();
@@ -256,7 +253,7 @@ impl InstrumentConfig {
                     eprintln!("Warning: Could not parse gas column '{}' as GasType", gas_col);
                 }
             } else {
-                eprintln!("Warning: Gas column '{}' not found in header", gas_col);
+                return Err(format!("Warning: Gas column '{}' not found in header", gas_col).into());
             }
         }
 
@@ -319,6 +316,9 @@ impl InstrumentConfig {
                 sorted_gas_data
                     .insert(GasKey::from((&gas_type, instrument_serial.as_str())), sorted);
             }
+        }
+        if instrument_model != self.model {
+            return Err("Given instrument model and file instrument model don't match.".into());
         }
 
         let mut model_key = HashMap::new();

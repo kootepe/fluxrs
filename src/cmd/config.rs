@@ -131,6 +131,7 @@ impl Config {
     }
 
     fn run_upload(&mut self, u: &Upload) -> Result<(), AppError> {
+        self.handle_progress_messages();
         let dbp_str = self.db_path.display().to_string();
         let mut conn = Connection::open(&self.db_path)?;
 
@@ -171,11 +172,6 @@ impl Config {
 
         let (progress_sender, progress_receiver) = unbounded_channel::<ProcessEvent>();
         self.progress_receiver = Some(progress_receiver);
-        // let progress_thread = std::thread::spawn(move || {
-        //     while let Some(event) = progress_receiver.blocking_recv() {
-        //         handle_progress_messages(event);
-        //     }
-        // });
 
         let sender_clone = progress_sender.clone();
         match u.file_type {
@@ -191,6 +187,7 @@ impl Config {
             },
         }
 
+        self.handle_progress_messages();
         drop(progress_sender);
         // let _ = progress_thread.join();
         Ok(())
@@ -269,6 +266,7 @@ impl Config {
                 e => eprintln!("Failed to query database: {:?}", e),
             }
         });
+        println!("Running drain messages");
         loop {
             // drain anything that arrived since last tick
             self.drain_progress_messages();
@@ -366,7 +364,10 @@ impl ProcessEventSink for Config {
                 println!("Loaded cycles from {}", date);
             },
             ProgressEvent::NoGas(msg) => {
-                println!("Gas missing: {}", msg);
+                println!("gas missing: {}", msg);
+            },
+            ProgressEvent::Generic(msg) => {
+                println!("{}", msg);
             },
         }
     }
@@ -375,6 +376,24 @@ impl ProcessEventSink for Config {
         match ev {
             ReadEvent::File(filename) => {
                 println!("Read file: {}", filename);
+            },
+            ReadEvent::FileDetail(filename, detail) => {
+                println!("Read file: {} {}", filename, detail);
+            },
+            ReadEvent::MeteoFail(filename, msg) => {
+                println!("Could not parse as meteo file: {}, {}", filename, msg);
+            },
+            ReadEvent::GasFail(filename, msg) => {
+                println!("Could not parse as gas file: {}, {}", filename, msg);
+            },
+            ReadEvent::HeightFail(filename, msg) => {
+                println!("Could not parse as height file: {}, {}", filename, msg);
+            },
+            ReadEvent::CycleFail(filename, msg) => {
+                println!("Could not parse as cycle file: {}, {}", filename, msg);
+            },
+            ReadEvent::MetadataFail(filename, msg) => {
+                println!("Could not parse as chamber metadata file: {}, {}", filename, msg);
             },
             ReadEvent::FileRows(filename, rows) => {
                 println!("Read file: {} with {} rows", filename, rows);
