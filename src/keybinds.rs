@@ -127,7 +127,6 @@ impl KeyBindings {
         self.bindings.retain(|_, &mut k| k != new_bind);
         self.bindings.insert(action, new_bind);
     }
-
     pub fn remove(&mut self, action: &Action) {
         self.bindings.remove(action);
     }
@@ -152,8 +151,13 @@ impl KeyBindings {
 
     pub fn load_from_file(path: &str) -> std::io::Result<Self> {
         let content = fs::read_to_string(path)?;
-        let parsed: Self = serde_json::from_str(&content).unwrap();
-        Ok(parsed)
+        match serde_json::from_str(&content) {
+            Ok(kb) => Ok(kb),
+            Err(e) => {
+                eprintln!("Warning: failed to parse key bindings file ({e}), using defaults.");
+                Ok(Self::default())
+            },
+        }
     }
 
     pub fn to_runtime(&self) -> HashMap<Action, KeyBind> {
