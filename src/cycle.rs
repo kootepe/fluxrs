@@ -793,14 +793,8 @@ impl Cycle {
         }
     }
     pub fn check_measurement_diag(&mut self) -> bool {
-        let nonzero_count = self
-            .diag_v
-            .get(&self.main_instrument_serial)
-            .unwrap()
-            .iter()
-            .filter(|&&x| x != 0)
-            .count();
-        // let check = self.measurement_diag_v.iter().sum::<i64>() != 0;
+        let nonzero_count =
+            self.get_measurement_diag(&self.main_key()).iter().filter(|&&x| x != 0).count();
         let check = nonzero_count > 0;
         if check {
             self.add_error(ErrorCode::ErrorsInMeasurement)
@@ -1053,8 +1047,7 @@ impl Cycle {
     }
     pub fn check_errors(&mut self) {
         self.check_main_r();
-        // self.get_measurement_diag(&self.main_key());
-        self.check_diag();
+        self.check_measurement_diag();
         self.check_missing();
         if self.error_code.0 == 0 || self.override_valid == Some(true) {
             self.is_valid = true
@@ -1075,7 +1068,6 @@ impl Cycle {
         self.close_lag_s = 0.;
         self.open_lag_s = 0.;
         self.reset_deadbands(deadband);
-        // self.get_measurement_diag(&self.main_key());
 
         // self.check_diag();
         self.check_missing();
@@ -1092,6 +1084,7 @@ impl Cycle {
             } else {
                 self.set_calc_ranges();
             }
+            self.check_measurement_diag();
             self.calculate_concentration_at_t0();
             self.calculate_measurement_rs();
             self.check_main_r();
