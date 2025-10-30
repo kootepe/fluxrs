@@ -2763,11 +2763,10 @@ pub fn upload_cycle_data_async(
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
-        if let Err(_) = ensure_utf8(&path) {
-            // return Err(format!("Invalid UTF-8 in '{}': {}", path.display(), e).into());
+        if ensure_utf8(path).is_err() {
             let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
                 path.to_string_lossy().to_string(),
-                "Invalid UTF-8, check your file encoding.".to_owned(),
+                "Invalid UTF-8, make sure your file is UTF-8 encoded.".to_owned(),
             )));
             continue;
         }
