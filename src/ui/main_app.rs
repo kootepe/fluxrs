@@ -1,9 +1,13 @@
+use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::ui::dl_ui::DownloadApp;
 use crate::ui::project_ui::{Project, ProjectApp};
 use crate::ui::table_ui::TableApp;
 use crate::ui::validation_ui::ValidationApp;
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 
 pub enum AppEvent {
     SelectProject(Option<Project>),
@@ -34,6 +38,7 @@ impl Default for Panel {
 #[derive(Default)]
 pub struct MainApp {
     pub show_settings: bool,
+    app_state_loaded: bool,
     live_panel: Panel,
     pub validation_panel: ValidationApp,
     table_panel: TableApp,
@@ -45,6 +50,17 @@ pub struct MainApp {
 impl MainApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.apply_font_size(ctx, self.validation_panel.font_size);
+        if !self.app_state_loaded {
+            match load_app_state(Path::new("app_state.json")) {
+                Ok(app) => {
+                    self.validation_panel.start_date = app.start_date;
+                    self.validation_panel.end_date = app.end_date;
+                    self.app_state_loaded = true;
+                },
+                _ => (),
+            }
+        }
+
         if self.validation_panel.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
             self.validation_panel.selected_project = self.proj_panel.project.clone();
@@ -364,4 +380,17 @@ impl MainApp {
 
         ctx.set_style(style);
     }
+}
+
+pub fn load_app_state(path: &Path) -> Result<AppState, Box<dyn std::error::Error>> {
+    let data = std::fs::read_to_string(path)?;
+    let state: AppState = serde_json::from_str(&data)?;
+    Ok(state)
+}
+pub fn save_app_state(app: &ValidationApp, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let state = app.to_app_state();
+    let json = serde_json::to_string_pretty(&state)?;
+    let mut file = fs::File::create(path)?;
+    file.write_all(json.as_bytes())?;
+    Ok(())
 }

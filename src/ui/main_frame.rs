@@ -1,7 +1,9 @@
 use crate::keybinds::Action;
+use crate::ui::main_app::save_app_state;
 use crate::ui::main_app::MainApp;
 use crate::ui::validation_ui::keybind_triggered;
 use egui::FontFamily;
+use std::path::Path;
 
 #[derive(Default)]
 pub struct MyApp {
@@ -89,5 +91,8 @@ impl eframe::App for MyApp {
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.main_app.validation_panel.commit_all_dirty_cycles(); // <-- do cleanup here
+        let app = &self.main_app.validation_panel;
+        let path = Path::new("app_state.json");
+        save_app_state(app, path);
     }
 }

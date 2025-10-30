@@ -10,6 +10,7 @@ use std::process;
 use tokio::sync::mpsc;
 use ui::project_ui::Project;
 
+pub mod appview;
 pub mod cmd;
 pub mod concentrationunit;
 pub mod constants;

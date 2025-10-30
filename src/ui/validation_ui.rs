@@ -1,3 +1,4 @@
+use crate::appview::AppState;
 use crate::cycle::{
     insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
     update_fluxes,
@@ -2324,6 +2325,9 @@ impl ValidationApp {
         } else {
             ui.label("No cycles.");
         }
+    }
+    pub fn to_app_state(&self) -> AppState {
+        AppState { start_date: self.start_date, end_date: self.end_date }
     }
 }
 
