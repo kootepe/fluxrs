@@ -1836,7 +1836,7 @@ impl ValidationApp {
                         NaiveDateTime::from(picker_end),
                         Utc,
                     );
-                    self.end_date = pick;
+                    self.end_date = pick + TimeDelta::seconds(86399);
                 }
             });
         });
