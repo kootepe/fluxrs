@@ -963,6 +963,26 @@ impl ValidationApp {
             }
         }
     }
+    pub fn increment_calc_starts(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            for key in cycle.gases.clone() {
+                let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
+                let new_value = s + x;
+                cycle.calc_range_start.insert(key.clone(), new_value);
+            }
+        }
+    }
+    pub fn increment_calc_ends(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            for key in cycle.gases.clone() {
+                let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
+                let new_value = s + x;
+                cycle.calc_range_end.insert(key.clone(), new_value);
+            }
+        }
+    }
     pub fn increment_calc_start(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
@@ -1660,6 +1680,7 @@ impl ValidationApp {
 
                 Some(Adjuster::CloseLag) => {
                     println!("Dragging close");
+                    // BUG: calc area only sticks to close time for the plot thats being dragged
                     if inside_close_lag && dragged {
                         let delta = if self.zoom_to_measurement == 2 {
                             self.current_z_delta += zoomed_dx;
@@ -1685,6 +1706,8 @@ impl ValidationApp {
                             if self.mode_after_deadband() && delta < 0.0 {
                                 self.increment_calc_start(key, delta);
                                 self.increment_calc_end(key, delta);
+                                // self.increment_calc_starts(delta);
+                                // self.increment_calc_ends(delta);
                             }
                         }
                     }
