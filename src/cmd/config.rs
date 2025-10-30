@@ -135,7 +135,7 @@ impl Config {
         let dbp_str = self.db_path.display().to_string();
         let mut conn = Connection::open(&self.db_path)?;
 
-        let mut project = Project::load(Some(dbp_str.clone()), &u.project).ok_or_else(|| {
+        let project = Project::load(Some(dbp_str.clone()), &u.project).ok_or_else(|| {
             AppError::Msg(format!("No project found in {} with name: {}", dbp_str, u.project))
         })?;
 
@@ -398,8 +398,7 @@ impl ProcessEventSink for Config {
             ReadEvent::FileRows(filename, rows) => {
                 println!("Read file: {} with {} rows", filename, rows);
             },
-            ReadEvent::RowFail(row_msg, msg) => {
-                println!("{}", row_msg);
+            ReadEvent::RowFail(msg) => {
                 println!("{}", msg);
             },
             ReadEvent::FileFail(filename, e) => {

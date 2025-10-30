@@ -2401,8 +2401,7 @@ impl ProcessEventSink for ValidationApp {
             ReadEvent::FileRows(filename, rows) => {
                 self.log_messages.push_front(format!("Read file: {} with {} rows", filename, rows));
             },
-            ReadEvent::RowFail(row_msg, msg) => {
-                self.log_messages.push_front(format!("{}", row_msg));
+            ReadEvent::RowFail(msg) => {
                 self.log_messages.push_front(format!("{}", msg));
             },
             ReadEvent::FileFail(filename, e) => {

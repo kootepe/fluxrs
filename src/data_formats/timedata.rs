@@ -29,17 +29,28 @@ impl TimeFormatParser for ParserType {
         }
     }
 
-    fn parse(&self, path: &Path, tz: &Tz, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+    fn parse(
+        &self,
+        path: &Path,
+        tz: &Tz,
+        project: &Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) -> Result<TimeData, Box<dyn Error>> {
         match self {
-            ParserType::Oulanka(p) => p.parse(path, tz, project),
-            ParserType::Default(p) => p.parse(path, tz, project),
+            ParserType::Oulanka(p) => p.parse(path, tz, project, progress_sender),
+            ParserType::Default(p) => p.parse(path, tz, project, progress_sender),
         }
     }
 }
 
 pub trait TimeFormatParser {
-    fn parse(&self, path: &Path, tz: &Tz, project_id: &Project)
-        -> Result<TimeData, Box<dyn Error>>;
+    fn parse(
+        &self,
+        path: &Path,
+        tz: &Tz,
+        project_id: &Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) -> Result<TimeData, Box<dyn Error>>;
 
     fn name(&self) -> &'static str;
 }
@@ -90,6 +101,7 @@ impl OulankaManualFormat {
         path: &Path,
         tz: &Tz,
         project: &Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>> {
         let mut rdr =
             csv::ReaderBuilder::new().flexible(true).has_headers(false).from_reader(reader);
@@ -129,18 +141,29 @@ impl OulankaManualFormat {
         }
 
         if let Some(result) = records.next() {
-            let model = result?.get(1).unwrap_or("").to_string();
+            let model = result?.get(1).unwrap_or("").trim().to_string();
+
+            if model.is_empty() {
+                return Err("Instrument model field is empty".into());
+            }
+
             if let Ok(parsed_model) = model.parse::<InstrumentType>() {
-                // instrument_model.push(parsed_model)
-                insmodel = parsed_model
+                insmodel = parsed_model;
             } else {
-                return Err("Couldn't parse second row as instrument model".into());
+                return Err(format!("Couldn't parse '{}' as instrument model", model).into());
             }
         }
 
         if let Some(result) = records.next() {
-            let parsed_serial = result?.get(1).unwrap_or("").to_string();
-            // instrument_serial.push(parsed_serial);
+            let record = result?; // unwrap once
+                                  //
+            let parsed_serial = record.get(1).unwrap_or("").trim().to_string();
+            let row_string = record.iter().collect::<Vec<_>>().join(",");
+
+            if parsed_serial.is_empty() {
+                return Err(format!("Instrument serial field is empty '{}'", row_string).into());
+            }
+
             insserial = parsed_serial
         }
 
@@ -151,7 +174,12 @@ impl OulankaManualFormat {
             let record = match r {
                 Ok(rec) => rec,
                 Err(e) => {
-                    eprintln!("Failed to read record {}: {}", i, e);
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::RowFail(format!(
+                        "Failed to read row {} in file {}, error: {}",
+                        i + 6,
+                        path.to_string_lossy(),
+                        e
+                    ))));
                     continue;
                 },
             };
@@ -172,12 +200,13 @@ impl OulankaManualFormat {
                     start_time.push(dt_utc_hack - Duration::seconds(60));
                 },
                 Err(_) => {
-                    println!(
-                        "Failed to parse {} as HHMM in {:?}",
-                        &record[1],
+                    let row_string = record.iter().collect::<Vec<_>>().join(",");
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::RowFail(format!(
+                        "Failed to parse datetime on row {}: '{}' in file {}",
+                        i + 6,
+                        row_string,
                         path.to_string_lossy()
-                    );
-                    println!("row {}: {}", i + 1, record.iter().collect::<Vec<_>>().join(","));
+                    ))));
                     continue;
                 },
             }
@@ -221,11 +250,18 @@ impl TimeFormatParser for OulankaManualFormat {
         "Oulanka Manual Format"
     }
 
-    fn parse(&self, path: &Path, tz: &Tz, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+    fn parse(
+        &self,
+        path: &Path,
+        tz: &Tz,
+        project: &Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) -> Result<TimeData, Box<dyn Error>> {
         let file = std::fs::File::open(path)
             .map_err(|e| format!("failed to open file {}: {}", path.display(), e))?;
 
-        self.parse_reader(file, path, tz, project).map_err(|e| format!("{}", e).into())
+        self.parse_reader(file, path, tz, project, progress_sender)
+            .map_err(|e| format!("{}", e).into())
     }
 }
 
@@ -343,7 +379,13 @@ impl TimeFormatParser for DefaultFormat {
         "Default time format"
     }
 
-    fn parse(&self, path: &Path, tz: &Tz, project: &Project) -> Result<TimeData, Box<dyn Error>> {
+    fn parse(
+        &self,
+        path: &Path,
+        tz: &Tz,
+        project: &Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) -> Result<TimeData, Box<dyn Error>> {
         let file = std::fs::File::open(path)
             .map_err(|e| format!("failed to open file {}: {}", path.display(), e))?;
 
@@ -613,7 +655,7 @@ pub fn try_all_formats(
             parser.name(),
             path.to_string_lossy()
         ))));
-        match parser.parse(path, tz, project) {
+        match parser.parse(path, tz, project, progress_sender.clone()) {
             Ok(data) => return Ok((data, parser.name())),
             Err(e) => {
                 let _ = progress_sender
@@ -651,9 +693,11 @@ chamber_id,start_time,snow_depth
 CH1,1234,0
 CH2,1250,0";
 
+        let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
+        let result =
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
 
         assert!(result.is_ok(), "Expected successful parsing");
         let data = result.unwrap();
@@ -671,9 +715,11 @@ CH2,1250,0";
 chamber_id,start_time,snow_depth
 CH1,1234,0";
 
+        let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
+        let result =
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
 
         assert!(result.is_err(), "Expected parsing to fail on invalid date");
     }
@@ -688,9 +734,11 @@ CH1,1234,0";
 chamber_id,start_time,snow_depth
 CH1,1234,0";
 
+        let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
+        let result =
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
 
         assert!(result.is_err(), "Expected parsing to fail on invalid instrument model");
     }
@@ -706,9 +754,11 @@ chamber_id,start_time,snow_depth
 CH1,12AA,
 CH2,1250,";
 
+        let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result = parser.parse_reader(reader, mock_path(), &UTC, &mock_project());
+        let result =
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
 
         assert!(result.is_ok());
         let data = result.unwrap();

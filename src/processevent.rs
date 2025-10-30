@@ -26,7 +26,7 @@ pub enum ReadEvent {
     HeightFail(String, String),
     CycleFail(String, String),
     MetadataFail(String, String),
-    RowFail(String, String),
+    RowFail(String),
     FileRows(String, usize),
 }
 
