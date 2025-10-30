@@ -1,5 +1,6 @@
 use crate::data_formats::meteodata::parse_datetime;
 use crate::ui::project_ui::Project;
+use crate::utils::ensure_utf8;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
@@ -156,9 +157,8 @@ pub async fn query_height_async(
 }
 
 pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<dyn Error>> {
-    let file = File::open(file_path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
-
+    let content = ensure_utf8(&file_path)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
     let mut datetime = Vec::new();
     let mut chamber_id = Vec::new();
     let mut height = Vec::new();
@@ -187,4 +187,3 @@ pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<d
 
     Ok(HeightData { datetime, chamber_id, height })
 }
-

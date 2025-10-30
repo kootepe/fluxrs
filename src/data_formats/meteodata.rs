@@ -1,4 +1,5 @@
 use crate::ui::project_ui::Project;
+use crate::utils::ensure_utf8;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
@@ -187,8 +188,8 @@ pub async fn query_meteo_async(
     }
 }
 pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn Error>> {
-    let file = File::open(file_path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+    let content = ensure_utf8(&file_path)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
 
     let mut datetime = Vec::new();
     let mut temperature = Vec::new();

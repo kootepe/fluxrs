@@ -1,14 +1,12 @@
 use crate::ui::project_ui::Project;
-use chrono::prelude::DateTime;
-use chrono::Utc;
+use crate::utils::ensure_utf8;
 use rusqlite;
 use rusqlite::Row;
-use rusqlite::{params, params_from_iter, Connection, Result};
+use rusqlite::{params, Connection, Result};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
-use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -267,8 +265,8 @@ impl TryFrom<&Row<'_>> for ChamberShape {
 pub fn read_chamber_metadata<P: AsRef<Path>>(
     path: P,
 ) -> Result<HashMap<String, ChamberShape>, Box<dyn Error>> {
-    let file = File::open(path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(file);
+    let content = ensure_utf8(&path)?;
+    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
 
     let mut chambers = HashMap::new();
 
