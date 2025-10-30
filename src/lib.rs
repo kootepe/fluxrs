@@ -12,7 +12,6 @@ use ui::project_ui::Project;
 
 pub mod cmd;
 pub mod concentrationunit;
-mod config;
 pub mod constants;
 pub mod cycle;
 pub mod cycle_navigator;
@@ -28,6 +27,7 @@ mod html_report;
 mod index;
 mod instruments;
 mod keybinds;
+pub mod utils;
 // pub mod meteodata;
 pub mod processevent;
 mod stats;
