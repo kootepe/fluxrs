@@ -10,6 +10,7 @@ use crate::ui::plotting_ui::{
     init_standardized_residuals_plot,
 };
 use crate::ui::tz_picker::TimezonePickerState;
+use crate::utils::ensure_utf8;
 
 use crate::data_formats::chamberdata::{
     insert_chamber_metadata, read_chamber_metadata, ChamberShape,
@@ -2402,7 +2403,7 @@ impl ProcessEventSink for ValidationApp {
                 self.log_messages.push_front(format!("Read file: {} with {} rows", filename, rows));
             },
             ReadEvent::RowFail(msg) => {
-                self.log_messages.push_front(format!("{}", msg));
+                self.log_messages.push_front(msg.to_owned());
             },
             ReadEvent::FileFail(filename, e) => {
                 self.log_messages
@@ -2762,9 +2763,17 @@ pub fn upload_cycle_data_async(
     let mut all_times = TimeData::new();
 
     for path in &selected_paths {
+        if let Err(_) = ensure_utf8(&path) {
+            // return Err(format!("Invalid UTF-8 in '{}': {}", path.display(), e).into());
+            let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
+                path.to_string_lossy().to_string(),
+                "Invalid UTF-8, check your file encoding.".to_owned(),
+            )));
+            continue;
+        }
         match try_all_formats(path, &tz, project, progress_sender.clone()) {
             //   Pass `path` directly
-            Ok((res, parser_name)) => {
+            Ok((res, _)) => {
                 if res.validate_lengths() {
                     all_times.chamber_id.extend(res.chamber_id);
                     all_times.start_time.extend(res.start_time);
