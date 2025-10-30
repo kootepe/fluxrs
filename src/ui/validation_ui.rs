@@ -883,6 +883,7 @@ impl ValidationApp {
                         }
                         self.update_plots();
                     }
+                    // BUG: calc area doesnt stick to deadband when incrementing
                     if keybind_triggered(event, &self.keybinds, Action::IncrementLag, modifiers) {
                         self.mark_dirty();
                         if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
@@ -894,6 +895,9 @@ impl ValidationApp {
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
+                        self.cycle_nav.update_current_cycle(&mut self.cycles, |cycle| {
+                            cycle.calculate_concentration_at_t0();
+                        });
                         self.update_plots();
                     }
 
