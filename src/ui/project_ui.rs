@@ -208,6 +208,9 @@ pub struct ProjectApp {
     project_timezone_str: String,
     message: Option<MsgType>,
     proj_create_open: bool,
+    proj_delete_open: bool,
+    verify_delete_open: bool,
+    proj_to_delete: Option<String>,
 }
 
 impl Default for ProjectApp {
@@ -227,6 +230,9 @@ impl Default for ProjectApp {
             mode: Mode::default(),
             message: None,
             proj_create_open: false,
+            proj_delete_open: false,
+            verify_delete_open: false,
+            proj_to_delete: None,
         }
     }
 }
@@ -237,6 +243,9 @@ impl ProjectApp {
         ui.horizontal(|ui| {
             if ui.button("Create project").clicked() {
                 self.proj_create_open = true;
+            }
+            if ui.button("Delete projects").clicked() {
+                self.proj_delete_open = true;
             }
         });
         // Load all projects once
@@ -279,6 +288,8 @@ impl ProjectApp {
             ui.label("No projects found.");
         }
         self.show_proj_create_prompt(ctx);
+        self.show_proj_delete_prompt(ctx);
+        self.show_verify_delete(ctx);
     }
 
     pub fn update_project(&mut self) -> Option<AppEvent> {
@@ -464,6 +475,7 @@ impl ProjectApp {
 
         Ok(exists)
     }
+
     pub fn show_proj_create_prompt(&mut self, ctx: &egui::Context) {
         if !self.proj_create_open {
             return;
@@ -627,6 +639,129 @@ impl ProjectApp {
                 if let Some(msg) = &self.message {
                     let (text, color) = msg.as_str_and_color();
                     ui.label(egui::RichText::new(text).color(color));
+                }
+            });
+    }
+    pub fn show_proj_delete_prompt(&mut self, ctx: &egui::Context) {
+        if !self.proj_delete_open {
+            return;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.proj_delete_open = false;
+            self.proj_to_delete = None;
+            return;
+        }
+
+        Area::new(Id::new("modal_blocker")).order(egui::Order::Background).interactable(true).show(
+            ctx,
+            |ui| {
+                let desired_size = ui.ctx().screen_rect().size();
+                let (rect, _resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+                // Dark translucent backdrop
+                ui.painter().rect_filled(
+                    rect,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
+                );
+            },
+        );
+
+        Window::new("Delete projects")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .frame(
+                Frame::window(&ctx.style()).fill(Color32::from_rgb(30, 30, 30)).corner_radius(8), // .shadow(egui::epaint::Shadow::big_dark()),
+            )
+            .show(ctx, |ui| {
+                if !self.all_projects.is_empty() {
+                    egui::ComboBox::from_label("Project to delete")
+                        .selected_text(
+                            self.proj_to_delete
+                                .as_ref()
+                                .map(|p| p.to_string())
+                                .unwrap_or_else(|| "Select Project".to_string()),
+                        )
+                        .show_ui(ui, |ui| {
+                            for project in &self.all_projects {
+                                let is_selected = self
+                                    .proj_to_delete
+                                    .as_ref()
+                                    .map(|p| *p == project.name)
+                                    .unwrap_or(false);
+                                if ui.selectable_label(is_selected, &project.name).clicked() {
+                                    self.proj_to_delete = Some(project.name.clone())
+                                }
+                            }
+                        });
+                } else {
+                    ui.label("No projects found.");
+                }
+                if self.proj_to_delete.is_some() {
+                    if ui
+                        .button(format!(
+                            "Delete project '{}' and all it's associated data",
+                            self.proj_to_delete.as_ref().unwrap(),
+                        ))
+                        .clicked()
+                    {
+                        self.verify_delete_open = true;
+                        self.proj_delete_open = false;
+                    }
+                }
+                if ui.button("Close").clicked() {
+                    self.proj_delete_open = false;
+                    self.proj_to_delete = None;
+                }
+            });
+    }
+    pub fn show_verify_delete(&mut self, ctx: &egui::Context) {
+        if !self.verify_delete_open {
+            return;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.verify_delete_open = false;
+            self.proj_delete_open = true;
+            return;
+        }
+
+        Area::new(Id::new("modal_blocker222"))
+            .order(egui::Order::Background)
+            .interactable(true)
+            .show(ctx, |ui| {
+                let desired_size = ui.ctx().screen_rect().size();
+                let (rect, _resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+                // Dark translucent backdrop
+                ui.painter().rect_filled(
+                    rect,
+                    0.0,
+                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
+                );
+            });
+
+        Window::new("Verify delete")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 100.0))
+            .frame(
+                Frame::window(&ctx.style()).fill(Color32::from_rgb(30, 30, 30)).corner_radius(8), // .shadow(egui::epaint::Shadow::big_dark()),
+            )
+            .show(ctx, |ui| {
+                if ui
+                    .button(format!(
+                        "Delete project '{}' and all it's associated data",
+                        self.proj_to_delete.as_ref().unwrap()
+                    ))
+                    .clicked()
+                {}
+
+                if ui.button("Close").clicked() {
+                    self.verify_delete_open = false;
+                    self.proj_delete_open = true;
                 }
             });
     }
