@@ -609,7 +609,7 @@ impl ValidationApp {
     }
 
     pub fn update_plots(&mut self) {
-        println!("Update plots");
+        // println!("Update plots");
         self.all_traces = self.cycles.iter().map(|cycle| cycle.chamber_id.clone()).collect();
 
         for chamber_id in &self.all_traces {
@@ -1633,7 +1633,7 @@ impl ValidationApp {
             // Match active drag
             match self.dragging {
                 Some(Adjuster::Left) => {
-                    println!("Dragging left");
+                    // println!("Dragging left");
                     if inside_left && can_move && dragged {
                         self.current_delta += dx;
                         self.handle_drag_polygon(plot_ui, true, key);
@@ -1641,7 +1641,7 @@ impl ValidationApp {
                 },
 
                 Some(Adjuster::Right) => {
-                    println!("Dragging right");
+                    // println!("Dragging right");
                     if inside_right && can_move && dragged {
                         self.current_delta += dx;
                         self.handle_drag_polygon(plot_ui, false, key);
@@ -1649,7 +1649,7 @@ impl ValidationApp {
                 },
 
                 Some(Adjuster::Main) => {
-                    println!("Dragging main");
+                    // println!("Dragging main");
                     if inside_main && dragged {
                         self.current_delta += dx;
                         let full_steps = self.current_delta.trunc();
@@ -1679,7 +1679,7 @@ impl ValidationApp {
                 },
 
                 Some(Adjuster::CloseLag) => {
-                    println!("Dragging close");
+                    // println!("Dragging close");
                     // BUG: calc area only sticks to close time for the plot thats being dragged
                     if inside_close_lag && dragged {
                         let delta = if self.zoom_to_measurement == 2 {
@@ -1714,7 +1714,7 @@ impl ValidationApp {
                 },
 
                 Some(Adjuster::OpenLag) => {
-                    println!("Dragging open");
+                    // println!("Dragging open");
                     if inside_open_lag && dragged {
                         let delta = if self.zoom_to_measurement == 1 {
                             self.current_z_delta += zoomed_dx;

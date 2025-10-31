@@ -1602,7 +1602,7 @@ impl Cycle {
         self.compute_all_fluxes();
     }
     pub fn reload_gas_data(&mut self) {
-        println!("###### Reload gas data #######");
+        // println!("###### Reload gas data #######");
         let conn = match Connection::open("fluxrs.db") {
             Ok(conn) => conn,
             Err(e) => {
