@@ -497,6 +497,24 @@ impl Cycle {
         self.compute_all_fluxes();
     }
 
+    pub fn increment_open_lag(&mut self, delta: f64) {
+        self.open_lag_s += delta;
+        self.adjust_calc_range_all();
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.calculate_concentration_at_t0();
+        self.compute_all_fluxes();
+    }
+
+    pub fn increment_close_lag(&mut self, delta: f64) {
+        self.close_lag_s += delta;
+        self.adjust_calc_range_all();
+        self.check_errors();
+        self.calculate_measurement_rs();
+        self.calculate_concentration_at_t0();
+        self.compute_all_fluxes();
+    }
+
     pub fn search_new_open_lag(&mut self, key: GasKey) {
         self.search_open_lag(key);
 

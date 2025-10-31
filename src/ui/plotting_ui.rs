@@ -1031,13 +1031,13 @@ impl ValidationApp {
     pub fn increment_open_lag(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_open_lag(cycle.open_lag_s + x);
+            cycle.increment_open_lag(x);
         }
     }
     pub fn increment_close_lag(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_close_lag(cycle.close_lag_s + x);
+            cycle.increment_close_lag(x);
         }
     }
     pub fn get_calc_range(&self, key: &GasKey) -> f64 {
@@ -1704,10 +1704,10 @@ impl ValidationApp {
                                 self.set_all_calc_range_to_best_r();
                             }
                             if self.mode_after_deadband() && delta < 0.0 {
-                                self.increment_calc_start(key, delta);
-                                self.increment_calc_end(key, delta);
-                                // self.increment_calc_starts(delta);
-                                // self.increment_calc_ends(delta);
+                                // self.increment_calc_start(key, delta);
+                                // self.increment_calc_end(key, delta);
+                                self.increment_calc_starts(delta);
+                                self.increment_calc_ends(delta);
                             }
                         }
                     }
@@ -1734,8 +1734,10 @@ impl ValidationApp {
                                 self.set_all_calc_range_to_best_r();
                             }
                             if self.mode_after_deadband() && delta < 0.0 {
-                                self.increment_calc_start(key, delta);
-                                self.increment_calc_end(key, delta);
+                                // self.increment_calc_start(key, delta);
+                                // self.increment_calc_end(key, delta);
+                                self.increment_calc_starts(delta);
+                                self.increment_calc_ends(delta);
                             }
                         }
                     }

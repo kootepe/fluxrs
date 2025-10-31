@@ -892,11 +892,15 @@ impl ValidationApp {
                     }
                     if keybind_triggered(event, &self.keybinds, Action::DecrementLag, modifiers) {
                         self.mark_dirty();
-                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
-                            self.increment_open_lag(-1.);
-                        }
-                        if self.zoom_to_measurement == 2 {
-                            self.increment_close_lag(-1.);
+                        let delta = -1.;
+                        if self.zoom_to_measurement == 1 {
+                            self.increment_open_lag(delta);
+                        } else if self.zoom_to_measurement == 2 {
+                            self.increment_close_lag(delta);
+                        } else if self.zoom_to_measurement == 0 && self.mode_after_deadband() {
+                            self.increment_open_lag(delta);
+                            self.increment_calc_starts(delta);
+                            self.increment_calc_ends(delta);
                         }
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
@@ -906,18 +910,19 @@ impl ValidationApp {
                     // BUG: calc area doesnt stick to deadband when incrementing
                     if keybind_triggered(event, &self.keybinds, Action::IncrementLag, modifiers) {
                         self.mark_dirty();
-                        if self.zoom_to_measurement == 1 || self.zoom_to_measurement == 0 {
-                            self.increment_open_lag(1.);
-                        }
-                        if self.zoom_to_measurement == 2 {
-                            self.increment_close_lag(1.);
+                        let delta = 1.;
+                        if self.zoom_to_measurement == 1 {
+                            self.increment_open_lag(delta);
+                        } else if self.zoom_to_measurement == 2 {
+                            self.increment_close_lag(delta);
+                        } else if self.zoom_to_measurement == 0 && self.mode_after_deadband() {
+                            self.increment_open_lag(delta);
+                            self.increment_calc_starts(delta);
+                            self.increment_calc_ends(delta);
                         }
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
-                        self.cycle_nav.update_current_cycle(&mut self.cycles, |cycle| {
-                            cycle.calculate_concentration_at_t0();
-                        });
                         self.update_plots();
                     }
 
