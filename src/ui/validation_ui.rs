@@ -901,6 +901,8 @@ impl ValidationApp {
                             self.increment_open_lag(delta);
                             self.increment_calc_starts(delta);
                             self.increment_calc_ends(delta);
+                        } else if self.zoom_to_measurement == 0 && self.mode_pearsons() {
+                            self.increment_open_lag(delta);
                         }
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
@@ -919,6 +921,8 @@ impl ValidationApp {
                             self.increment_open_lag(delta);
                             self.increment_calc_starts(delta);
                             self.increment_calc_ends(delta);
+                        } else if self.zoom_to_measurement == 0 && self.mode_pearsons() {
+                            self.increment_open_lag(delta);
                         }
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
