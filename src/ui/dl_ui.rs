@@ -1,4 +1,4 @@
-use crate::flux::FluxKind;
+use crate::flux::{FluxKind, FluxUnit};
 use crate::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use crate::gastype::GasType;
 use crate::ui::validation_ui::ValidationApp;
@@ -18,6 +18,7 @@ pub struct DownloadApp {
     project: Option<Project>,
     pub gas_checked: std::collections::HashMap<GasType, bool>,
     pub model_checked: std::collections::HashMap<FluxKind, bool>,
+    pub gas_unit_choice: std::collections::HashMap<GasType, FluxUnit>,
     gases: Vec<GasType>,
 }
 
@@ -34,10 +35,15 @@ impl DownloadApp {
         for gas in &gases {
             self.gas_checked.entry(*gas).or_insert(false);
         }
-        let models = &[FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin];
+        let models = FluxKind::all();
         for model in models {
             self.model_checked.entry(*model).or_insert(false);
         }
+
+        for gas in &gases {
+            self.gas_unit_choice.entry(*gas).or_insert(FluxUnit::UmolM2S);
+        }
+
         ui.separator();
         ui.label("Select gases to include:");
 
@@ -57,6 +63,23 @@ impl DownloadApp {
             }
         });
 
+        ui.separator();
+        ui.label("Select unit per gas:");
+
+        for gas in &gases {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label(gas.to_string());
+
+                    // current chosen unit for this gas
+                    let chosen_unit = self.gas_unit_choice.get_mut(gas).unwrap();
+
+                    for unit in FluxUnit::all() {
+                        ui.radio_value(chosen_unit, *unit, unit.to_string());
+                    }
+                });
+            });
+        }
         if ui.button("download all calculated fluxes for current project.").clicked() {
             let export_name = format!("fluxrs_{}.csv", self.project.as_ref().unwrap().name);
             match self.export_sqlite_to_csv(
@@ -145,18 +168,38 @@ impl DownloadApp {
             drop_after_processing.extend(poly_drops);
         }
         // Final output column order
-        let final_columns: Vec<String> = column_names
+        // let final_columns: Vec<String> = column_names
+        //     .iter()
+        //     .filter(|c| !drop_after_processing.contains(&c.as_str()))
+        //     .cloned()
+        //     .collect();
+
+        // We'll need to know where the "gas" column is in final_columns for filtering rows
+        let mut final_columns: Vec<String> = column_names
             .iter()
             .filter(|c| !drop_after_processing.contains(&c.as_str()))
             .cloned()
             .collect();
 
-        // We'll need to know where the "gas" column is in final_columns for filtering rows
         let gas_col_index = final_columns.iter().position(|c| c == "gas");
+        // Replace flux column names with unit suffix
+        let mut new_columns = Vec::new();
+        let default_unit =
+            self.gas_unit_choice.values().next().copied().unwrap_or(FluxUnit::UmolM2S);
+        for name in &final_columns {
+            match name.as_str() {
+                "lin_flux" => new_columns.push(format!("lin_flux_{}", default_unit.suffix())), // default
+                "roblin_flux" => new_columns.push(format!("roblin_flux_{}", default_unit.suffix())),
+                "poly_flux" => new_columns.push(format!("poly_flux_{}", default_unit.suffix())),
+                other => new_columns.push(other.to_string()),
+            }
+        }
+        final_columns = new_columns;
 
         let tz: Tz = project.tz;
 
         // Build the rows iterator (each item is Result<Vec<String>, rusqlite::Error>)
+        let unit_choice = self.gas_unit_choice.clone();
         let rows = stmt.query_map([&project.name], {
             let column_names = column_names.clone();
             let final_columns = final_columns.clone();
@@ -239,7 +282,25 @@ impl DownloadApp {
                         record.insert("gas".to_string(), gas.to_string());
                     }
                 }
+                let gas_enum_opt = record.get("gas").and_then(|s| s.parse::<GasType>().ok());
 
+                if let Some(gas_enum) = gas_enum_opt {
+                    let flux_unit =
+                        unit_choice.get(&gas_enum).copied().unwrap_or(FluxUnit::UmolM2S);
+
+                    // Get molar mass (mg/mmol)
+                    let mol_mass = gas_enum.mol_mass();
+
+                    // Convert each model flux if present
+                    for flux_col in ["lin_flux", "roblin_flux", "poly_flux"] {
+                        if let Some(raw_str) = record.get(flux_col) {
+                            if let Ok(raw_val) = raw_str.parse::<f64>() {
+                                let converted = flux_unit.from_umol_m2_s(raw_val, mol_mass);
+                                record.insert(flux_col.to_string(), converted.to_string());
+                            }
+                        }
+                    }
+                }
                 if let Some(i) = record.get("main_gas").and_then(|s| s.parse::<usize>().ok()) {
                     if let Some(gas) = GasType::from_int(i) {
                         record.insert("main_gas".to_string(), gas.to_string());

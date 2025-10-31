@@ -5,7 +5,7 @@ use crate::cycle::{
 };
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
-use crate::flux::FluxKind;
+use crate::flux::{FluxKind, FluxUnit};
 use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
@@ -296,8 +296,9 @@ pub struct ValidationApp {
     pub current_z_delta: f64,
     pub current_ydelta: f64,
     pub tz_prompt_open: bool,
-    pub tz_state: TimezonePickerState, // from the widget we made
-    pub tz_for_files: Option<Tz>,      // what the user picked for these files
+    pub tz_state: TimezonePickerState,
+    pub tz_for_files: Option<Tz>,
+    pub flux_unit: FluxUnit,
 }
 
 impl Default for ValidationApp {
@@ -409,6 +410,7 @@ impl Default for ValidationApp {
             tz_prompt_open: false,
             tz_state: TimezonePickerState::default(),
             tz_for_files: Some(UTC), // sensible default
+            flux_unit: FluxUnit::default(),
         }
     }
 }
@@ -653,6 +655,15 @@ impl ValidationApp {
         let mut show_roblin_model = true;
         let mut reload_gas = false;
         let mut keep_calc_area_constant_with_deadband = false;
+        egui::ComboBox::from_label("Select flux unit")
+            .selected_text(format!("{}", self.flux_unit))
+            .show_ui(ui, |ui| {
+                for unit in FluxUnit::all() {
+                    if ui.selectable_label(self.flux_unit == *unit, unit.to_string()).clicked() {
+                        self.flux_unit = *unit;
+                    }
+                }
+            });
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             prev_clicked = ui.add(egui::Button::new("Prev measurement")).clicked();
@@ -1738,16 +1749,19 @@ impl ValidationApp {
                 let response = lag_plot.show(ui, |plot_ui| {
                     self.render_lag_plot(plot_ui);
                 });
+                let flux_unit = self.flux_unit;
                 for gas_type in self.enabled_gases.clone() {
                     let flux_plot = init_attribute_plot(
-                        "Best flux".to_owned(),
+                        format!("Best flux {}", flux_unit),
                         &gas_type,
                         self.flux_plot_w,
                         self.flux_plot_h,
                     );
                     let response2 = flux_plot.show(ui, |plot_ui| {
                         self.render_best_flux_plot(plot_ui, &gas_type, |cycle, gas| {
-                            cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN)
+                            let umol_m2_s = cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN);
+                            let mass = cycle.gas_channels.get(gas).unwrap().gas.mol_mass();
+                            flux_unit.from_umol_m2_s(umol_m2_s, mass)
                         });
                     });
                     if response.response.hovered() {

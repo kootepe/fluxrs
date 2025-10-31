@@ -3,12 +3,102 @@ use crate::data_formats::chamberdata::ChamberShape;
 use crate::gaschannel::{self, GasChannel};
 use crate::gastype::GasType;
 use crate::stats::{pearson_correlation, LinReg, PolyReg, RobReg};
+use crate::Flux;
 use dyn_clone::DynClone;
 use egui::{Color32, Stroke};
 use egui_plot::{Line, LineStyle};
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::any::Any;
 use std::fmt;
+use std::str::FromStr;
+
+#[derive(Debug)]
+pub struct ParseFluxUnitError(String);
+
+impl fmt::Display for ParseFluxUnitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for ParseFluxUnitError {}
+
+#[derive(Default, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum FluxUnit {
+    #[default]
+    UmolM2S,
+    UmolM2H,
+    MmolM2S,
+    MmolM2H,
+    MgM2S,
+    MgM2H,
+}
+
+impl std::fmt::Display for FluxUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FluxUnit::UmolM2S => write!(f, "µmol/m2/s"),
+            FluxUnit::UmolM2H => write!(f, "µmol/m2/h"),
+            FluxUnit::MmolM2S => write!(f, "mmol/m2/s"),
+            FluxUnit::MmolM2H => write!(f, "mmol/m2/h"),
+            FluxUnit::MgM2S => write!(f, "mg/m2/s"),
+            FluxUnit::MgM2H => write!(f, "mg/m2/h"),
+        }
+    }
+}
+
+impl FromStr for FluxUnit {
+    type Err = ParseFluxUnitError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "µmol/m2/s" => Ok(FluxUnit::UmolM2S),
+            "µmol/m2/h" => Ok(FluxUnit::UmolM2H),
+            "mmol/m2/s" => Ok(FluxUnit::MmolM2S),
+            "mmol/m2/h" => Ok(FluxUnit::MmolM2H),
+            "mg/m2/s" => Ok(FluxUnit::MgM2S),
+            "mg/m2/h" => Ok(FluxUnit::MgM2H),
+            other => Err(ParseFluxUnitError(format!("Invalid unit: {other}"))),
+        }
+    }
+}
+impl FluxUnit {
+    pub fn all() -> &'static [FluxUnit] {
+        use FluxUnit::*;
+        &[UmolM2S, UmolM2H, MmolM2S, MmolM2H, MgM2S, MgM2H]
+    }
+    pub fn from_umol_m2_s(&self, value_umol_m2_s: f64, mol_mass_mg_per_mmol: f64) -> f64 {
+        match self {
+            // base unit, unchanged
+            FluxUnit::UmolM2S => value_umol_m2_s,
+
+            // µmol/m²/h = multiply by 3600 (seconds → hours)
+            FluxUnit::UmolM2H => value_umol_m2_s * 3600.0,
+
+            // mmol/m²/s = divide by 1000
+            FluxUnit::MmolM2S => value_umol_m2_s / 1000.0,
+
+            // mmol/m²/h = divide by 1000, then multiply by 3600
+            FluxUnit::MmolM2H => value_umol_m2_s / 1000.0 * 3600.0,
+
+            // mg/m²/s = µmol * mol_mass(mg/mmol) / 1000 (to convert µmol→mmol)
+            FluxUnit::MgM2S => value_umol_m2_s * mol_mass_mg_per_mmol / 1000.0,
+
+            // mg/m²/h = same as above, * 3600 for seconds → hours
+            FluxUnit::MgM2H => value_umol_m2_s * mol_mass_mg_per_mmol / 1000.0 * 3600.0,
+        }
+    }
+    pub fn suffix(&self) -> &'static str {
+        match self {
+            FluxUnit::UmolM2S => "umol_m2_s",
+            FluxUnit::UmolM2H => "umol_m2_h",
+            FluxUnit::MmolM2S => "mmol_m2_s",
+            FluxUnit::MmolM2H => "mmol_m2_h",
+            FluxUnit::MgM2S => "mg_m2_s",
+            FluxUnit::MgM2H => "mg_m2_h",
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct FluxRecord {
@@ -705,69 +795,6 @@ pub fn flux_mg_m2_h(
         flux_mg_m2_s(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
     flux_mg_s * 3600.0
 }
-// pub fn flux_umol_m2_s(
-//     channel: &GasChannel,
-//     slope_x_per_s: f64, // dC/dt in ppm/s (CH4 conc rise rate)
-//     air_temperature_c: f64,
-//     air_pressure_hpa: f64,
-//     chamber: ChamberShape,
-// ) -> f64 {
-//     // Convert environment
-//     let p_pa = air_pressure_hpa * 100.0; // hPa → Pa
-//     let t_k = air_temperature_c + 273.15; // °C → K
-//     let r = 8.314_f64; // J/(mol·K) = Pa·m³/(mol·K)
-//     let slope_ppm_per_s = channel.slope_ppm_per_s(slope_x_per_s);
-//
-//     // Ideal gas law gives mol/m³ in the chamber air:
-//     // n/V = p / (R T)
-//     // => mol_per_m3_air = p_pa / (r * t_k)
-//     let mol_per_m3_air = p_pa / (r * t_k);
-//
-//     // slope in ppm/s (µmol/mol/s) → mol/mol/s = slope * 1e-6
-//     let slope_mol_per_mol_per_s = slope_ppm_per_s * 1e-6;
-//
-//     // concentration change rate in mol/m³/s inside chamber air:
-//     // dC/dt (mol/mol/s) * mol_per_m3_air (mol/m³) = mol/m³/s
-//     let dmol_per_m3_per_s = slope_mol_per_mol_per_s * mol_per_m3_air;
-//
-//     // Turn that into flux per surface area:
-//     //
-//     // The chamber traps gas coming off area A into volume V.
-//     // d(n)/dt in mol/s = dC/dt (mol/m³/s) * V (m³)
-//     // Flux (mol/m²/s)  = (1/A) * d(n)/dt
-//     //                  = dC/dt * V / A
-//     //
-//     // So:
-//     let chamber_volume_m3 = chamber.adjusted_volume();
-//     let chamber_area_m2 = chamber.area_m2();
-//
-//     let flux_mol_per_m2_per_s = dmol_per_m3_per_s * chamber_volume_m3 / chamber_area_m2;
-//
-//     // Convert mol/m²/s → µmol/m²/s:
-//     let flux_umol_per_m2_per_s = flux_mol_per_m2_per_s * 1e6;
-//
-//     // Now convert to requested unit.
-//     let mol_mass = channel.gas.mol_mass(); // g/mol
-//     unit.convert_from_umol_m2_s(flux_umol_per_m2_per_s, mol_mass)
-// }
-
-// pub fn flux_umol_m2_s(
-//     gas_type: GasType,
-//     slope: f64,
-//     air_temperature: f64,
-//     air_pressure: f64,
-//     chamber: ChamberShape,
-// ) -> f64 {
-//     let mol_mass = gas_type.mol_mass();
-//     let slope_ppm = slope / gas_type.conv_factor();
-//     let slope_ppm_hour = slope_ppm * 60. * 60.;
-//     let p = air_pressure * 100.0;
-//     let t = air_temperature + 273.15;
-//     let r = 8.314;
-//     let volume = chamber.volume_m3();
-//
-//     slope_ppm_hour / 1_000_000.0 * volume * ((mol_mass * p) / (r * t)) * 1000.0
-// }
 
 pub fn r2_from_predictions(y: &[f64], y_hat: &[f64]) -> Option<f64> {
     if y.len() != y_hat.len() || y.len() < 2 {
