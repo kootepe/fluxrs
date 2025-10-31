@@ -30,7 +30,7 @@ egui_plot = "0.32.1"
 image = "0.25.0"
 futures = "0.3.31"
 tokio = {version = "1.44.1", features = ["rt-multi-thread", "macros", "sync", "time"]}
-windows = { version = "0.57", features = ["Win32_System_Console", "Win32_Foundation"] }
+windows = { version = "0.58", features = ["Win32_System_Console", "Win32_Foundation"] }
 
 [profile.release]
 # lto = "fat"
