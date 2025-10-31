@@ -80,17 +80,25 @@ impl DownloadApp {
                 });
             });
         }
-        if ui.button("download all calculated fluxes for current project.").clicked() {
-            let export_name = format!("fluxrs_{}.csv", self.project.as_ref().unwrap().name);
-            match self.export_sqlite_to_csv(
-                "fluxrs.db",
-                &export_name,
-                &self.project.clone().unwrap(),
-            ) {
-                Ok(_) => println!("succesfully downloaded csv."),
-                Err(e) => println!("failed to download csv. error: {}", e),
+        let any_gas_selected = self.gas_checked.values().any(|&v| v);
+        let any_model_selected = self.model_checked.values().any(|&v| v);
+
+        ui.add_enabled_ui(any_gas_selected && any_model_selected, |ui| {
+            if ui.button("Download all calculated fluxes for current project.").clicked() {
+                let export_name = format!("fluxrs_{}.csv", self.project.as_ref().unwrap().name);
+                match self.export_sqlite_to_csv(
+                    "fluxrs.db",
+                    &export_name,
+                    &self.project.clone().unwrap(),
+                ) {
+                    Ok(_) => println!("Successfully downloaded CSV."),
+                    Err(e) => println!("Failed to download CSV. Error: {}", e),
+                }
             }
-        }
+        });
+        if !any_gas_selected || !any_model_selected {
+            ui.label("Select a gas and model to download data.");
+        };
     }
     pub fn export_sqlite_to_csv(
         &mut self,
@@ -184,14 +192,24 @@ impl DownloadApp {
         let gas_col_index = final_columns.iter().position(|c| c == "gas");
         // Replace flux column names with unit suffix
         let mut new_columns = Vec::new();
+
         let default_unit =
             self.gas_unit_choice.values().next().copied().unwrap_or(FluxUnit::UmolM2S);
+
+        let flux_name_map: std::collections::HashMap<&'static str, String> = {
+            use std::collections::HashMap;
+            let mut m = HashMap::new();
+            m.insert("lin_flux", format!("lin_flux_{}", default_unit.suffix()));
+            m.insert("roblin_flux", format!("roblin_flux_{}", default_unit.suffix()));
+            m.insert("poly_flux", format!("poly_flux_{}", default_unit.suffix()));
+            m
+        };
+
         for name in &final_columns {
-            match name.as_str() {
-                "lin_flux" => new_columns.push(format!("lin_flux_{}", default_unit.suffix())), // default
-                "roblin_flux" => new_columns.push(format!("roblin_flux_{}", default_unit.suffix())),
-                "poly_flux" => new_columns.push(format!("poly_flux_{}", default_unit.suffix())),
-                other => new_columns.push(other.to_string()),
+            if let Some(mapped) = flux_name_map.get(name.as_str()) {
+                new_columns.push(mapped.clone());
+            } else {
+                new_columns.push(name.clone());
             }
         }
         final_columns = new_columns;
@@ -285,16 +303,23 @@ impl DownloadApp {
                 let gas_enum_opt = record.get("gas").and_then(|s| s.parse::<GasType>().ok());
 
                 if let Some(gas_enum) = gas_enum_opt {
+                    // which unit to output this gas in:
                     let flux_unit =
                         unit_choice.get(&gas_enum).copied().unwrap_or(FluxUnit::UmolM2S);
 
-                    // Convert each model flux if present
+                    // for each model flux column, convert and store under the *renamed* column name
                     for flux_col in ["lin_flux", "roblin_flux", "poly_flux"] {
                         if let Some(raw_str) = record.get(flux_col) {
                             if let Ok(raw_val) = raw_str.parse::<f64>() {
-                                let converted =
-                                    flux_unit.from_umol_m2_s(raw_val, gas_enum_opt.unwrap());
-                                record.insert(flux_col.to_string(), converted.to_string());
+                                let converted = flux_unit.from_umol_m2_s(raw_val, gas_enum);
+
+                                // find the renamed key this column will be written out under
+                                if let Some(renamed) = flux_name_map.get(flux_col) {
+                                    record.insert(renamed.clone(), converted.to_string());
+                                } else {
+                                    // fallback: shouldn't happen, but just in case
+                                    record.insert(flux_col.to_string(), converted.to_string());
+                                }
                             }
                         }
                     }
