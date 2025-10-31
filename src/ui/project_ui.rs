@@ -203,7 +203,7 @@ impl Default for ProjectApp {
     }
 }
 impl ProjectApp {
-    pub fn proj_ui(&mut self, ui: &mut egui::Ui) {
+    pub fn proj_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
         ui.heading("Project Management");
         ui.separator();
 
