@@ -288,14 +288,12 @@ impl DownloadApp {
                     let flux_unit =
                         unit_choice.get(&gas_enum).copied().unwrap_or(FluxUnit::UmolM2S);
 
-                    // Get molar mass (mg/mmol)
-                    let mol_mass = gas_enum.mol_mass();
-
                     // Convert each model flux if present
                     for flux_col in ["lin_flux", "roblin_flux", "poly_flux"] {
                         if let Some(raw_str) = record.get(flux_col) {
                             if let Ok(raw_val) = raw_str.parse::<f64>() {
-                                let converted = flux_unit.from_umol_m2_s(raw_val, mol_mass);
+                                let converted =
+                                    flux_unit.from_umol_m2_s(raw_val, gas_enum_opt.unwrap());
                                 record.insert(flux_col.to_string(), converted.to_string());
                             }
                         }
