@@ -569,7 +569,7 @@ impl ValidationApp {
                             ui,
                             |ui| {
                                 ui.label("Gas");
-                                ui.label("Flux");
+                                ui.label(format!("Flux {}", self.flux_unit));
                                 ui.label("Adj R²");
                                 ui.label("p-value");
                                 ui.label("Sigma");
@@ -578,9 +578,16 @@ impl ValidationApp {
                                 ui.end_row();
 
                                 for gas in &self.enabled_gases {
-                                    let flux = cycle
-                                        .get_flux(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+                                    let flux = if let Some(raw_flux) =
+                                        cycle.get_flux(gas.clone(), *model)
+                                    {
+                                        let converted_flux =
+                                            self.flux_unit.from_umol_m2_s(raw_flux, gas.gas_type);
+
+                                        format!("{:.6}", converted_flux)
+                                    } else {
+                                        "N/A".to_string()
+                                    };
                                     let r2 = cycle
                                         .get_adjusted_r2(gas.clone(), *model)
                                         .map_or("N/A".to_string(), |v| format!("{:.6}", v));
@@ -1760,8 +1767,7 @@ impl ValidationApp {
                     let response2 = flux_plot.show(ui, |plot_ui| {
                         self.render_best_flux_plot(plot_ui, &gas_type, |cycle, gas| {
                             let umol_m2_s = cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN);
-                            let mass = cycle.gas_channels.get(gas).unwrap().gas.mol_mass();
-                            flux_unit.from_umol_m2_s(umol_m2_s, mass)
+                            flux_unit.from_umol_m2_s(umol_m2_s, gas_type.gas_type)
                         });
                     });
                     if response.response.hovered() {
