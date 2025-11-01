@@ -50,14 +50,16 @@ pub struct MainApp {
 impl MainApp {
     pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.apply_font_size(ctx, self.validation_panel.font_size);
+        for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
+            font_id.family = FontFamily::Monospace;
+        }
+
         if !self.app_state_loaded {
-            match load_app_state(Path::new("app_state.json")) {
-                Ok(app) => {
-                    self.validation_panel.start_date = app.start_date;
-                    self.validation_panel.end_date = app.end_date;
-                    self.app_state_loaded = true;
-                },
-                _ => (),
+            if let Ok(app) = load_app_state(Path::new("app_state.json")) {
+                self.validation_panel.start_date = app.start_date;
+                self.validation_panel.end_date = app.end_date;
+                // prevent constantly reloading the app state file
+                self.app_state_loaded = true;
             }
         }
 
@@ -102,11 +104,6 @@ impl MainApp {
                     }
                 },
             }
-        }
-        // println!("{:?}", self.validation_panel.selected_project);
-        for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
-            // font_id.size = self.validation_panel.font_size;
-            font_id.family = FontFamily::Monospace;
         }
         ui.horizontal_wrapped(|ui| {
             let container_response = ui.response();
