@@ -12,7 +12,7 @@ use crate::ProcessEvent;
 use crate::Project;
 use crate::QueryEvent;
 use chrono_tz::{Tz, UTC};
-use egui::{Context, Id, Ui};
+use egui::{Align2, Context, Frame, Id, Ui};
 use egui_file::FileDialog;
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -150,8 +150,6 @@ impl ValidationApp {
         if !self.tz_prompt_open {
             return;
         }
-
-        use egui::{Align2, Frame};
 
         egui::Area::new(Id::from("tz_prompt_layer"))
         .fixed_pos(ctx.screen_rect().center()) // center-ish
