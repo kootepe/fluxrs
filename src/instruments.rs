@@ -279,7 +279,7 @@ impl InstrumentConfig {
                 },
                 TimeSourceKind::SecondsAndNanos => {
                     let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
-                    let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<i64>()?;
+                    let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<u32>()?;
                     parse_secnsec_to_dt(sec, nsec, tz_str.clone())
                 },
                 TimeSourceKind::StringFormat => {
@@ -364,9 +364,9 @@ impl InstrumentConfig {
     }
 }
 
-pub fn parse_secnsec_to_dt(sec: i64, nsec: i64, tz_str: String) -> DateTime<Tz> {
+pub fn parse_secnsec_to_dt(sec: i64, nsec: u32, tz_str: String) -> DateTime<Tz> {
     let tz: Tz = tz_str.parse().expect("Invalid timezone string");
-    match tz.timestamp_opt(sec, nsec as u32) {
+    match tz.timestamp_opt(sec, nsec) {
         LocalResult::Single(dt) => return dt.with_timezone(&UTC),
         LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&UTC),
         LocalResult::None => {
