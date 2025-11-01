@@ -207,6 +207,7 @@ pub struct ProjectApp {
     project_timezone: Option<Tz>, // store the choice (or keep as String if you prefer)
     project_timezone_str: String,
     message: Option<MsgType>,
+    del_message: Option<MsgType>,
     proj_create_open: bool,
     proj_delete_open: bool,
     verify_delete_open: bool,
@@ -229,6 +230,7 @@ impl Default for ProjectApp {
             project_timezone_str: String::new(),
             mode: Mode::default(),
             message: None,
+            del_message: None,
             proj_create_open: false,
             proj_delete_open: false,
             verify_delete_open: false,
@@ -757,12 +759,57 @@ impl ProjectApp {
                         self.proj_to_delete.as_ref().unwrap()
                     ))
                     .clicked()
-                {}
+                {
+                    let mut conn = Connection::open("fluxrs.db").expect("Failed to open database");
+                    match delete_project_data(&mut conn, self.proj_to_delete.as_ref().unwrap()) {
+                        Ok(_) => {
+                            self.del_message = Some(MsgType::Good(format!(
+                                "Successfully deleted project '{}'!",
+                                self.proj_to_delete.as_ref().unwrap()
+                            )))
+                        },
+                        Err(e) => {
+                            self.del_message = Some(MsgType::Good(format!(
+                                "Couldn't delete all data for project '{}': {}!",
+                                self.proj_to_delete.as_ref().unwrap(),
+                                e
+                            )))
+                        },
+                    }
+                }
 
                 if ui.button("Close").clicked() {
                     self.verify_delete_open = false;
                     self.proj_delete_open = true;
+                    self.del_message = None;
+                }
+                if let Some(msg) = &self.del_message {
+                    let (text, color) = msg.as_str_and_color();
+                    ui.label(egui::RichText::new(text).color(color));
                 }
             });
     }
+}
+
+pub fn delete_project_data(conn: &mut Connection, project_id: &str) -> Result<()> {
+    let tables = [
+        "measurements",
+        "chamber_metadata",
+        "height",
+        "meteo",
+        "cycles",
+        "projects",
+        "fluxes",
+        "flux_history",
+    ];
+
+    let tx = conn.transaction()?; // optional transaction for atomic delete
+
+    for table in &tables {
+        let sql = format!("DELETE FROM {} WHERE project_id == ?1", table);
+        tx.execute(&sql, params![project_id])?;
+    }
+
+    tx.commit()?;
+    Ok(())
 }
