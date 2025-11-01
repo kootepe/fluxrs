@@ -1,6 +1,6 @@
 use crate::ui::project_ui::Project;
-use crate::utils::ensure_utf8;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use crate::utils::{ensure_utf8, parse_datetime};
 use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
 use std::error::Error;
@@ -208,28 +208,4 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn
     }
 
     Ok(MeteoData { datetime, temperature, pressure })
-}
-
-pub fn parse_datetime(s: &str) -> Result<i64, Box<dyn Error>> {
-    let formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%d-%m-%Y %H:%M:%S",
-        "%d/%m/%Y %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S%.fZ",
-    ];
-
-    for fmt in &formats {
-        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
-            return Ok(Utc.from_utc_datetime(&dt).timestamp());
-        }
-        if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-            return Ok(dt.with_timezone(&Utc).timestamp());
-        }
-    }
-
-    Err(format!("Unrecognized datetime format: {}", s).into())
 }

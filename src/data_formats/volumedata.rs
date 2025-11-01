@@ -1,5 +1,5 @@
 use crate::ui::project_ui::Project;
-use crate::utils::ensure_utf8;
+use crate::utils::{ensure_utf8, parse_datetime};
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
