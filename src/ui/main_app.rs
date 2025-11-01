@@ -78,18 +78,27 @@ impl MainApp {
         if let Some(event) = self.proj_panel.update_project() {
             match event {
                 AppEvent::SelectProject(proj) => {
-                    if self.validation_panel.selected_project.clone().unwrap_or_default().name
-                        != proj.clone().unwrap_or_default().name
-                    {
-                        self.validation_panel.selected_project = proj;
-                        self.validation_panel.cycles = Vec::new();
+                    if proj.is_some() {
+                        if self.validation_panel.selected_project.clone().unwrap_or_default().name
+                            != proj.clone().unwrap_or_default().name
+                        {
+                            self.validation_panel.selected_project = proj;
+                            self.validation_panel.cycles = Vec::new();
 
-                        self.validation_panel.tz_state.query =
-                            self.validation_panel.selected_project.clone().unwrap().tz.to_string();
-                        self.validation_panel.tz_state.selected =
-                            Some(self.validation_panel.selected_project.clone().unwrap().tz);
-                        self.validation_panel.tz_for_files =
-                            Some(self.validation_panel.selected_project.clone().unwrap().tz);
+                            self.validation_panel.tz_state.query = self
+                                .validation_panel
+                                .selected_project
+                                .clone()
+                                .unwrap()
+                                .tz
+                                .to_string();
+                            self.validation_panel.tz_state.selected =
+                                Some(self.validation_panel.selected_project.clone().unwrap().tz);
+                            self.validation_panel.tz_for_files =
+                                Some(self.validation_panel.selected_project.clone().unwrap().tz);
+                        }
+                    } else {
+                        self.validation_panel.selected_project = None
                     }
                 },
             }

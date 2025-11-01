@@ -312,7 +312,6 @@ impl ProjectApp {
     }
 
     pub fn load_projects_from_db(&mut self) -> rusqlite::Result<()> {
-        println!("loading project");
         self.all_projects = Vec::new();
         let conn = Connection::open("fluxrs.db")?;
 
@@ -727,6 +726,7 @@ impl ProjectApp {
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.verify_delete_open = false;
             self.proj_delete_open = true;
+            self.del_message = None;
             return;
         }
 
@@ -761,18 +761,24 @@ impl ProjectApp {
                     .clicked()
                 {
                     let mut conn = Connection::open("fluxrs.db").expect("Failed to open database");
-                    match delete_project_data(&mut conn, self.proj_to_delete.as_ref().unwrap()) {
+                    let name_to_delete = self.proj_to_delete.as_ref().unwrap();
+                    match delete_project_data(&mut conn, name_to_delete) {
                         Ok(_) => {
                             self.del_message = Some(MsgType::Good(format!(
                                 "Successfully deleted project '{}'!",
-                                self.proj_to_delete.as_ref().unwrap()
-                            )))
+                                name_to_delete
+                            )));
+                            self.all_projects.retain(|p| p.name != *name_to_delete);
+                            if self.project.is_some()
+                                && self.project.as_ref().unwrap().name == *name_to_delete
+                            {
+                                self.project = None
+                            }
                         },
                         Err(e) => {
                             self.del_message = Some(MsgType::Good(format!(
                                 "Couldn't delete all data for project '{}': {}!",
-                                self.proj_to_delete.as_ref().unwrap(),
-                                e
+                                name_to_delete, e
                             )))
                         },
                     }
