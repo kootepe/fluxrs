@@ -3,6 +3,7 @@ use crate::data_formats::gasdata::GasData;
 use crate::gaschannel::{ChannelConfig, GasChannel};
 use crate::gastype::GasType;
 use crate::ui::validation_ui::GasKey;
+use crate::utils::parse_datetime;
 use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone};
 use chrono_tz::{Tz, UTC};
 use std::collections::HashMap;
@@ -283,7 +284,8 @@ impl InstrumentConfig {
                 TimeSourceKind::StringFormat => {
                     let time_str = record.get(idx_secs).unwrap_or("");
                     let fmt = self.time_fmt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
-                    parse_local_in_tz(time_str, fmt, UTC)
+                    let tz: Tz = tz_str.parse().expect("Invalid timezone string");
+                    parse_local_in_tz(time_str, fmt, tz)
                 },
             };
 
