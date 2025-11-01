@@ -24,8 +24,8 @@ use crate::data_formats::meteodata::{insert_meteo_data, read_meteo_csv, MeteoDat
 use crate::data_formats::timedata::{insert_cycles, try_all_formats, TimeData};
 use crate::gastype::GasType;
 
-use crate::instruments::InstrumentConfig;
-use crate::instruments::InstrumentType;
+use crate::instruments::instruments::InstrumentConfig;
+use crate::instruments::instruments::InstrumentType;
 use crate::keybinds::{Action, KeyBindings};
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,

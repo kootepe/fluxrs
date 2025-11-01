@@ -3,7 +3,6 @@ use crate::data_formats::gasdata::GasData;
 use crate::gaschannel::{ChannelConfig, GasChannel};
 use crate::gastype::GasType;
 use crate::ui::validation_ui::GasKey;
-use crate::utils::parse_datetime;
 use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone};
 use chrono_tz::{Tz, UTC};
 use std::collections::HashMap;
@@ -21,6 +20,7 @@ impl fmt::Display for ParseInstrumentError {
         write!(f, "{}", self.0)
     }
 }
+
 impl std::error::Error for ParseInstrumentError {}
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -95,12 +95,14 @@ impl TimeSource {
     //     }
     // }
 }
+
 #[derive(Debug, Clone, Copy)]
 pub enum TimeSourceKind {
     Seconds,
     SecondsAndNanos,
     StringFormat,
 }
+
 #[derive(Debug, Clone)]
 pub struct InstrumentConfig {
     pub name: String,

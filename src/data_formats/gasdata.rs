@@ -14,7 +14,7 @@ use tokio::task;
 
 use csv::StringRecord;
 
-use crate::instruments::InstrumentType;
+use crate::instruments::instruments::InstrumentType;
 
 #[derive(Clone, Debug)]
 pub struct GasData {

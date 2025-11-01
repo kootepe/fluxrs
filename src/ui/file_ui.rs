@@ -1,4 +1,4 @@
-use crate::instruments::InstrumentType;
+use crate::instruments::instruments::InstrumentType;
 use crate::mpsc;
 use crate::ui::tz_picker::timezone_combo;
 use crate::ui::validation_ui::upload_chamber_metadata_async;

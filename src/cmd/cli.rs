@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::cmd::config::{Action, Config, ProjectCreate, Run as RunCfg, Upload as UploadCfg};
 use crate::gastype::GasType;
-use crate::instruments::InstrumentType;
+use crate::instruments::instruments::InstrumentType;
 use crate::ui::validation_ui::{DataType, Mode};
 
 // Reuse your flexible parser

@@ -4,7 +4,7 @@ use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 use crate::gastype::GasType;
-use crate::instruments::InstrumentType;
+use crate::instruments::instruments::InstrumentType;
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };

@@ -1,4 +1,3 @@
-use crate::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, QueryEvent};
 use crate::traits::EqualLen;
 use csv::Writer;
@@ -26,14 +25,13 @@ pub mod gastype;
 mod get_paths;
 mod html_report;
 mod index;
-mod instruments;
+pub mod instruments;
 mod keybinds;
-pub mod utils;
-// pub mod meteodata;
 pub mod processevent;
 mod stats;
 pub mod traits;
 pub mod ui;
+pub mod utils;
 
 pub struct Flux {
     datetime: Vec<chrono::DateTime<chrono::Utc>>,
