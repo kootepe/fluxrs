@@ -3,9 +3,8 @@ use crate::data_formats::gasdata::GasData;
 use crate::gaschannel::{ChannelConfig, GasChannel};
 use crate::gastype::GasType;
 use crate::ui::validation_ui::GasKey;
-use chrono::offset::LocalResult;
-use chrono::prelude::DateTime;
-use chrono::{NaiveDateTime, TimeZone, Utc};
+use crate::utils::parse_datetime;
+use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone};
 use chrono_tz::{Tz, UTC};
 use std::collections::HashMap;
 use std::error::Error;
@@ -279,13 +278,14 @@ impl InstrumentConfig {
                 },
                 TimeSourceKind::SecondsAndNanos => {
                     let sec = record.get(idx_secs).unwrap_or("0").parse::<i64>()?;
-                    let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<i64>()?;
+                    let nsec = record.get(idx_nsecs).unwrap_or("0").parse::<u32>()?;
                     parse_secnsec_to_dt(sec, nsec, tz_str.clone())
                 },
                 TimeSourceKind::StringFormat => {
                     let time_str = record.get(idx_secs).unwrap_or("");
                     let fmt = self.time_fmt.as_deref().unwrap_or("%Y-%m-%d %H:%M:%S");
-                    parse_local_in_tz(time_str, fmt, UTC)
+                    let tz: Tz = tz_str.parse().expect("Invalid timezone string");
+                    parse_local_in_tz(time_str, fmt, tz)
                 },
             };
 
@@ -364,9 +364,9 @@ impl InstrumentConfig {
     }
 }
 
-pub fn parse_secnsec_to_dt(sec: i64, nsec: i64, tz_str: String) -> DateTime<Tz> {
+pub fn parse_secnsec_to_dt(sec: i64, nsec: u32, tz_str: String) -> DateTime<Tz> {
     let tz: Tz = tz_str.parse().expect("Invalid timezone string");
-    match tz.timestamp_opt(sec, nsec as u32) {
+    match tz.timestamp_opt(sec, nsec) {
         LocalResult::Single(dt) => return dt.with_timezone(&UTC),
         LocalResult::Ambiguous(dt1, _) => return dt1.with_timezone(&UTC),
         LocalResult::None => {

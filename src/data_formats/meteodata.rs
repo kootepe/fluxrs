@@ -1,6 +1,7 @@
 use crate::ui::project_ui::Project;
-use crate::utils::ensure_utf8;
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use crate::utils::{ensure_utf8, parse_datetime};
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
 use std::error::Error;
@@ -187,7 +188,7 @@ pub async fn query_meteo_async(
         },
     }
 }
-pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn Error>> {
+pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<MeteoData, Box<dyn Error>> {
     let content = ensure_utf8(&file_path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
 
@@ -198,7 +199,7 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn
     for result in rdr.records() {
         let record = result?;
         let datetime_str = record.get(0).ok_or("Missing datetime field")?;
-        let timestamp = parse_datetime(datetime_str)?;
+        let timestamp = parse_datetime(datetime_str, tz)?;
         let temp: f64 = record.get(1).ok_or("Missing temperature field")?.parse()?;
         let press: f64 = record.get(2).ok_or("Missing pressure field")?.parse()?;
 
@@ -208,28 +209,4 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P) -> Result<MeteoData, Box<dyn
     }
 
     Ok(MeteoData { datetime, temperature, pressure })
-}
-
-pub fn parse_datetime(s: &str) -> Result<i64, Box<dyn Error>> {
-    let formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%d-%m-%Y %H:%M:%S",
-        "%d/%m/%Y %H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S%.fZ",
-    ];
-
-    for fmt in &formats {
-        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
-            return Ok(Utc.from_utc_datetime(&dt).timestamp());
-        }
-        if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
-            return Ok(dt.with_timezone(&Utc).timestamp());
-        }
-    }
-
-    Err(format!("Unrecognized datetime format: {}", s).into())
 }

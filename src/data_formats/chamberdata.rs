@@ -270,7 +270,7 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
 
     let mut chambers = HashMap::new();
 
-    for result in rdr.records() {
+    for (i, result) in rdr.records().enumerate() {
         let record = result?;
 
         let chamber_id = record.get(0).ok_or("Missing chamber_id")?.to_string();

@@ -2888,7 +2888,7 @@ pub fn upload_meteo_data_async(
 ) {
     let mut meteos = MeteoData::default();
     for path in &selected_paths {
-        match read_meteo_csv(path) {
+        match read_meteo_csv(path, tz) {
             //   Pass `path` directly
             Ok(res) => {
                 meteos.datetime.extend(res.datetime);
@@ -2927,7 +2927,7 @@ pub fn upload_height_data_async(
     let mut heights = HeightData::default();
     for path in &selected_paths {
         //   Pass `path` directly
-        match read_height_csv(path) {
+        match read_height_csv(path, tz) {
             Ok(res) => {
                 heights.datetime.extend(res.datetime);
                 heights.chamber_id.extend(res.chamber_id);
