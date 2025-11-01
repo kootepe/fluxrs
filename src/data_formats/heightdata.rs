@@ -1,10 +1,9 @@
-use crate::data_formats::meteodata::parse_datetime;
 use crate::ui::project_ui::Project;
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use crate::utils::{ensure_utf8, parse_datetime};
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
-use std::fs::File;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::task;
@@ -156,7 +155,7 @@ pub async fn query_height_async(
     }
 }
 
-pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<dyn Error>> {
+pub fn read_height_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<HeightData, Box<dyn Error>> {
     let content = ensure_utf8(&file_path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
     let mut datetime = Vec::new();
@@ -177,7 +176,7 @@ pub fn read_height_csv<P: AsRef<Path>>(file_path: P) -> Result<HeightData, Box<d
             .parse()
             .map_err(|e| format!("Invalid height at row {}: {}", i + 2, e))?;
 
-        let timestamp = parse_datetime(datetime_str)
+        let timestamp = parse_datetime(datetime_str, tz)
             .map_err(|e| format!("Datetime parse error at row {}: {}", i + 2, e))?;
 
         datetime.push(timestamp);

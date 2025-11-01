@@ -1,9 +1,9 @@
 use crate::ui::project_ui::Project;
 use crate::utils::{ensure_utf8, parse_datetime};
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
-use std::fs::File;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tokio::task;
@@ -154,7 +154,7 @@ pub async fn query_volume_async(
         },
     }
 }
-pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<dyn Error>> {
+pub fn read_volume_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<VolumeData, Box<dyn Error>> {
     let content = ensure_utf8(&file_path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
 
@@ -162,7 +162,7 @@ pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<d
     let mut chamber_id = Vec::new();
     let mut volume = Vec::new();
 
-    for result in rdr.records() {
+    for (i, result) in rdr.records().enumerate() {
         let record = result?;
 
         let datetime_str = &record[0]; // Read datetime column
@@ -170,8 +170,8 @@ pub fn read_volume_csv<P: AsRef<Path>>(file_path: P) -> Result<VolumeData, Box<d
         let vol: f64 = record[2].parse()?; // Read air_pressure column
 
         // Convert datetime string to Unix timestamp
-        let dt = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
-        let timestamp = Utc.from_utc_datetime(&dt).timestamp();
+        let timestamp = parse_datetime(datetime_str, tz)
+            .map_err(|e| format!("Datetime parse error at row {}: {}", i + 2, e))?;
 
         // Store values
         datetime.push(timestamp);
