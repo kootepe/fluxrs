@@ -73,6 +73,16 @@ impl eframe::App for MyApp {
                         .map(|p| &p.name)
                         .unwrap_or(&"None selected".to_owned())
                 ));
+                ui.add_space(16.0);
+                ui.label(format!(
+                    "Display timezone: {}",
+                    self.main_app
+                        .validation_panel
+                        .selected_project
+                        .as_ref()
+                        .map(|p| p.tz.to_string())
+                        .unwrap_or("None selected".to_owned())
+                ));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                     ui.hyperlink_to(
                         format!("{GITHUB} fluxrs on GitHub"),
