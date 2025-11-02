@@ -5,10 +5,7 @@ use crate::ui::main_app::AppEvent;
 use crate::ui::tz_picker::{timezone_combo, TimezonePickerState};
 use crate::ui::validation_ui::Mode;
 use chrono_tz::Tz;
-use egui::{
-    Align2, Area, Color32, Context, Frame, Id, Key, Modifiers, RichText, ScrollArea, TextEdit, Ui,
-    Window,
-};
+use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
 use std::error::Error;
 use std::fmt;
 use std::process;
@@ -500,7 +497,7 @@ impl ProjectApp {
             return;
         }
 
-        Window::new("Create new project")
+        let wr = Window::new("Create new project")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -640,6 +637,9 @@ impl ProjectApp {
                     ui.label(egui::RichText::new(text).color(color));
                 }
             });
+        if clicked_outside_window(ctx, wr.as_ref()) {
+            self.proj_create_open = false;
+        }
     }
     pub fn show_proj_delete_prompt(&mut self, ctx: &egui::Context) {
         if !self.proj_delete_open {
@@ -652,7 +652,8 @@ impl ProjectApp {
             return;
         }
 
-        Window::new("Delete projects")
+        let mut can_close = true;
+        let wr = Window::new("Delete projects")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -669,6 +670,8 @@ impl ProjectApp {
                                 .unwrap_or_else(|| "Select Project".to_string()),
                         )
                         .show_ui(ui, |ui| {
+                            can_close = false;
+
                             for project in &self.all_projects {
                                 let is_selected = self
                                     .proj_to_delete
@@ -700,6 +703,9 @@ impl ProjectApp {
                     self.proj_to_delete = None;
                 }
             });
+        if clicked_outside_window(ctx, wr.as_ref()) && can_close {
+            self.proj_delete_open = false;
+        }
     }
     pub fn show_verify_delete(&mut self, ctx: &egui::Context) {
         if !self.verify_delete_open {
@@ -713,7 +719,7 @@ impl ProjectApp {
             return;
         }
 
-        Window::new("Verify delete")
+        let wr = Window::new("Verify delete")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 100.0))
@@ -762,6 +768,13 @@ impl ProjectApp {
                     ui.label(egui::RichText::new(text).color(color));
                 }
             });
+
+        if clicked_outside_window(ctx, wr.as_ref()) {
+            self.verify_delete_open = false;
+            self.proj_delete_open = true;
+            self.del_message = None;
+        }
+    }
     pub fn show_manage_proj_data(&mut self, ctx: &egui::Context) {
         if !self.proj_manage_open {
             return;
@@ -786,6 +799,9 @@ impl ProjectApp {
                 ui.button("Delete height data");
                 ui.button("Delete chamber data");
             });
+
+        if clicked_outside_window(ctx, wr.as_ref()) {
+            self.proj_manage_open = false;
         }
     }
 }
@@ -812,6 +828,7 @@ pub fn delete_project_data(conn: &mut Connection, project_id: &str) -> Result<()
     tx.commit()?;
     Ok(())
 }
+
 pub fn input_block_overlay(ctx: &Context, id_name: &str) -> egui::InnerResponse<()> {
     Area::new(Id::new(id_name)).order(egui::Order::Background).interactable(true).show(ctx, |ui| {
         let desired_size = ui.ctx().screen_rect().size();
@@ -822,3 +839,20 @@ pub fn input_block_overlay(ctx: &Context, id_name: &str) -> egui::InnerResponse<
     })
 }
 
+pub fn clicked_outside_window<R>(
+    ctx: &egui::Context,
+    response: Option<&egui::InnerResponse<R>>,
+) -> bool {
+    if let Some(resp) = response {
+        ctx.input(|i| {
+            if i.pointer.any_pressed() {
+                if let Some(click_pos) = i.pointer.press_origin() {
+                    return !resp.response.rect.contains(click_pos);
+                }
+            }
+            false
+        })
+    } else {
+        false
+    }
+}
