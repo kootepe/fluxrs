@@ -497,6 +497,7 @@ impl ProjectApp {
             return;
         }
 
+        let mut can_close = true;
         let wr = Window::new("Create new project")
             .collapsible(false)
             .resizable(false)
@@ -534,6 +535,7 @@ impl ProjectApp {
                 egui::ComboBox::from_label("Instrument")
                     .selected_text(self.selected_instrument.to_string())
                     .show_ui(ui, |ui| {
+                        can_close = false;
                         for instrument in InstrumentType::available_instruments() {
                             ui.selectable_value(
                                 &mut self.selected_instrument,
@@ -555,6 +557,7 @@ impl ProjectApp {
                                 .map_or_else(|| "Select Gas".to_string(), |g| g.to_string()),
                         )
                         .show_ui(ui, |ui| {
+                            can_close = false;
                             for gas in available_gases {
                                 ui.selectable_value(&mut self.main_gas, Some(gas), gas.to_string());
                             }
@@ -580,6 +583,7 @@ impl ProjectApp {
                 egui::ComboBox::from_label("Mode").selected_text(format!("{}", self.mode)).show_ui(
                     ui,
                     |ui| {
+                        can_close = false;
                         ui.selectable_value(
                             &mut self.mode,
                             Mode::AfterDeadband,
@@ -637,7 +641,7 @@ impl ProjectApp {
                     ui.label(egui::RichText::new(text).color(color));
                 }
             });
-        if clicked_outside_window(ctx, wr.as_ref()) {
+        if clicked_outside_window(ctx, wr.as_ref()) && can_close {
             self.proj_create_open = false;
         }
     }
