@@ -210,6 +210,7 @@ pub struct ProjectApp {
     del_message: Option<MsgType>,
     proj_create_open: bool,
     proj_delete_open: bool,
+    proj_manage_open: bool,
     verify_delete_open: bool,
     proj_to_delete: Option<String>,
 }
@@ -233,6 +234,7 @@ impl Default for ProjectApp {
             del_message: None,
             proj_create_open: false,
             proj_delete_open: false,
+            proj_manage_open: false,
             verify_delete_open: false,
             proj_to_delete: None,
         }
@@ -248,6 +250,9 @@ impl ProjectApp {
             }
             if ui.button("Delete projects").clicked() {
                 self.proj_delete_open = true;
+            }
+            if ui.button("Manage current project data").clicked() {
+                self.proj_manage_open = true;
             }
         });
         // Load all projects once
@@ -289,6 +294,14 @@ impl ProjectApp {
         } else {
             ui.label("No projects found.");
         }
+        let any_prompt_open = self.proj_create_open
+            || self.proj_delete_open
+            || self.verify_delete_open
+            || self.proj_manage_open;
+        if any_prompt_open {
+            input_block_overlay(ctx, "blocker222");
+        }
+        self.show_manage_proj_data(ctx);
         self.show_proj_create_prompt(ctx);
         self.show_proj_delete_prompt(ctx);
         self.show_verify_delete(ctx);
@@ -487,21 +500,6 @@ impl ProjectApp {
             return;
         }
 
-        Area::new(Id::new("modal_blocker")).order(egui::Order::Background).interactable(true).show(
-            ctx,
-            |ui| {
-                let desired_size = ui.ctx().screen_rect().size();
-                let (rect, _resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-
-                // Dark translucent backdrop
-                ui.painter().rect_filled(
-                    rect,
-                    0.0,
-                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
-                );
-            },
-        );
-
         Window::new("Create new project")
             .collapsible(false)
             .resizable(false)
@@ -654,21 +652,6 @@ impl ProjectApp {
             return;
         }
 
-        Area::new(Id::new("modal_blocker")).order(egui::Order::Background).interactable(true).show(
-            ctx,
-            |ui| {
-                let desired_size = ui.ctx().screen_rect().size();
-                let (rect, _resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-
-                // Dark translucent backdrop
-                ui.painter().rect_filled(
-                    rect,
-                    0.0,
-                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
-                );
-            },
-        );
-
         Window::new("Delete projects")
             .collapsible(false)
             .resizable(false)
@@ -730,21 +713,6 @@ impl ProjectApp {
             return;
         }
 
-        Area::new(Id::new("modal_blocker222"))
-            .order(egui::Order::Background)
-            .interactable(true)
-            .show(ctx, |ui| {
-                let desired_size = ui.ctx().screen_rect().size();
-                let (rect, _resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-
-                // Dark translucent backdrop
-                ui.painter().rect_filled(
-                    rect,
-                    0.0,
-                    egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160),
-                );
-            });
-
         Window::new("Verify delete")
             .collapsible(false)
             .resizable(false)
@@ -794,6 +762,31 @@ impl ProjectApp {
                     ui.label(egui::RichText::new(text).color(color));
                 }
             });
+    pub fn show_manage_proj_data(&mut self, ctx: &egui::Context) {
+        if !self.proj_manage_open {
+            return;
+        }
+
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.proj_manage_open = false;
+            return;
+        }
+
+        let wr = Window::new("Manage project")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .frame(
+                Frame::window(&ctx.style()).fill(Color32::from_rgb(30, 30, 30)).corner_radius(8), // .shadow(egui::epaint::Shadow::big_dark()),
+            )
+            .show(ctx, |ui| {
+                ui.button("Delete measurement data");
+                ui.button("Delete calculated fluxes");
+                ui.button("Delete meteo data");
+                ui.button("Delete height data");
+                ui.button("Delete chamber data");
+            });
+        }
     }
 }
 
@@ -819,3 +812,13 @@ pub fn delete_project_data(conn: &mut Connection, project_id: &str) -> Result<()
     tx.commit()?;
     Ok(())
 }
+pub fn input_block_overlay(ctx: &Context, id_name: &str) -> egui::InnerResponse<()> {
+    Area::new(Id::new(id_name)).order(egui::Order::Background).interactable(true).show(ctx, |ui| {
+        let desired_size = ui.ctx().screen_rect().size();
+        let (rect, _resp) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+
+        // Dark translucent backdrop
+        ui.painter().rect_filled(rect, 0.0, egui::Color32::from_rgba_unmultiplied(0, 0, 0, 160));
+    })
+}
+
