@@ -11,7 +11,7 @@ use crate::ui::plotting_ui::{
     init_standardized_residuals_plot,
 };
 use crate::ui::tz_picker::TimezonePickerState;
-use crate::utils::ensure_utf8;
+use crate::utils::{bad_message, ensure_utf8, good_message, warn_message};
 
 use crate::data_formats::chamberdata::{
     insert_chamber_metadata, read_chamber_metadata, ChamberShape,
@@ -37,7 +37,7 @@ use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
-use eframe::egui::{Color32, Context, Label, Stroke, TextWrapMode, Ui};
+use eframe::egui::{Color32, Context, Label, RichText, Stroke, TextWrapMode, Ui};
 use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
@@ -267,7 +267,7 @@ pub struct ValidationApp {
     pub open_file_dialog: Option<FileDialog>,
     pub initial_path: Option<PathBuf>,
     pub selected_data_type: Option<DataType>,
-    pub log_messages: VecDeque<String>,
+    pub log_messages: VecDeque<RichText>,
     pub show_valids: bool,
     pub show_invalids: bool,
     pub show_bad: bool,
@@ -1932,7 +1932,7 @@ impl ValidationApp {
         ui.label("**Log Messages:**");
         egui::ScrollArea::vertical().show(ui, |ui| {
             for message in &self.log_messages {
-                ui.label(message);
+                ui.label(message.clone());
             }
         });
     }
@@ -2402,15 +2402,25 @@ impl ProcessEventSink for ValidationApp {
             },
             QueryEvent::QueryComplete => {
                 self.query_in_progress = false;
-                self.log_messages.push_front("Finished queries.".to_owned());
+                self.log_messages.push_front(good_message("Finished queries."));
+            },
+            QueryEvent::HeightFail(msg) => {
+                self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::CyclesFail(msg) => {
+                self.log_messages.push_front(bad_message(msg));
             },
             QueryEvent::NoGasData(start_time) => {
-                self.log_messages
-                    .push_front(format!("No gas data found for cycle at {}", start_time));
+                self.log_messages.push_front(bad_message(&format!(
+                    "No gas data found for cycle at {}",
+                    start_time
+                )));
             },
             QueryEvent::NoGasDataDay(day) => {
-                self.log_messages
-                    .push_front(format!("No gas data found for cycles at day {}", day));
+                self.log_messages.push_front(bad_message(&format!(
+                    "No gas data found for cycles at day {}",
+                    day
+                )));
             },
         }
     }
@@ -2422,13 +2432,13 @@ impl ProcessEventSink for ValidationApp {
                 self.cycles_progress += current;
             },
             ProgressEvent::Day(date) => {
-                self.log_messages.push_front(format!("Loaded cycles from {}", date));
+                self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
             },
             ProgressEvent::NoGas(msg) => {
-                self.log_messages.push_front(format!("Gas missing: {}", msg));
+                self.log_messages.push_front(bad_message(&format!("Gas missing: {}", msg)));
             },
             ProgressEvent::Generic(msg) => {
-                self.log_messages.push_front(format!("{}", msg));
+                self.log_messages.push_front(good_message(&format!("{}", msg)));
             },
         }
     }
@@ -2436,42 +2446,56 @@ impl ProcessEventSink for ValidationApp {
     fn on_read_event(&mut self, ev: &ReadEvent) {
         match ev {
             ReadEvent::File(filename) => {
-                self.log_messages.push_front(format!("Read file: {}", filename));
+                self.log_messages.push_front(good_message(&format!("Read file: {}", filename)));
             },
             ReadEvent::FileDetail(filename, detail) => {
-                self.log_messages.push_front(format!("Read file: {} {}", filename, detail));
+                self.log_messages
+                    .push_front(good_message(&format!("Read file: {} {}", filename, detail)));
             },
             ReadEvent::MeteoFail(filename, msg) => {
-                self.log_messages
-                    .push_front(format!("Could not parse as meteo file: {}, {}", filename, msg,));
+                self.log_messages.push_front(bad_message(&format!(
+                    "Could not parse as meteo file: {}, {}",
+                    filename, msg,
+                )));
             },
             ReadEvent::HeightFail(filename, msg) => {
-                self.log_messages
-                    .push_front(format!("Could not parse as height file: {}, {}", filename, msg));
+                self.log_messages.push_front(bad_message(&format!(
+                    "Could not parse as height file: {}, {}",
+                    filename, msg
+                )));
             },
             ReadEvent::CycleFail(filename, msg) => {
-                self.log_messages
-                    .push_front(format!("Could not parse as cycle file: {}, {}", filename, msg));
+                self.log_messages.push_front(bad_message(&format!(
+                    "Could not parse as cycle file: {}, {}",
+                    filename, msg
+                )));
             },
             ReadEvent::GasFail(filename, msg) => {
-                self.log_messages
-                    .push_front(format!("Could not parse as gas file: {}, {}", filename, msg));
+                self.log_messages.push_front(bad_message(&format!(
+                    "Could not parse as gas file: {}, {}",
+                    filename, msg
+                )));
             },
             ReadEvent::MetadataFail(filename, msg) => {
-                self.log_messages.push_front(format!(
+                self.log_messages.push_front(bad_message(&format!(
                     "Could not parse as chamber metadata file: {}, {}",
                     filename, msg
-                ));
+                )));
             },
             ReadEvent::FileRows(filename, rows) => {
-                self.log_messages.push_front(format!("Read file: {} with {} rows", filename, rows));
+                self.log_messages.push_front(good_message(&format!(
+                    "Read file: {} with {} rows",
+                    filename, rows
+                )));
             },
             ReadEvent::RowFail(msg) => {
-                self.log_messages.push_front(msg.to_owned());
+                self.log_messages.push_front(bad_message(&msg.to_owned()));
             },
             ReadEvent::FileFail(filename, e) => {
-                self.log_messages
-                    .push_front(format!("Failed to read file {}, error: {}", filename, e));
+                self.log_messages.push_front(bad_message(&format!(
+                    "Failed to read file {}, error: {}",
+                    filename, e
+                )));
             },
         }
     }
@@ -2479,16 +2503,27 @@ impl ProcessEventSink for ValidationApp {
     fn on_insert_event(&mut self, ev: &InsertEvent) {
         match ev {
             InsertEvent::Ok(msg, rows) => {
-                self.log_messages.push_front(format!("{}{}", rows, msg));
+                self.log_messages.push_front(good_message(&format!("{}{}", rows, msg)));
             },
             InsertEvent::OkSkip(rows, duplicates) => {
-                self.log_messages.push_front(format!(
+                self.log_messages.push_front(good_message(&format!(
                     "Inserted {} rows, skipped {} duplicates.",
                     rows, duplicates
-                ));
+                )));
+            },
+            InsertEvent::CycleOkSkip(rows, duplicates) => {
+                if duplicates == &0 {
+                    self.log_messages
+                        .push_front(good_message(&format!("Inserted {} cycles.", rows,)));
+                } else {
+                    self.log_messages.push_front(warn_message(&format!(
+                        "Inserted {} cycles, skipped {} duplicates. Some cycles in the timeframe have already been initiated.",
+                        rows, duplicates
+                    )));
+                }
             },
             InsertEvent::Fail(e) => {
-                self.log_messages.push_front(format!("Failed to insert rows: {}", e));
+                self.log_messages.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
             },
         }
     }
@@ -2496,10 +2531,11 @@ impl ProcessEventSink for ValidationApp {
     fn on_done(&mut self, res: &Result<(), String>) {
         match res {
             Ok(()) => {
-                self.log_messages.push_front("All processing finished.".into());
+                self.log_messages.push_front(good_message(&"All processing finished."));
             },
             Err(e) => {
-                self.log_messages.push_front(format!("Processing finished with error: {}", e));
+                self.log_messages
+                    .push_front(bad_message(&format!("Processing finished with error: {}", e)));
             },
         }
 
@@ -2592,6 +2628,7 @@ impl Processor {
         let processed = Arc::new(AtomicUsize::new(0));
 
         let mut total_inserts = 0;
+        let mut total_skips = 0;
         while !time_chunks.is_empty() || !active_tasks.is_empty() {
             while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
                 let chunk = time_chunks.pop_front().unwrap();
@@ -2647,12 +2684,13 @@ impl Processor {
                 Ok(Ok(cycles)) => {
                     if !cycles.is_empty() {
                         let mut conn = self.infra.conn.lock().unwrap();
-                        if let Ok((inserts, _)) = insert_fluxes_ignore_duplicates(
+                        if let Ok((inserts, skips)) = insert_fluxes_ignore_duplicates(
                             &mut conn,
                             &cycles,
                             self.project.name.clone(),
                         ) {
                             total_inserts += inserts;
+                            total_skips += skips;
                             for cycle_opt in cycles.into_iter().flatten() {
                                 let cycle_id: i64 = conn.query_row(
                                 "SELECT id FROM fluxes
@@ -2684,10 +2722,8 @@ impl Processor {
         }
 
         let progress_sender = self.infra.progress.clone();
-        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
-            " rows of fluxes inserted.".to_owned(),
-            total_inserts,
-        )));
+        let _ = progress_sender
+            .send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(total_inserts, total_skips)));
         // Send Done exactly once, here.
         let _ = self.infra.progress.send(ProcessEvent::Done(Ok(())));
     }
@@ -2699,7 +2735,7 @@ pub fn render_recalculate_ui(
     start_date: DateTime<Utc>,
     end_date: DateTime<Utc>,
     project: Project,
-    log_messages: &mut VecDeque<String>,
+    log_messages: &mut VecDeque<RichText>,
 ) {
     ui.vertical(|ui| {
         ui.label("Compare the current chamber height of all calculated fluxes and recalculate if a new one is found.");
@@ -2710,20 +2746,19 @@ pub fn render_recalculate_ui(
             let conn = match Connection::open("fluxrs.db") {
                 Ok(conn) => conn,
                 Err(e) => {
-                    eprintln!("Failed to open database: {}", e);
-                    log_messages.push_front("Failed to open database.".to_string());
+                    log_messages.push_front(bad_message(&"Failed to open database."));
                     return;
                 },
             };
 
             let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
             match (
-                load_cycles(&conn, &project, start_date, end_date, progress_sender),
+                load_cycles(&conn, &project, start_date, end_date, progress_sender.clone()),
                 query_height(&conn, start_date, end_date, project.name.clone()),
             ) {
                 (Ok(mut cycles), Ok(heights)) => {
                     if heights.height.is_empty() {
-                        log_messages.push_front("No height data loaded.".to_owned());
+                        progress_sender.send(ProcessEvent::Query(QueryEvent::HeightFail("No height data loaded.".to_owned())));
                         return;
                     }
                     runtime.spawn_blocking(move || {
@@ -2738,17 +2773,18 @@ pub fn render_recalculate_ui(
 
                         if let Ok(mut conn) = Connection::open("fluxrs.db") {
                             if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
-                                eprintln!("Flux update error: {}", e);
+                        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!("Flux update error: {}", e))));
                             }
                         }
                     });
                 },
                 (Err(rusqlite::Error::InvalidQuery), Err(_)) => {
-                    log_messages.push_front("No cycles found in db, have you initiated the data?".to_owned());
+                    // log_messages.push_front(bad_message(&"No cycles found in db, have you initiated the data?"));
+                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::CyclesFail("No cycles found in db, have you initiated the data?".to_owned())));
                 },
                 e => {
                     eprintln!("Error processing cycles: {:?}", e);
-                    log_messages.push_front("Error processing cycles. Do you have cycles initiated?".to_string());
+                    log_messages.push_front(bad_message("Error processing cycles. Do you have cycles initiated?"));
                 }
             }
         }

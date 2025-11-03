@@ -11,6 +11,8 @@ pub enum ProcessEvent {
 pub enum QueryEvent {
     InitStarted,
     InitEnded,
+    HeightFail(String),
+    CyclesFail(String),
     QueryComplete,
     NoGasData(String),
     NoGasDataDay(String),
@@ -34,6 +36,7 @@ pub enum ReadEvent {
 pub enum InsertEvent {
     Ok(String, usize),
     OkSkip(usize, usize),
+    CycleOkSkip(usize, usize),
     Fail(String),
 }
 

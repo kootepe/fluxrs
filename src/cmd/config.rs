@@ -351,6 +351,13 @@ impl ProcessEventSink for Config {
             QueryEvent::NoGasData(start_time) => {
                 println!("No gas data found for cycle at {}", start_time);
             },
+            QueryEvent::HeightFail(msg) => {
+                println!("{}", msg);
+            },
+
+            QueryEvent::CyclesFail(msg) => {
+                println!("{}", msg)
+            },
             QueryEvent::NoGasDataDay(day) => {
                 println!("No gas data found for cycles at day {}", day);
             },
@@ -414,6 +421,9 @@ impl ProcessEventSink for Config {
             },
             InsertEvent::OkSkip(rows, duplicates) => {
                 println!("Inserted {} rows, skipped {} duplicates.", rows, duplicates);
+            },
+            InsertEvent::CycleOkSkip(rows, duplicates) => {
+                println!("Inserted {} cycles, skipped {} duplicates.", rows, duplicates);
             },
             InsertEvent::Fail(e) => {
                 println!("Failed to insert rows: {}", e);
