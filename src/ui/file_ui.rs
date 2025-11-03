@@ -12,7 +12,7 @@ use crate::ProcessEvent;
 use crate::Project;
 use crate::QueryEvent;
 use chrono_tz::{Tz, UTC};
-use egui::{Align2, Context, Frame, Id, Ui};
+use egui::{Align2, Context, Frame, Id, RichText, Ui};
 use egui_file::FileDialog;
 use std::borrow::Cow;
 use std::collections::VecDeque;
@@ -107,7 +107,6 @@ impl ValidationApp {
                     // let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
 
                     if selected_paths.is_empty() {
-                        self.log_messages.push_front("No files selected.".to_string());
                     } else {
                         self.opened_files = Some(selected_paths.clone());
                         // open the timezone prompt next frame
@@ -138,7 +137,7 @@ impl ValidationApp {
                     self.open_file_dialog = None; //   Close the dialog
                 },
                 egui_file::State::Cancelled | egui_file::State::Closed => {
-                    self.log_messages.push_front("File selection cancelled.".to_string());
+                    self.log_messages.push_front("File selection cancelled.".into());
                     self.open_file_dialog = None;
                 },
                 _ => {}, // Do nothing if still open
@@ -223,7 +222,7 @@ impl ValidationApp {
         data_type: Option<DataType>,
         project: &Project,
         tz: Tz,
-        log_messages: Arc<Mutex<VecDeque<String>>>,
+        log_messages: Arc<Mutex<VecDeque<RichText>>>,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
         runtime: &tokio::runtime::Runtime,
     ) {
@@ -296,7 +295,7 @@ impl ValidationApp {
                     },
                     Err(e) => {
                         let mut logs = log_messages.lock().unwrap();
-                        logs.push_front(format!("Failed to connect to database: {}", e));
+                        logs.push_front(format!("Failed to connect to database: {}", e).into());
                     },
                 })
                 .await;
@@ -305,7 +304,7 @@ impl ValidationApp {
 
                 let _ =
                     sender_clone.send(ProcessEvent::Done(Err("Thread join failure".to_owned())));
-                logs.push_front(format!("Join error: {}", e));
+                logs.push_front(format!("Join error: {}", e).into());
             }
         });
     }

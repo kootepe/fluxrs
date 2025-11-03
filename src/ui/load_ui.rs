@@ -1,5 +1,7 @@
 use crate::cycle::load_cycles;
+use crate::processevent::ProcessEvent;
 use crate::ui::validation_ui::ValidationApp;
+use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
 use rusqlite::Connection;
 use tokio::sync::mpsc;
@@ -16,11 +18,12 @@ impl ValidationApp {
                     match result {
                         Ok(cycles) => {
                             self.cycles = cycles;
-                            self.log_messages.push_front("Successfully loaded cycles.".to_string());
+                            self.log_messages.push_front(good_message(
+                                &"Successfully loaded cycles.".to_string(),
+                            ));
                         },
                         Err(e) => {
-                            eprintln!("Failed to load cycles: {:?}", e);
-                            self.log_messages.push_front(format!("Error: {}", e));
+                            self.log_messages.push_front(bad_message(&format!("Error: {}", e)));
                         },
                     }
                 }
@@ -61,17 +64,22 @@ impl ValidationApp {
 
                 self.runtime.spawn(async move {
                     let result = match Connection::open("fluxrs.db") {
-                        Ok(conn) => {
-                            load_cycles(&conn, &project, start_date, end_date, progress_sender)
+                        Ok(conn) => load_cycles(
+                            &conn,
+                            &project,
+                            start_date,
+                            end_date,
+                            progress_sender.clone(),
+                        ),
+                        Err(e) => {
+                            let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
+                            Err(e)
                         },
-                        Err(e) => Err(e),
                     };
-
                     if let Ok(mut slot) = result_slot.lock() {
                         *slot = Some(result);
                     }
-
-                    let _ = sender.send(()); // Notify UI
+                    let _ = sender.send(());
                 });
             }
             if !start_after_end {

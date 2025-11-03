@@ -13,12 +13,6 @@ use tokio::sync::mpsc;
 
 impl ValidationApp {
     pub fn init_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
-        // Check if background task has finished
-        if self.task_done_receiver.try_recv().is_ok() {
-            self.init_in_progress = false;
-            self.init_enabled = true;
-        }
-
         // Show info if no project selected
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
@@ -80,7 +74,6 @@ impl ValidationApp {
                         },
                     };
                     let arc_conn = Arc::new(Mutex::new(conn));
-                    let sender = self.task_done_sender.clone();
                     let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
                     self.progress_receiver = Some(progress_receiver);
 
@@ -144,7 +137,6 @@ impl ValidationApp {
                                         Infra { conn: arc_conn, progress: progress_sender },
                                     );
                                     processor.run_processing_dynamic(times).await;
-                                    let _ = sender.send(());
                                 } else {
                                     // let _ = progress_sender.send(ProcessEvent::Query(
                                     //     QueryEvent::NoGasData("No data available".into()),
