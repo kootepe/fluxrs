@@ -3,12 +3,11 @@ use crate::gastype::GasType;
 use crate::instruments::instruments::InstrumentType;
 use crate::ui::main_app::AppEvent;
 use crate::ui::manage_proj::project::ProjectExistsError;
-use crate::ui::tz_picker::{timezone_combo, TimezonePickerState};
+use crate::ui::tz_picker::TimezonePickerState;
 use crate::ui::validation_ui::Mode;
 use crate::Project;
 use chrono_tz::Tz;
-use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
-use std::error::Error;
+use egui::{Area, Context, Id};
 use std::fmt;
 use std::process;
 
@@ -57,6 +56,7 @@ pub struct ProjectApp {
     pub proj_delete_open: bool,
     pub proj_manage_open: bool,
     pub verify_delete_open: bool,
+    pub delete_success: bool,
     pub proj_to_delete: Option<String>,
 }
 
@@ -81,6 +81,7 @@ impl Default for ProjectApp {
             proj_delete_open: false,
             proj_manage_open: false,
             verify_delete_open: false,
+            delete_success: false,
             proj_to_delete: None,
         }
     }

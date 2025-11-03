@@ -7,22 +7,30 @@ use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
 use std::error::Error;
 
 impl ProjectApp {
+    fn close_manage_proj(&mut self) {
+        self.proj_manage_open = false;
+    }
     pub fn show_manage_proj_data(&mut self, ctx: &egui::Context) {
         if !self.proj_manage_open {
             return;
         }
-
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.proj_manage_open = false;
             return;
         }
+
         let can_close = true;
         let wr = Window::new("Manage project")
+            .open(&mut self.proj_manage_open)
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .frame(
-                Frame::window(&ctx.style()).fill(Color32::from_rgb(30, 30, 30)).corner_radius(8), // .shadow(egui::epaint::Shadow::big_dark()),
+                Frame::window(&ctx.style())
+                    .fill(Color32::from_rgb(30, 30, 30))
+                    .corner_radius(8)
+                    .inner_margin(egui::Margin::symmetric(16, 12)),
             )
             .show(ctx, |ui| {
                 ui.button("Delete measurement data");
@@ -33,7 +41,7 @@ impl ProjectApp {
             });
 
         if clicked_outside_window(ctx, wr.as_ref()) && can_close {
-            self.proj_manage_open = false;
+            self.close_manage_proj();
         }
     }
 }

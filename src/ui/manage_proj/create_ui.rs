@@ -7,28 +7,53 @@ use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
 use std::error::Error;
 
 impl ProjectApp {
+    pub fn close_proj_create(&mut self) {
+        self.proj_create_open = false;
+        self.project_name = "".to_owned();
+        self.selected_serial = "".to_owned();
+        self.selected_instrument = InstrumentType::default();
+        self.project_timezone = None;
+        self.project_timezone_str = "".to_owned();
+        self.main_gas = None;
+        self.deadband = 30.;
+        self.min_calc_len = 60.;
+        self.mode = Mode::default();
+        self.message = None;
+        self.del_message = None;
+    }
+
     pub fn show_proj_create_prompt(&mut self, ctx: &egui::Context) {
         if !self.proj_create_open {
             return;
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.proj_create_open = false;
+            self.close_proj_create();
             return;
         }
 
         let mut can_close = true;
+
+        let mut open = self.proj_create_open;
+
         let wr = Window::new("Create new project")
+            .open(&mut open)
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .frame(
-                Frame::window(&ctx.style()).fill(Color32::from_rgb(30, 30, 30)).corner_radius(8), // .shadow(egui::epaint::Shadow::big_dark()),
+                Frame::window(&ctx.style())
+                    .fill(Color32::from_rgb(30, 30, 30))
+                    .corner_radius(8)
+                    .inner_margin(egui::Margin::symmetric(16, 12)),
             )
             .show(ctx, |ui| {
-                ui.heading("New project");
+                ui.heading("Create New project");
+                ui.add_space(20.);
                 ui.label("Project name:");
                 ui.text_edit_singleline(&mut self.project_name);
+                ui.add_space(10.);
 
                 ui.label("Project display timezone:");
                 if let Some(tz) =
@@ -50,6 +75,7 @@ impl ProjectApp {
                     self.tz_state.selected = None;
                     self.tz_state.query.clear();
                 }
+                ui.add_space(10.);
 
                 ui.label("Select instrument:");
                 egui::ComboBox::from_label("Instrument")
@@ -65,6 +91,7 @@ impl ProjectApp {
                         }
                     });
 
+                ui.add_space(10.);
                 ui.label("Instrument serial:");
                 ui.text_edit_singleline(&mut self.selected_serial);
 
@@ -153,7 +180,7 @@ impl ProjectApp {
                     }
 
                     if ui.button("Close").clicked() {
-                        self.proj_create_open = false;
+                        self.close_proj_create();
                     }
                 });
                 if let Some(msg) = &self.message {
@@ -162,7 +189,7 @@ impl ProjectApp {
                 }
             });
         if clicked_outside_window(ctx, wr.as_ref()) && can_close {
-            self.proj_create_open = false;
+            self.close_proj_create();
         }
     }
 }

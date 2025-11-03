@@ -1,17 +1,12 @@
-use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::gastype::GasType;
 use crate::instruments::instruments::InstrumentType;
-use crate::ui::main_app::AppEvent;
-use crate::ui::tz_picker::{timezone_combo, TimezonePickerState};
 use crate::ui::validation_ui::Mode;
 use chrono_tz::Tz;
-use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
 use std::error::Error;
 use std::fmt;
 use std::process;
 
 use rusqlite::{params, Connection, Result};
-use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct ProjectExistsError {
