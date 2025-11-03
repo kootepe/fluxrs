@@ -42,3 +42,7 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 strip = true
+
+[profile.dev]
+codegen-units = 16
+opt-level = 0
