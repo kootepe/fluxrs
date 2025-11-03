@@ -1,5 +1,6 @@
 use chrono::{LocalResult, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
+use egui::{Color32, RichText};
 use std::error::Error;
 use std::fs;
 use std::path::Path;
@@ -42,4 +43,16 @@ pub fn parse_datetime(s: &str, tz: Tz) -> Result<i64, Box<dyn Error>> {
         }
     }
     Err(format!("Unrecognized datetime format: {}", s).into())
+}
+
+pub fn good_message(msg: &str) -> RichText {
+    RichText::new(msg).color(Color32::GREEN)
+}
+
+pub fn bad_message(msg: &str) -> RichText {
+    RichText::new(msg).color(Color32::RED)
+}
+
+pub fn warn_message(msg: &str) -> RichText {
+    RichText::new(msg).color(Color32::YELLOW)
 }
