@@ -53,7 +53,7 @@ impl ManageApp {
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
-            .anchor(Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
             .frame(
                 Frame::window(&ctx.style())
                     .fill(Color32::from_rgb(30, 30, 30))
