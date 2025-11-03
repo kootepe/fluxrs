@@ -157,7 +157,7 @@ impl ProjectApp {
         let any_prompt_open = self.proj_create_open
             || self.proj_delete_open
             || self.verify_delete_open
-            || self.proj_manage_open;
+            || self.manage.open;
         if any_prompt_open {
             input_block_overlay(ctx, "blocker222");
         }
