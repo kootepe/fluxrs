@@ -1964,8 +1964,12 @@ pub fn insert_fluxes_ignore_duplicates(
         for cycle in cycles {
             match cycle {
                 Some(c) => {
-                    execute_insert(&mut insert_stmt, c, &project)?;
-                    inserted += 1;
+                    let affected = execute_insert(&mut insert_stmt, c, &project)?;
+                    if affected > 0 {
+                        inserted += 1
+                    } else {
+                        skipped += 1
+                    }
                 },
                 None => {
                     skipped += 1;
@@ -2167,7 +2171,12 @@ fn execute_history_insert(
     Ok(())
 }
 
-fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
+fn execute_insert(
+    stmt: &mut rusqlite::Statement,
+    cycle: &Cycle,
+    project: &String,
+) -> Result<usize> {
+    let mut affected = 0;
     for key in cycle.gases.clone() {
         let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
         let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
@@ -2191,7 +2200,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             continue;
         }
 
-        stmt.execute(params![
+        affected += stmt.execute(params![
             cycle.start_time.timestamp(),
             cycle.chamber_id,
             cycle.main_instrument_model.to_string(),
@@ -2270,7 +2279,7 @@ fn execute_insert(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
     }
-    Ok(())
+    Ok(affected)
 }
 fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
     for key in cycle.gases.clone() {
