@@ -1,9 +1,9 @@
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::ui::dl_ui::DownloadApp;
-use crate::ui::project_ui::{Project, ProjectApp};
 use crate::ui::table_ui::TableApp;
 use crate::ui::validation_ui::ValidationApp;
+use crate::{Project, ProjectApp};
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
 use std::fs;
 use std::io::Write;

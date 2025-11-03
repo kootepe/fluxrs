@@ -1,5 +1,5 @@
-use crate::ui::project_ui::Project;
 use crate::utils::ensure_utf8;
+use crate::Project;
 use rusqlite;
 use rusqlite::Row;
 use rusqlite::{params, Connection, Result};

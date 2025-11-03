@@ -30,9 +30,9 @@ use crate::keybinds::{Action, KeyBindings};
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
-use crate::ui::project_ui::Project;
 use crate::Cycle;
 use crate::EqualLen;
+use crate::Project;
 use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};

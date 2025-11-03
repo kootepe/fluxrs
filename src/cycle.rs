@@ -12,9 +12,9 @@ use crate::gastype::GasType;
 use crate::instruments::instruments::InstrumentType;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::stats::{self, LinReg, PolyReg, RobReg};
-use crate::ui::project_ui::Project;
 use crate::ui::validation_ui::GasKey;
 use crate::ui::validation_ui::{InstrumentSerial, Mode};
+use crate::Project;
 use chrono_tz::Tz;
 
 use crate::data_formats::chamberdata::{query_chambers, ChamberShape};

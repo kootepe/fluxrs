@@ -1,4 +1,4 @@
-use crate::ui::project_ui::Project;
+use crate::Project;
 use rusqlite::{params, types::ValueRef, Connection, Result, Row};
 
 #[derive(Default)]

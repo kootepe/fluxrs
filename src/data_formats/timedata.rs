@@ -2,8 +2,8 @@ use crate::instruments::instruments::InstrumentType;
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
-use crate::ui::project_ui::Project;
 use crate::EqualLen;
+use crate::Project;
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
 use chrono_tz::{Tz, UTC};
