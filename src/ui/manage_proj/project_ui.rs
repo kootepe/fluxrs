@@ -2,12 +2,14 @@ use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::gastype::GasType;
 use crate::instruments::instruments::InstrumentType;
 use crate::ui::main_app::AppEvent;
+use crate::ui::manage_proj::manage_ui::ManageApp;
 use crate::ui::manage_proj::project::ProjectExistsError;
 use crate::ui::tz_picker::TimezonePickerState;
 use crate::ui::validation_ui::Mode;
 use crate::Project;
 use chrono_tz::Tz;
-use egui::{Area, Context, Id};
+use egui::Color32;
+use egui::{Area, Button, Context, Id};
 use std::fmt;
 use std::process;
 
@@ -58,6 +60,7 @@ pub struct ProjectApp {
     pub verify_delete_open: bool,
     pub delete_success: bool,
     pub proj_to_delete: Option<String>,
+    pub manage: ManageApp,
 }
 
 impl Default for ProjectApp {
@@ -83,6 +86,7 @@ impl Default for ProjectApp {
             verify_delete_open: false,
             delete_success: false,
             proj_to_delete: None,
+            manage: ManageApp::new(),
         }
     }
 }
@@ -91,16 +95,26 @@ impl ProjectApp {
         ui.heading("Project Management");
         ui.add_space(5.0);
         ui.horizontal(|ui| {
-            if ui.button("Create project").clicked() {
+            if ui.add(Button::new("Create project").fill(Color32::DARK_GREEN)).clicked() {
                 self.proj_create_open = true;
             }
-            if ui.button("Delete projects").clicked() {
+            if ui
+                .add_enabled(self.project.is_some(), Button::new("Manage current project data"))
+                .clicked()
+            {
+                self.manage.open = true;
+            }
+            if ui
+                .add_enabled(
+                    !self.all_projects.is_empty(),
+                    Button::new("Delete projects").fill(Color32::DARK_RED),
+                )
+                .clicked()
+            {
                 self.proj_delete_open = true;
             }
-            if ui.button("Manage current project data").clicked() {
-                self.proj_manage_open = true;
-            }
         });
+
         // Load all projects once
         if self.all_projects.is_empty() {
             if let Err(err) = self.load_projects_from_db() {
@@ -147,7 +161,7 @@ impl ProjectApp {
         if any_prompt_open {
             input_block_overlay(ctx, "blocker222");
         }
-        self.show_manage_proj_data(ctx);
+        self.manage.show_manage_proj_data(ctx, self.project.clone().unwrap());
         self.show_proj_create_prompt(ctx);
         self.show_proj_delete_prompt(ctx);
         self.show_verify_delete(ctx);
