@@ -2410,6 +2410,9 @@ impl ProcessEventSink for ValidationApp {
             QueryEvent::CyclesFail(msg) => {
                 self.log_messages.push_front(bad_message(msg));
             },
+            QueryEvent::DbFail(msg) => {
+                self.log_messages.push_front(bad_message(msg));
+            },
             QueryEvent::NoGasData(start_time) => {
                 self.log_messages.push_front(bad_message(&format!(
                     "No gas data found for cycle at {}",
@@ -2735,7 +2738,7 @@ pub fn render_recalculate_ui(
     start_date: DateTime<Utc>,
     end_date: DateTime<Utc>,
     project: Project,
-    log_messages: &mut VecDeque<RichText>,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     ui.vertical(|ui| {
         ui.label("Compare the current chamber height of all calculated fluxes and recalculate if a new one is found.");
@@ -2746,7 +2749,8 @@ pub fn render_recalculate_ui(
             let conn = match Connection::open("fluxrs.db") {
                 Ok(conn) => conn,
                 Err(e) => {
-                    log_messages.push_front(bad_message(&"Failed to open database."));
+                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::DbFail(e.to_string())));
+                    // log_messages.push_front(bad_message(&"Failed to open database."));
                     return;
                 },
             };
@@ -2784,7 +2788,7 @@ pub fn render_recalculate_ui(
                 },
                 e => {
                     eprintln!("Error processing cycles: {:?}", e);
-                    log_messages.push_front(bad_message("Error processing cycles. Do you have cycles initiated?"));
+                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::CyclesFail("Error processing cycles, do you have cycles initiated?".to_owned())));
                 }
             }
         }

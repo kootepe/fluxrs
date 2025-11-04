@@ -42,6 +42,8 @@ impl ValidationApp {
         }
 
         // Main UI layout
+        let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+        let sender_clone = progress_sender.clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 self.date_picker(ui);
@@ -74,7 +76,6 @@ impl ValidationApp {
                         },
                     };
                     let arc_conn = Arc::new(Mutex::new(conn));
-                    let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
                     self.progress_receiver = Some(progress_receiver);
 
                     self.runtime.spawn(async move {
@@ -162,7 +163,7 @@ impl ValidationApp {
                 self.start_date,
                 self.end_date,
                 self.get_project().clone(),
-                &mut self.log_messages,
+                sender_clone,
             );
         });
         // Handle messages from background processing
