@@ -13,6 +13,7 @@ pub enum QueryEvent {
     InitEnded,
     HeightFail(String),
     CyclesFail(String),
+    DbFail(String),
     QueryComplete,
     NoGasData(String),
     NoGasDataDay(String),
