@@ -354,7 +354,9 @@ impl ProcessEventSink for Config {
             QueryEvent::HeightFail(msg) => {
                 println!("{}", msg);
             },
-
+            QueryEvent::DbFail(msg) => {
+                println!("{}", msg);
+            },
             QueryEvent::CyclesFail(msg) => {
                 println!("{}", msg)
             },
