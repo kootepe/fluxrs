@@ -84,6 +84,17 @@ impl fmt::Display for DataType {
         }
     }
 }
+impl DataType {
+    pub fn type_str(&self) -> &'static str {
+        match self {
+            DataType::Gas => "gas",
+            DataType::Cycle => "cycle",
+            DataType::Meteo => "meteo",
+            DataType::Height => "height",
+            DataType::Chamber => "chamber_meta",
+        }
+    }
+}
 // logs which item on the plot is being dragged
 pub enum Adjuster {
     Left,
