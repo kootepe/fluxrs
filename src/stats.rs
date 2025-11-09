@@ -313,7 +313,9 @@ pub fn pearson_correlation(x: &[f64], y: &[f64]) -> Option<f64> {
         println!("Empty data.");
         return None;
     }
-
+    if x.iter().any(|v| !v.is_finite()) || y.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
     let n = x.len() as f64;
 
     let mean_x = x.iter().sum::<f64>() / n;
