@@ -31,6 +31,7 @@ mod keybinds;
 pub mod processevent;
 mod stats;
 pub mod traits;
+pub mod types;
 pub mod ui;
 pub mod utils;
 
