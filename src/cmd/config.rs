@@ -4,7 +4,7 @@ use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 use crate::gastype::GasType;
-use crate::instruments::instruments::InstrumentType;
+use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
@@ -105,10 +105,12 @@ impl Config {
 
 impl Config {
     fn run_project_create(&self, p: &ProjectCreate) -> Result<(), AppError> {
+        let instrument =
+            Instrument { model: p.instrument, serial: p.instrument_serial.clone(), id: None };
         let project = Project {
+            id: None,
             name: p.name.clone(),
-            instrument: p.instrument,
-            instrument_serial: p.instrument_serial.clone(),
+            instrument,
             main_gas: Some(p.main_gas),
             deadband: p.deadband,
             min_calc_len: p.min_calc_len,
