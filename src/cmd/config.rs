@@ -427,7 +427,7 @@ impl ProcessEventSink for Config {
                 println!("Inserted {} rows, skipped {} duplicates.", rows, duplicates);
             },
             InsertEvent::CycleOkSkip(rows, duplicates) => {
-                println!("Inserted {} cycles, skipped {} duplicates.", rows, duplicates);
+                println!("Inserted {} cycles, skipped {} entries. Either they failed during calculation or are already in the db..", rows, duplicates);
             },
             InsertEvent::Fail(e) => {
                 println!("Failed to insert rows: {}", e);
