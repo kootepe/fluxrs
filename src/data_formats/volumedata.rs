@@ -41,7 +41,7 @@ impl VolumeData {
 
 pub fn insert_volume_data(
     conn: &mut Connection,
-    project_id: &str,
+    project_name: &str,
     volume_data: &VolumeData,
 ) -> Result<usize> {
     let mut inserted: usize = 0;
@@ -54,16 +54,16 @@ pub fn insert_volume_data(
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare(
-            "INSERT INTO height (chamber_id, project_id, datetime, volume)
+            "INSERT INTO height (chamber_id, project_name, datetime, volume)
              VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(chamber_id, project_id, datetime)
+             ON CONFLICT(chamber_id, project_name, datetime)
              DO UPDATE SET volume = excluded.volume",
         )?;
 
         for i in 0..volume_data.datetime.len() {
             stmt.execute(params![
                 &volume_data.chamber_id[i],
-                project_id,
+                project_name,
                 volume_data.datetime[i],
                 volume_data.volume[i]
             ])?;
@@ -83,7 +83,7 @@ pub fn get_previous_volume(
     let mut stmt = conn.prepare(
         "SELECT height
              FROM height
-             WHERE project_id = ?1
+             WHERE project_name = ?1
              AND datetime - ?3 < 0
              AND chamber_id = ?2
              ORDER BY datetime - ?3
@@ -111,7 +111,7 @@ pub fn query_volume(
         "SELECT datetime, height, chamber_id
              FROM height
              WHERE datetime BETWEEN ?1 AND ?2
-             and project_id = ?3
+             and project_name = ?3
              ORDER BY datetime",
     )?;
 
