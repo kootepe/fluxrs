@@ -262,7 +262,7 @@ impl DownloadApp {
         let column_names_closure = column_names.clone();
 
         // 3. Build rows iterator. Each row -> Vec<String> in final_columns order.
-        let rows = stmt.query_map([&project.name], move |row| {
+        let rows = stmt.query_map([&project.id.unwrap()], move |row| {
             let mut record: HashMap<String, String> = HashMap::new();
 
             // collect DB row into record as text
