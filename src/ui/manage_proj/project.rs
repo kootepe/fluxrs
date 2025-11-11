@@ -1,5 +1,5 @@
 use crate::gastype::GasType;
-use crate::instruments::instruments::InstrumentType;
+use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::ui::validation_ui::Mode;
 use chrono_tz::Tz;
 use std::error::Error;
@@ -10,22 +10,22 @@ use rusqlite::{params, Connection, Result};
 
 #[derive(Debug)]
 pub struct ProjectExistsError {
-    pub project_id: String,
+    pub project_name: String,
 }
 
 impl fmt::Display for ProjectExistsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Project with id '{}' already exists", self.project_id)
+        write!(f, "Project with id '{}' already exists", self.project_name)
     }
 }
 
 impl Error for ProjectExistsError {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Project {
     pub name: String,
-    pub instrument: InstrumentType,
-    pub instrument_serial: String,
+    pub id: Option<i64>,
+    pub instrument: Instrument,
     pub main_gas: Option<GasType>,
     pub deadband: f64,
     pub min_calc_len: f64,
@@ -38,8 +38,8 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             name: "Untitled Project".to_string(),
-            instrument: InstrumentType::default(),
-            instrument_serial: "UNKNOWN_SERIAL".to_string(),
+            id: None,
+            instrument: Instrument::default(),
             main_gas: Some(GasType::default()),
             deadband: 0.0,
             min_calc_len: 0.0,
@@ -54,16 +54,18 @@ impl fmt::Display for Project {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{}, {}, {}, {}, {}, {}",
+            "{}, {}, {}, {}, {}, {}, {} {}",
+            self.id.unwrap_or(96969696),
             self.name,
-            self.instrument,
-            self.instrument_serial,
+            self.instrument.model,
+            self.instrument.serial,
             self.main_gas
                 .as_ref()
                 .map(|g| format!("{:?}", g))
                 .unwrap_or_else(|| "None".to_string()),
             self.deadband,
-            self.min_calc_len
+            self.min_calc_len,
+            self.tz
         )
     }
 }
