@@ -2321,7 +2321,12 @@ fn execute_insert(
     }
     Ok(affected)
 }
-fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project_id: &i64) -> Result<()> {
+fn execute_update(
+    stmt: &mut rusqlite::Statement,
+    cycle: &Cycle,
+    project_id: &i64,
+) -> Result<usize> {
+    let mut affected = 0;
     for key in cycle.gases.clone() {
         let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
         let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
@@ -2337,7 +2342,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project_id: &i6
             continue;
         }
 
-        stmt.execute(params![
+        let inserts = stmt.execute(params![
             cycle.start_time.timestamp(),
             cycle.chamber_id,
             cycle.main_instrument.id,
@@ -2413,8 +2418,9 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project_id: &i6
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
+        affected += inserts;
     }
-    Ok(())
+    Ok(affected)
 }
 type DbConn = Arc<Mutex<rusqlite::Connection>>;
 pub async fn load_cycles(
