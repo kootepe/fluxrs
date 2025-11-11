@@ -2077,8 +2077,13 @@ pub fn update_fluxes(
                 inserted += 1;
                 let archived_at = Utc::now().to_rfc3339();
                 let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
-                match execute_history_insert(&mut insert_stmt, &archived_at, cycle, &project.name) {
-                    Ok(_) => println!("Archived cycle successfully."),
+                match execute_history_insert(
+                    &mut insert_stmt,
+                    &archived_at,
+                    cycle,
+                    &project.id.unwrap(),
+                ) {
+                    Ok(_) => {},
                     Err(e) => eprintln!("Error archiving fluxes: {}", e),
                 };
             } else {
@@ -2100,7 +2105,12 @@ pub fn insert_flux_history(
         let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
 
         for cycle in cycles {
-            match execute_history_insert(&mut insert_stmt, &archived_at, cycle, &project.name) {
+            match execute_history_insert(
+                &mut insert_stmt,
+                &archived_at,
+                cycle,
+                &project.id.unwrap(),
+            ) {
                 Ok(_) => println!("Archived cycle successfully."),
                 Err(e) => eprintln!("Error archiving fluxes: {}", e),
             }
@@ -2113,7 +2123,7 @@ fn execute_history_insert(
     stmt: &mut rusqlite::Statement,
     archived_at: &String,
     cycle: &Cycle,
-    project: &String,
+    project_id: &i64,
 ) -> Result<()> {
     for key in cycle.gases.clone() {
         let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
@@ -2131,16 +2141,18 @@ fn execute_history_insert(
             eprintln!("Skipping gas {:?}: no models available", key);
             continue;
         }
+        let instrument_id = &key.id;
 
         stmt.execute(params![
             archived_at,
             cycle.start_time.timestamp(),
             cycle.chamber_id,
             cycle.main_instrument.id,
-            cycle.instrument.id,
+            instrument_id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
-            project,
+            project_id,
+            cycle.id,
             cycle.close_offset,
             cycle.open_offset,
             cycle.end_offset,
@@ -2438,8 +2450,6 @@ pub async fn load_cycles(
     match result {
         Ok(inner) => inner, // inner: rusqlite::Result<Vec<Cycle>>
         Err(join_err) => {
-            // You probably want your *own* error or anyhow::Error here.
-            // If you must stick to rusqlite::Error, pick the least-wrong variant or wrap it.
             eprintln!("spawn_blocking panicked or was cancelled: {join_err}");
             Err(rusqlite::Error::ExecuteReturnedResults)
         },
@@ -2464,17 +2474,17 @@ pub fn load_cycles_sync(
             SELECT
                 f.*,
 
-                main_i.id              AS main_instrument_id,
-                main_i.instrument_model AS main_instrument_model,
-                main_i.instrument_serial AS main_instrument_serial,
+                main_i.id                   AS main_instrument_id,
+                main_i.instrument_model     AS main_instrument_model,
+                main_i.instrument_serial    AS main_instrument_serial,
 
-                i.id                   AS instrument_id,
-                i.instrument_model     AS instrument_model,
-                i.instrument_serial    AS instrument_serial
+                i.id                        AS instrument_id,
+                i.instrument_model          AS instrument_model,
+                i.instrument_serial         AS instrument_serial
 
             FROM fluxes f
-            LEFT JOIN instruments main_i ON f.main_instrument_link = main_i.id
-            LEFT JOIN instruments i       ON f.instrument_link      = i.id
+            LEFT JOIN instruments main_i    ON f.main_instrument_link = main_i.id
+            LEFT JOIN instruments i         ON f.instrument_link      = i.id
             WHERE f.project_link = ?1
             AND f.start_time BETWEEN ?2 AND ?3
             ORDER BY f.start_time;
@@ -2487,6 +2497,7 @@ pub fn load_cycles_sync(
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
     let mut serials: HashSet<String> = HashSet::new();
 
+    eprintln!("Running query for project_id={}, start={}, end={}", project.id.unwrap(), start, end);
     let mut rows = stmt.query(params![project.id.unwrap(), start, end])?;
 
     while let Some(row) = rows.next()? {
