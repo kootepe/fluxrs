@@ -1,0 +1,122 @@
+use crate::cycle::cycle::load_cycles;
+use crate::data_formats::chamberdata::query_chamber_async;
+use crate::data_formats::heightdata::query_height_async;
+use crate::data_formats::meteodata::query_meteo_async;
+use crate::processevent::{ProcessEvent, QueryEvent};
+use crate::Project;
+
+use crate::ui::recalcer::{Datasets, Infra, Recalcer};
+use chrono::{DateTime, Utc};
+use eframe::egui::Ui;
+use rusqlite::Connection;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+
+pub struct RecalculateApp {
+    pub calc_enabled: bool,
+    pub calc_in_progress: bool,
+    pub query_in_progress: bool,
+    pub cycles_progress: usize,
+    pub cycles_state: Option<(usize, usize)>,
+}
+
+impl Default for RecalculateApp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl RecalculateApp {
+    pub fn new() -> Self {
+        Self {
+            calc_enabled: true,
+            calc_in_progress: false,
+            query_in_progress: false,
+            cycles_progress: 0,
+            cycles_state: None,
+        }
+    }
+
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        runtime: &tokio::runtime::Runtime,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+        project: Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) {
+        ui.vertical(|ui| {
+        ui.label("Compare the current chamber height of all calculated fluxes and recalculate if a new one is found.");
+        ui.label("Only changes the fluxes and height, no need to redo manual validation.");
+
+
+        if ui.add_enabled(self.calc_enabled && !self.calc_in_progress,egui::Button::new("Recalculate.")).clicked() {
+                self.calc_enabled = false;
+                self.query_in_progress = true;
+
+        let conn = match Connection::open("fluxrs.db") {
+            Ok(conn) => conn,
+            Err(e) => {
+                let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::DbFail(e.to_string())));
+                // log_messages.push_front(bad_message(&"Failed to open database."));
+                return;
+            },
+        };
+
+        let arc_conn = Arc::new(Mutex::new(conn));
+        let proj = project.clone();
+
+        // TODO: load_cycles queries chambers internally so they are getting set twice.
+        runtime.spawn(async move {
+            let cycle_result =
+                load_cycles(arc_conn.clone(), start_date, end_date, proj.clone(), progress_sender.clone()).await;
+            let meteo_result =
+                query_meteo_async(arc_conn.clone(), start_date, end_date, proj.clone()).await;
+            let height_result =
+                query_height_async(arc_conn.clone(), start_date, end_date, proj.clone()).await;
+            let chamber_result = query_chamber_async(arc_conn.clone(), proj.clone()).await;
+
+            match (cycle_result, meteo_result, height_result, chamber_result) {
+                (Ok(cycle_data), Ok(meteo_data), Ok(height_data), Ok(chamber_data)) => {
+                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::QueryComplete));
+                    if !cycle_data.is_empty() {
+                        let processor = Recalcer::new(
+                            project.clone(),
+                            Datasets {
+                                meteo: meteo_data,
+                                height: height_data,
+                                chambers: chamber_data,
+                            },
+                            Infra { conn: arc_conn, progress: progress_sender },
+                        );
+                        processor.run_recalculating(cycle_data).await;
+                    } else if cycle_data.is_empty() {
+                        let msg = "No gas data or cycles found.";
+                        let _ = progress_sender.send(ProcessEvent::Done(Err(msg.to_owned())));
+                    }
+                },
+                e => {eprintln!("Failed to query database: {:?}", e);
+                        let msg = format!("Failed to query database: {:?}", e);
+            let _ = progress_sender.send(ProcessEvent::Done(Err(msg)));}
+            }
+        });}
+    });
+        if self.calc_in_progress || !self.calc_enabled {
+            ui.add(egui::Spinner::new());
+            if self.query_in_progress {
+                ui.label("Querying data, this can take a while for large time ranges.");
+            } else if let Some((_, total)) = self.cycles_state {
+                let pb =
+                    egui::widgets::ProgressBar::new(self.cycles_progress as f32 / total as f32)
+                        .desired_width(200.)
+                        .corner_radius(1)
+                        .show_percentage()
+                        .text(format!("{}/{}", self.cycles_progress, total));
+                ui.add(pb);
+            } else {
+                ui.label("Recalculating fluxes");
+            }
+            // return;
+        }
+    }
+}
