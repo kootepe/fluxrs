@@ -46,7 +46,7 @@ impl FromStr for ChamberShapeType {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ChamberShape {
     Cylinder { diameter_m: f64, height_m: f64, snow_height_m: f64 },
     Box { width_m: f64, length_m: f64, height_m: f64, snow_height_m: f64 },
