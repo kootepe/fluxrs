@@ -2639,7 +2639,7 @@ impl ProcessEventSink for ValidationApp {
                 self.recalc.calc_in_progress = false;
             },
             QueryEvent::QueryComplete => {
-                self.query_in_progress = false;
+                // self.query_in_progress = false;
                 self.log_messages.push_front(good_message("Finished queries."));
                 self.recalc.query_in_progress = false;
             },
@@ -2680,8 +2680,6 @@ impl ProcessEventSink for ValidationApp {
                 println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::CalculationStarted => {
-                self.init_in_progress = true;
-                self.init_enabled = false;
                 self.recalc.calc_enabled = false;
                 self.recalc.calc_in_progress = true;
             },
@@ -2808,6 +2806,7 @@ impl ProcessEventSink for ValidationApp {
         self.recalc.calc_in_progress = false;
         self.recalc.query_in_progress = false;
         self.recalc.cycles_progress = 0;
+        self.recalc.cycles_state = None;
     }
 }
 pub fn is_inside_polygon(
