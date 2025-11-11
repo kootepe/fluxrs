@@ -2307,7 +2307,7 @@ fn execute_insert(
     }
     Ok(affected)
 }
-fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &i64) -> Result<()> {
+fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project_id: &i64) -> Result<()> {
     for key in cycle.gases.clone() {
         let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
         let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
@@ -2330,7 +2330,8 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &i64) 
             cycle.instrument.id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
-            project,
+            project_id,
+            cycle.id,
             cycle.close_offset,
             cycle.open_offset,
             cycle.end_offset,
