@@ -5,44 +5,40 @@ const DB_VERSION: i32 = 1;
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
     pub const CHAMBER_ID: usize = 1;
-    pub const MAIN_INSTRUMENT_MODEL: usize = 2;
-    pub const MAIN_INSTRUMENT_SERIAL: usize = 3;
-    pub const INSTRUMENT_MODEL: usize = 4;
-    pub const INSTRUMENT_SERIAL: usize = 5;
-    pub const MAIN_GAS: usize = 6;
-    pub const GAS: usize = 7;
-    pub const PROJECT_ID: usize = 8;
-    pub const CLOSE_OFFSET: usize = 9;
-    pub const OPEN_OFFSET: usize = 10;
-    pub const END_OFFSET: usize = 11;
-    pub const OPEN_LAG_S: usize = 12;
-    pub const CLOSE_LAG_S: usize = 13;
-    pub const END_LAG_S: usize = 14;
-    pub const START_LAG_S: usize = 15;
-    pub const MIN_CALC_LEN: usize = 16;
-    pub const AIR_PRESSURE: usize = 17;
-    pub const AIR_TEMPERATURE: usize = 18;
-    pub const CHAMBER_HEIGHT: usize = 19;
-    pub const ERROR_CODE: usize = 20;
-    pub const IS_VALID: usize = 21;
-    pub const MANUAL_ADJUSTED: usize = 22;
-    pub const MANUAL_VALID: usize = 23;
-    pub const T0_CONC: usize = 24;
-    pub const MEASUREMENT_R2: usize = 25;
-    pub const FLUX: usize = 26;
-    pub const R2: usize = 27;
-    pub const INTERCEPT: usize = 28;
-    pub const SLOPE: usize = 29;
-    pub const CALC_START: usize = 30;
-    pub const CALC_END: usize = 31;
+    pub const MAIN_INSTRUMENT_LINK: usize = 2;
+    pub const INSTRUMENT_LINK: usize = 3;
+    pub const MAIN_GAS: usize = 4;
+    pub const GAS: usize = 5;
+    pub const PROJECT_LINK: usize = 6;
+    pub const CLOSE_OFFSET: usize = 7;
+    pub const OPEN_OFFSET: usize = 8;
+    pub const END_OFFSET: usize = 9;
+    pub const OPEN_LAG_S: usize = 10;
+    pub const CLOSE_LAG_S: usize = 11;
+    pub const END_LAG_S: usize = 12;
+    pub const START_LAG_S: usize = 13;
+    pub const MIN_CALC_LEN: usize = 14;
+    pub const AIR_PRESSURE: usize = 15;
+    pub const AIR_TEMPERATURE: usize = 16;
+    pub const CHAMBER_HEIGHT: usize = 17;
+    pub const ERROR_CODE: usize = 18;
+    pub const IS_VALID: usize = 19;
+    pub const MANUAL_ADJUSTED: usize = 20;
+    pub const MANUAL_VALID: usize = 21;
+    pub const T0_CONC: usize = 22;
+    pub const MEASUREMENT_R2: usize = 23;
+    pub const FLUX: usize = 24;
+    pub const R2: usize = 25;
+    pub const INTERCEPT: usize = 26;
+    pub const SLOPE: usize = 27;
+    pub const CALC_START: usize = 28;
+    pub const CALC_END: usize = 29;
 }
 
 pub const OTHER_COLS: &[&str] = &[
-    "instrument_model",
-    "instrument_serial",
     "chamber_id",
     "main_gas",
-    "project_id",
+    "project_link",
     "start_time",
     "close_offset",
     "open_offset",
@@ -64,13 +60,70 @@ pub const OTHER_COLS: &[&str] = &[
 pub const FLUXES_COLUMNS: &[&str] = &[
     "start_time",
     "chamber_id",
-    "main_instrument_model",
-    "main_instrument_serial",
-    "instrument_model",
-    "instrument_serial",
+    "main_instrument_link",
+    "instrument_link",
     "main_gas",
     "gas",
-    "project_id",
+    "project_link",
+    "cycle_link",
+    "close_offset",
+    "open_offset",
+    "end_offset",
+    "open_lag_s",
+    "close_lag_s",
+    "end_lag_s",
+    "start_lag_s",
+    "min_calc_len",
+    "air_pressure",
+    "air_temperature",
+    "chamber_height",
+    "snow_depth_m",
+    "error_code",
+    "measurement_is_valid",
+    "gas_is_valid",
+    "manual_adjusted",
+    "manual_valid",
+    "deadband",
+    "t0_concentration",
+    "measurement_r2",
+    "lin_flux",
+    "lin_r2",
+    "lin_adj_r2",
+    "lin_intercept",
+    "lin_slope",
+    "lin_sigma",
+    "lin_p_value",
+    "lin_aic",
+    "lin_rmse",
+    "lin_range_start",
+    "lin_range_end",
+    "poly_flux",
+    "poly_r2",
+    "poly_adj_r2",
+    "poly_sigma",
+    "poly_aic",
+    "poly_rmse",
+    "poly_a0",
+    "poly_a1",
+    "poly_a2",
+    "poly_range_start",
+    "poly_range_end",
+    "roblin_flux",
+    "roblin_r2",
+    "roblin_adj_r2",
+    "roblin_intercept",
+    "roblin_slope",
+    "roblin_sigma",
+    "roblin_aic",
+    "roblin_rmse",
+    "roblin_range_start",
+    "roblin_range_end",
+];
+pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
+    "start_time",
+    "chamber_id",
+    "main_gas",
+    "gas",
     "close_offset",
     "open_offset",
     "end_offset",
@@ -126,14 +179,23 @@ pub const FLUXES_COLUMNS: &[&str] = &[
 ];
 pub fn make_select_all_fluxes() -> String {
     format!(
-        "SELECT {} FROM fluxes WHERE project_id = ?1 ORDER BY start_time",
-        FLUXES_COLUMNS.join(", ")
+        "SELECT {},
+        main_i.instrument_model     AS main_instrument_model,
+        main_i.instrument_serial     AS main_instrument_serial,
+        i.instrument_model          AS instrument_model,
+        i.instrument_serial         AS instrument_serial
+        FROM fluxes f
+        LEFT JOIN instruments main_i ON f.main_instrument_link = main_i.id
+        LEFT JOIN instruments i ON f.instrument_link = i.id
+        WHERE f.project_link = ?1
+        ORDER BY start_time",
+        FLUXES_COLUMNS_NO_LINK.join(", ")
     )
 }
 
 pub fn make_select_fluxes() -> String {
     format!(
-        "SELECT {} FROM fluxes WHERE start_time BETWEEN ?1 AND ?2 AND project_id = ?3 ORDER BY start_time",
+        "SELECT {} FROM fluxes WHERE start_time BETWEEN ?1 AND ?2 AND project_link = ?3 ORDER BY start_time",
         FLUXES_COLUMNS.join(", ")
     )
 }
@@ -174,11 +236,11 @@ pub fn make_update_fluxes() -> String {
 
     // Add WHERE clause for identifying row
     let where_clause = format!(
-        "instrument_serial = ?{} AND start_time = ?{} AND gas = ?{} AND project_id = ?{}",
-        fluxes_col::INSTRUMENT_SERIAL + 1,
+        "instrument_link = ?{} AND start_time = ?{} AND gas = ?{} AND project_link = ?{}",
+        fluxes_col::INSTRUMENT_LINK + 1,
         fluxes_col::START_TIME + 1,
         fluxes_col::GAS + 1,
-        fluxes_col::PROJECT_ID + 1,
+        fluxes_col::PROJECT_LINK + 1,
     );
 
     format!("UPDATE fluxes SET {} WHERE {}", set_clause.join(", "), where_clause)
@@ -216,13 +278,12 @@ pub fn create_flux_table() -> String {
     "CREATE TABLE IF NOT EXISTS fluxes (
             start_time INTEGER NOT NULL,
             chamber_id TEXT NOT NULL,
-            main_instrument_model TEXT NOT NULL,
-            main_instrument_serial TEXT NOT NULL,
-            instrument_model TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
+            main_instrument_link INTEGER NOT NULL,
+            instrument_link INTEGER NOT NULL,
             main_gas INTEGER NOT NULL,
             gas INTEGER NOT NULL,
-            project_id TEXT NOT NULL,
+            project_link INTEGER NOT NULL,
+            cycle_link INTEGER NOT NULL,
 
             close_offset INTEGER NOT NULL,
             open_offset INTEGER NOT NULL,
@@ -280,7 +341,13 @@ pub fn create_flux_table() -> String {
             roblin_rmse FLOAT,
             roblin_range_start FLOAT,
             roblin_range_end FLOAT,
-            PRIMARY KEY (instrument_serial, start_time, project_id, gas)
+
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
+
+            PRIMARY KEY (instrument_link, start_time, project_link, gas)
         )"
     .to_owned()
 }
@@ -289,15 +356,14 @@ pub fn create_flux_history_table() -> String {
     "CREATE TABLE IF NOT EXISTS flux_history (
             archived_at TEXT NOT NULL,
 
-            main_instrument_model TEXT NOT NULL,
-            main_instrument_serial TEXT NOT NULL,
-            instrument_model TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
+            start_time INTEGER NOT NULL,
             chamber_id TEXT NOT NULL,
+            main_instrument_link INTEGER NOT NULL,
+            instrument_link INTEGER NOT NULL,
             main_gas INTEGER NOT NULL,
             gas INTEGER NOT NULL,
-            project_id TEXT NOT NULL,
-            start_time INTEGER NOT NULL,
+            project_link INTEGER NOT NULL,
+            cycle_link INTEGER NOT NULL,
 
             close_offset INTEGER NOT NULL,
             open_offset INTEGER NOT NULL,
@@ -354,7 +420,12 @@ pub fn create_flux_history_table() -> String {
             roblin_aic FLOAT,
             roblin_rmse FLOAT,
             roblin_range_start FLOAT,
-            roblin_range_end FLOAT
+            roblin_range_end FLOAT,
+
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
         )"
     .to_owned()
 }
@@ -393,84 +464,136 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     // let wal_mode: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))?;
 
     conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+    conn.execute("PRAGMA foreign_keys = ON", [])?;
     // conn.execute("PRAGMA journal_mode = WAL;", [])?;
 
     conn.execute(
-        "CREATE TABLE chamber_metadata (
-            id INTEGER PRIMARY KEY,
-            chamber_id TEXT NOT NULL,
-            shape TEXT NOT NULL,
-            diameter REAL,
-            height REAL NOT NULL,
-            width REAL,
-            length REAL,
-            project_id TEXT NOT NULL,
-            UNIQUE(chamber_id, project_id)
-        );",
-        [],
-    )?;
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS height (
-            chamber_id TEXT,
-            project_id TEXT,
-            datetime INTEGER,
-            height FLOAT,
-            PRIMARY KEY (chamber_id, project_id, datetime)
-        )",
-        [],
-    )?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS meteo (
-            project_id TEXT NOT NULL,
-            datetime INTEGER,
-            temperature FLOAT,
-            pressure FLOAT,
-            PRIMARY KEY (datetime, project_id)
-        )",
-        [],
-    )?;
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS cycles (
-            chamber_id TEXT NOT NULL,
-            start_time INTEGER NOT NULL,
-            close_offset INTEGER NOT NULL,
-            open_offset INTEGER NOT NULL,
-            end_offset INTEGER NOT NULL,
-            snow_depth FLOAT NOT NULL,
-            project_id TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
-            instrument_model TEXT NOT NULL,
-            PRIMARY KEY (start_time, chamber_id, project_id)
-        )",
-        [],
-    )?;
-    conn.execute(
         "CREATE TABLE IF NOT EXISTS projects (
-            project_id TEXT PRIMARY KEY,
-            main_gas INTEGER NOT NULL,
-            mode INTEGER NOT NULL,
-            deadband FLOAT NOT NULL,
-            min_calc_len FLOAT NOT NULL,
-            instrument_model TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
-            tz TEXT NOT NULL,
-            current INTEGER NOT NULL
+            id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_name            TEXT NOT NULL,
+            main_gas                INTEGER NOT NULL,
+            mode                    INTEGER NOT NULL,
+            deadband                FLOAT NOT NULL,
+            min_calc_len            FLOAT NOT NULL,
+            tz                      TEXT NOT NULL,
+            current                 INTEGER NOT NULL,
+            main_instrument_link    INTEGER,
+            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS instruments (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_model    TEXT NOT NULL,
+            instrument_serial   TEXT NOT NULL,
+            project_link        INTEGER NOT NULL,
+
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            UNIQUE (project_link, instrument_model, instrument_serial)
         )",
         [],
     )?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS measurements (
-            instrument_model TEXT NOT NULL,
-            instrument_serial TEXT NOT NULL,
-            datetime INTEGER,
-            ch4 FLOAT,
-            co2 FLOAT,
-            h2o FLOAT,
-            n2o FLOAT,
-            diag INTEGER,
-            project_id TEXT NOT NULL,
-            PRIMARY KEY (datetime, instrument_serial, project_id)
+            datetime            INTEGER,
+            ch4                 FLOAT,
+            co2                 FLOAT,
+            h2o                 FLOAT,
+            n2o                 FLOAT,
+            diag                INTEGER,
+            file_link           INTEGER NOT NULL,
+            project_link        INTEGER NOT NULL,
+            instrument_link     INTEGER NOT NULL,
+
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+
+            PRIMARY KEY (datetime, instrument_link, project_link)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS cycles (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            chamber_id      TEXT NOT NULL,
+            start_time      INTEGER NOT NULL,
+            close_offset    INTEGER NOT NULL,
+            open_offset     INTEGER NOT NULL,
+            end_offset      INTEGER NOT NULL,
+            snow_depth      FLOAT NOT NULL,
+            file_link       INTEGER NOT NULL,
+            project_link    INTEGER NOT NULL,
+            instrument_link INTEGER NOT NULL,
+
+
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+
+            UNIQUE (start_time, chamber_id, project_link)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS meteo (
+            datetime        INTEGER,
+            temperature     FLOAT,
+            pressure        FLOAT,
+            file_link       INTEGER NOT NULL,
+            project_link    INTEGER NOT NULL,
+
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            PRIMARY KEY (datetime, project_link)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS height (
+            chamber_id      TEXT,
+            datetime        INTEGER,
+            height          FLOAT,
+            project_link    INTEGER NOT NULL,
+            file_link       INTEGER NOT NULL,
+
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+
+            PRIMARY KEY (chamber_id, project_link, datetime)
+        )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE TABLE chamber_metadata (
+            id              INTEGER PRIMARY KEY,
+            chamber_id      TEXT NOT NULL,
+            shape           TEXT NOT NULL,
+            diameter        REAL,
+            height          REAL NOT NULL,
+            width           REAL,
+            length          REAL,
+            file_link       INTEGER NOT NULL,
+            project_link    INTEGER NOT NULL,
+
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+
+            UNIQUE(chamber_id, project_link)
+        );",
+        [],
+    )?;
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS data_files (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name       TEXT NOT NULL,
+            data_type       TEXT NOT NULL,
+            uploaded_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            project_link    INTEGER NOT NULL,
+
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
         )",
         [],
     )?;
