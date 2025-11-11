@@ -2064,32 +2064,30 @@ pub fn update_fluxes(
     conn: &mut Connection,
     cycles: &[Cycle],
     project: &Project,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(usize, usize), Box<dyn std::error::Error + Send + Sync>> {
+    let mut inserted = 0;
+    let mut skipped = 0;
     let tx = conn.transaction()?; // Start transaction for consistency
     {
         let mut update_stmt = tx.prepare(&make_update_fluxes())?;
 
         for cycle in cycles {
-            match execute_update(&mut update_stmt, cycle, &project.id.unwrap()) {
-                Ok(_) => {
-                    let archived_at = Utc::now().to_rfc3339();
-                    let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
-                    match execute_history_insert(
-                        &mut insert_stmt,
-                        &archived_at,
-                        cycle,
-                        &project.name,
-                    ) {
-                        Ok(_) => println!("Archived cycle successfully."),
-                        Err(e) => eprintln!("Error archiving fluxes: {}", e),
-                    }
-                },
-                Err(e) => eprintln!("Error updating fluxes: {}", e),
+            let affected = execute_update(&mut update_stmt, cycle, &project.id.unwrap())?;
+            if affected > 0 {
+                inserted += 1;
+                let archived_at = Utc::now().to_rfc3339();
+                let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
+                match execute_history_insert(&mut insert_stmt, &archived_at, cycle, &project.name) {
+                    Ok(_) => println!("Archived cycle successfully."),
+                    Err(e) => eprintln!("Error archiving fluxes: {}", e),
+                };
+            } else {
+                skipped += 1
             }
         }
     }
     tx.commit()?;
-    Ok(())
+    Ok((inserted, skipped))
 }
 pub fn insert_flux_history(
     conn: &mut Connection,
