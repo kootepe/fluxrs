@@ -1468,7 +1468,7 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber.clone(),
+            self.chamber,
         ) {
             self.fluxes.insert(
                 (key, FluxKind::Linear),
