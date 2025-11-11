@@ -2592,12 +2592,11 @@ pub fn load_cycles_sync(
         let measurement_range_end =
             start_time.timestamp() as f64 + open_offset as f64 + close_lag_s + open_lag_s;
 
-        if let Some(gas_data_day) = gas_data.get(&day) {
-            let serial = instrument_serial.clone();
-            let gas_key = GasKey::from((&gas, &instrument_id));
-            let mut gas_channels = FastMap::default();
-            let instrument_cfg = instrument_model.get_config();
-            for ch in &instrument_cfg.channels {
+        let mut gas_channels = FastMap::default();
+        for (_, instrument) in instruments.clone() {
+            let instrument_id = instrument.id.unwrap();
+            let cfg = instrument.model.get_config();
+            for ch in &cfg.channels {
                 let gas_key = GasKey::from((&ch.gas, &instrument_id));
                 match ch.gas {
                     GasType::CH4 => {
@@ -2643,14 +2642,10 @@ pub fn load_cycles_sync(
                     _ => {},
                 }
             }
-            // for (serial, dt_values) in &gas_data_day.datetime {
-            //     for (i, gas) in InstrumentType::from_str(
-            //         &gas_data_day.model_key.get(serial).unwrap().to_string(),
-            //     )
-            //     .available_gases()
-            //     .iter()
-            //     .enumerate()
-            //     {
+        }
+        if let Some(gas_data_day) = gas_data.get(&day) {
+            let gas_key = GasKey::from((&gas, &instrument_id));
+
             let dt_values = gas_data_day.datetime.get(&instrument_id).unwrap();
             let diag_values = gas_data_day.diag.get(&instrument_id).unwrap();
             // let g_values = gas_data_day.gas.get(&gas_key.clone()).unwrap();
@@ -2666,7 +2661,7 @@ pub fn load_cycles_sync(
             };
 
             let cycle = cycle_map.entry(key.clone()).or_insert_with(|| Cycle {
-                id: 0, // you might get this from elsewhere
+                id: cycle_link,
                 chamber_id: chamber_id.clone(),
                 main_instrument,
                 instrument,
