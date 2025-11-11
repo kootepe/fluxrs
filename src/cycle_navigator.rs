@@ -201,11 +201,10 @@ fn is_cycle_visible(
     t0_thresh: f64,
 ) -> bool {
     let main_gas = cycle.main_gas;
-    let main_instr = cycle.main_instrument_serial.as_str();
-    let kind = cycle
-        .best_model_by_aic(&(GasKey::from((&main_gas, main_instr))))
-        .unwrap_or(FluxKind::Linear);
-    let key = GasKey::from((&main_gas, main_instr));
+    let main_id = cycle.main_instrument.id.unwrap();
+    let kind =
+        cycle.best_model_by_aic(&(GasKey::from((&main_gas, &main_id)))).unwrap_or(FluxKind::Linear);
+    let key = GasKey::from((&main_gas, &main_id));
     // let p_val = cycle
     //     .fluxes
     //     .get(&(GasKey::from((&main_gas, main_instr)), best_model))

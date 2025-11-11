@@ -67,7 +67,7 @@ impl ValidationApp {
                     let start_date = self.start_date;
                     let end_date = self.end_date;
                     let project = self.get_project().clone();
-                    let instrument_serial = self.get_project().instrument_serial.clone();
+                    let instrument_serial = self.get_project().instrument.serial.clone();
 
                     let conn = match Connection::open("fluxrs.db") {
                         Ok(conn) => conn,

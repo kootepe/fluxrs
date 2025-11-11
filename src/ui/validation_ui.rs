@@ -464,10 +464,10 @@ impl ValidationApp {
                     ui.collapsing("Cycle details", |ui| {
                         egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
                             ui.label("Model:");
-                            ui.label(format!("{}", cycle.instrument_model));
+                            ui.label(format!("{}", cycle.instrument.model));
                             ui.end_row();
                             ui.label("Serial:");
-                            ui.label(&cycle.instrument_serial);
+                            ui.label(&cycle.instrument.serial);
                             ui.end_row();
                             ui.label("Chamber:");
                             ui.label(cycle.chamber_id.to_string());
@@ -490,7 +490,9 @@ impl ValidationApp {
                             ui.label("First TS:");
                             if let Some(first_val) = cycle
                                 .dt_v
-                                .get(&self.selected_project.as_ref().unwrap().instrument_serial)
+                                .get(
+                                    &self.selected_project.as_ref().unwrap().instrument.id.unwrap(),
+                                )
                                 .unwrap_or(&vec![])
                                 .first()
                             {
@@ -502,7 +504,9 @@ impl ValidationApp {
                             ui.label("Last TS:");
                             if let Some(last_val) = cycle
                                 .dt_v
-                                .get(&self.selected_project.as_ref().unwrap().instrument_serial)
+                                .get(
+                                    &self.selected_project.as_ref().unwrap().instrument.id.unwrap(),
+                                )
                                 .unwrap_or(&vec![])
                                 .last()
                             {
@@ -551,7 +555,7 @@ impl ValidationApp {
                             ui.label("Measurement R²:");
                             ui.label(
                                 match cycle.measurement_r2.get(
-                                    &(GasKey::from((&main_gas, cycle.instrument_serial.as_str()))),
+                                    &(GasKey::from((&main_gas, &cycle.instrument.id.unwrap()))),
                                 ) {
                                     Some(r) => format!("{:.6}", r),
                                     None => "N/A".to_string(),
@@ -708,10 +712,10 @@ impl ValidationApp {
             ui.vertical(|ui| {
                 if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
                     // Group keys by their label
-                    let mut label_map: BTreeMap<String, Vec<_>> = BTreeMap::new();
+                    let mut label_map: BTreeMap<i64, Vec<_>> = BTreeMap::new();
 
                     for key in current_cycle.gases.clone() {
-                        label_map.entry(key.label.clone()).or_default().push(key);
+                        label_map.entry(key.id).or_default().push(key);
                     }
 
                     // Use a horizontal layout to make columns per label
@@ -725,9 +729,17 @@ impl ValidationApp {
                                         .any(|((g, _s), record)| g == &key && record.is_valid);
 
                                     let button_label = if any_valid {
-                                        format!("Invalidate {}", key)
+                                        format!(
+                                            "Invalidate {} {}",
+                                            key.gas_type,
+                                            current_cycle.instruments.get(&key.id).unwrap().serial
+                                        )
                                     } else {
-                                        format!("Revalidate {}", key)
+                                        format!(
+                                            "Revalidate {} {}",
+                                            key.gas_type,
+                                            current_cycle.instruments.get(&key.id).unwrap().serial
+                                        )
                                     };
 
                                     if ui.button(button_label).clicked() {
@@ -972,7 +984,7 @@ impl ValidationApp {
                         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                             cycle.search_new_open_lag(GasKey::from((
                                 &cycle.main_gas,
-                                cycle.instrument_serial.as_str(),
+                                &cycle.instrument.id.unwrap(),
                             )));
                             self.update_plots();
                         }
@@ -1013,7 +1025,7 @@ impl ValidationApp {
                                     current_cycle.get_peak_near_timestamp(
                                         &GasKey::from((
                                             &main_gas,
-                                            current_cycle.instrument_serial.as_str(),
+                                            &current_cycle.instrument.id.unwrap(),
                                         )),
                                         target.timestamp(),
                                     );
@@ -1132,7 +1144,7 @@ impl ValidationApp {
             return;
         }
         let main_key = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))
+            GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))
         } else {
             return;
         };
@@ -2045,7 +2057,17 @@ impl ValidationApp {
                     ui.label("Enable gases");
                     ui.vertical(|ui| {
                         for (gas, mut is_enabled) in &mut main_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_gases.insert(gas.clone());
                                 } else {
@@ -2061,7 +2083,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Cycle r2");
                         for (gas, mut is_enabled) in &mut measurement_r_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_measurement_rs.insert(gas.clone());
                                 } else {
@@ -2076,7 +2108,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("t0 concentration");
                         for (gas, mut is_enabled) in &mut conc_t0_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_conc_t0.insert(gas.clone());
                                 } else {
@@ -2131,7 +2173,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Flux");
                         for (gas, mut is_enabled) in &mut lin_flux_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_lin_fluxes.insert(gas.clone());
                                 } else {
@@ -2147,7 +2199,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Adjusted r2");
                         for (gas, mut is_enabled) in &mut lin_adj_r2_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_lin_adj_r2.insert(gas.clone());
                                 } else {
@@ -2162,7 +2224,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Sigma");
                         for (gas, mut is_enabled) in &mut lin_sigma_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_lin_sigma.insert(gas.clone());
                                 } else {
@@ -2177,7 +2249,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("AIC");
                         for (gas, mut is_enabled) in &mut lin_aic_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_lin_aic.insert(gas.clone());
                                 } else {
@@ -2192,7 +2274,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("RMSE");
                         for (gas, mut is_enabled) in &mut lin_rmse_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_lin_rmse.insert(gas.clone());
                                 } else {
@@ -2207,7 +2299,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("p-value");
                         for (gas, mut is_enabled) in &mut lin_p_val_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_lin_p_val.insert(gas.clone());
                                 } else {
@@ -2245,7 +2347,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Flux");
                         for (gas, mut is_enabled) in &mut roblin_flux_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_roblin_fluxes.insert(gas.clone());
                                 } else {
@@ -2260,7 +2372,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Adjusted r2");
                         for (gas, mut is_enabled) in &mut roblin_adj_r2_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_roblin_adj_r2.insert(gas.clone());
                                 } else {
@@ -2275,7 +2397,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Sigma");
                         for (gas, mut is_enabled) in &mut roblin_sigma_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_roblin_sigma.insert(gas.clone());
                                 } else {
@@ -2290,7 +2422,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("AIC");
                         for (gas, mut is_enabled) in &mut roblin_aic_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_roblin_aic.insert(gas.clone());
                                 } else {
@@ -2305,7 +2447,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("RMSE");
                         for (gas, mut is_enabled) in &mut roblin_rmse_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_roblin_rmse.insert(gas.clone());
                                 } else {
@@ -2343,7 +2495,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Flux");
                         for (gas, mut is_enabled) in &mut poly_flux_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_poly_fluxes.insert(gas.clone());
                                 } else {
@@ -2358,7 +2520,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Adjusted r2");
                         for (gas, mut is_enabled) in &mut poly_adj_r2_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_poly_adj_r2.insert(gas.clone());
                                 } else {
@@ -2373,7 +2545,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("Sigma");
                         for (gas, mut is_enabled) in &mut poly_sigma_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_poly_sigma.insert(gas.clone());
                                 } else {
@@ -2388,7 +2570,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("AIC");
                         for (gas, mut is_enabled) in &mut poly_aic_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_poly_aic.insert(gas.clone());
                                 } else {
@@ -2403,7 +2595,17 @@ impl ValidationApp {
                     ui.vertical(|ui| {
                         ui.label("RMSE");
                         for (gas, mut is_enabled) in &mut poly_rmse_gases {
-                            if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
                                 if is_enabled {
                                     self.enabled_poly_rmse.insert(gas.clone());
                                 } else {
@@ -2465,6 +2667,7 @@ impl ProcessEventSink for ValidationApp {
             ProgressEvent::Rows(current, total) => {
                 self.cycles_state = Some((*current, *total));
                 self.cycles_progress += current;
+                println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::Day(date) => {
                 self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
@@ -2541,19 +2744,26 @@ impl ProcessEventSink for ValidationApp {
                 self.log_messages.push_front(good_message(&format!("{}{}", rows, msg)));
             },
             InsertEvent::OkSkip(rows, duplicates) => {
-                self.log_messages.push_front(good_message(&format!(
-                    "Inserted {} rows, skipped {} duplicates.",
-                    rows, duplicates
-                )));
+                if *duplicates == 0 {
+                    self.log_messages.push_front(good_message(&format!(
+                        "Inserted {} rows, skipped {} duplicates.",
+                        rows, duplicates
+                    )));
+                } else {
+                    self.log_messages.push_front(warn_message(&format!(
+                        "Inserted {} rows, skipped {} duplicates.",
+                        rows, duplicates
+                    )));
+                }
             },
-            InsertEvent::CycleOkSkip(rows, duplicates) => {
-                if duplicates == &0 {
+            InsertEvent::CycleOkSkip(rows, skips) => {
+                if skips == &0 {
                     self.log_messages
                         .push_front(good_message(&format!("Inserted {} cycles.", rows,)));
                 } else {
                     self.log_messages.push_front(warn_message(&format!(
-                        "Inserted {} cycles, skipped {} duplicates. Some cycles in the timeframe have already been initiated.",
-                        rows, duplicates
+                        "Inserted {} cycles, skipped {} entries. Either something went wrong with the calculation or the cycles already exist in the db.",
+                        rows, skips
                     )));
                 }
             },
@@ -2719,35 +2929,41 @@ impl Processor {
                 Ok(Ok(cycles)) => {
                     if !cycles.is_empty() {
                         let mut conn = self.infra.conn.lock().unwrap();
-                        if let Ok((inserts, skips)) = insert_fluxes_ignore_duplicates(
+                        match insert_fluxes_ignore_duplicates(
                             &mut conn,
                             &cycles,
-                            self.project.name.clone(),
+                            &self.project.id.unwrap(),
                         ) {
-                            total_inserts += inserts;
-                            total_skips += skips;
-                            for cycle_opt in cycles.into_iter().flatten() {
-                                let cycle_id: i64 = conn.query_row(
-                                "SELECT id FROM fluxes
-                                 WHERE instrument_serial = ?1 AND start_time = ?2 AND project_id = ?3",
-                                params![
-                                    cycle_opt.instrument_serial,
-                                    cycle_opt.start_time.timestamp(),
-                                    cycle_opt.project_name
-                                ],
-                                |row| row.get(0),
-                            ).unwrap_or(-1);
-
-                                if cycle_id >= 0 {
-                                    if let Err(e) =
-                                        insert_flux_results(&mut conn, cycle_id, cycle_opt.fluxes)
-                                    {
-                                        eprintln!("Error inserting flux results: {}", e);
-                                    }
-                                }
-                            }
-                        } else {
-                            eprintln!("Error inserting fluxes");
+                            Ok((inserts, skips)) => {
+                                total_inserts += inserts;
+                                total_skips += skips;
+                            },
+                            Err(e) => {
+                                let _ = self
+                                    .infra
+                                    .progress
+                                    .send(ProcessEvent::Done(Err(e.to_string())));
+                            },
+                            // for cycle_opt in cycles.into_iter().flatten() {
+                            //     let cycle_id: i64 = conn.query_row(
+                            //     "SELECT id FROM fluxes
+                            //      WHERE instrument_serial = ?1 AND start_time = ?2 AND project_link = ?3",
+                            //     params![
+                            //         cycle_opt.instrument.serial,
+                            //         cycle_opt.start_time.timestamp(),
+                            //         cycle_opt.project_id
+                            //     ],
+                            //     |row| row.get(0),
+                            // ).unwrap_or(-1);
+                            //
+                            //     if cycle_id >= 0 {
+                            //         if let Err(e) =
+                            //             insert_flux_results(&mut conn, cycle_id, cycle_opt.fluxes)
+                            //         {
+                            //             eprintln!("Error inserting flux results: {}", e);
+                            //         }
+                            //     }
+                            // }
                         }
                     }
                 },
@@ -2835,7 +3051,7 @@ pub fn upload_gas_data_async(
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
-        let mut instrument = match project.instrument {
+        let mut instrument = match project.instrument.model {
             InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
             InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
         };

@@ -459,8 +459,8 @@ impl ValidationApp {
                 plot_ui.polygon(right_polygon);
             }
             if let Some(data) = cycle.gas_v.get(key) {
-                let dt_v = &cycle.dt_v.get(&key.label).unwrap();
-                let diag_v = &cycle.diag_v.get(&key.label).unwrap();
+                let dt_v = &cycle.dt_v.get(&key.id).unwrap();
+                let diag_v = &cycle.diag_v.get(&key.id).unwrap();
 
                 let mut normal_points = Vec::new();
                 let mut highlighted_points = Vec::new();
@@ -676,7 +676,7 @@ impl ValidationApp {
                 // BUG: Thresholds need to be enabled/disabled within the app, otherwise it causes
                 // issues with showing which measurements are valid.
                 if let Some(best_kind) = cycle.best_model_by_aic(key) {
-                    let gas_key = GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()));
+                    let gas_key = GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()));
                     let is_valid = cycle.is_valid_by_threshold(
                         gas_key,
                         best_kind,
@@ -882,7 +882,7 @@ impl ValidationApp {
                 || !c.has_error(ErrorCode::TooFewMeasurements)
             {
                 c.search_open_lag(
-                    GasKey::from((&c.main_gas, c.main_instrument_serial.as_str())).clone(),
+                    GasKey::from((&c.main_gas, &c.main_instrument.id.unwrap())).clone(),
                 );
                 match mode {
                     Mode::AfterDeadband => c.set_calc_ranges(),
@@ -1059,14 +1059,14 @@ impl ValidationApp {
                 let chamber_id = cycle.chamber_id.clone();
                 let start_time = cycle.start_time.timestamp() as f64;
                 let main_gas = cycle.main_gas;
-                let serial = cycle.instrument_serial.clone();
+                let id = &cycle.instrument.id.unwrap();
 
                 // Get best model kind (lowest AIC among available models)
                 let best_model = FluxKind::all()
                     .iter()
                     .filter_map(|kind| {
                         cycle
-                            .get_model(GasKey::from((&main_gas, serial.as_str())), *kind)
+                            .get_model(GasKey::from((&main_gas, id)), *kind)
                             .and_then(|m| m.aic().map(|aic| (*kind, aic)))
                     })
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -1075,7 +1075,7 @@ impl ValidationApp {
                     let value = selector(cycle, key);
 
                     let is_valid = cycle.is_valid_by_threshold(
-                        GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str())),
+                        GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())),
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,
@@ -1385,12 +1385,10 @@ impl ValidationApp {
     }
     pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi) {
         let main_gas = self.selected_project.as_ref().unwrap().main_gas.unwrap();
-        let serial = self.selected_project.as_ref().unwrap().instrument_serial.clone();
+        let id = self.selected_project.as_ref().unwrap().instrument.id.unwrap();
 
-        let (valid_traces, invalid_traces) = self
-            .create_traces(&(GasKey::from((&main_gas, serial.as_str()))), |cycle, _| {
-                cycle.open_lag_s
-            });
+        let (valid_traces, invalid_traces) =
+            self.create_traces(&(GasKey::from((&main_gas, &id))), |cycle, _| cycle.open_lag_s);
         let lag_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
 
         let mut hovered_point: Option<[f64; 2]> = None;
@@ -1462,6 +1460,12 @@ impl ValidationApp {
                         cycle.set_open_lag(new_y);
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
+                        }
+                        if self.mode_after_deadband() {
+                            // self.increment_open_lag(steps);
+                            // BUG: calc area doesnt stick to close time
+                            self.increment_calc_starts(steps);
+                            self.increment_calc_ends(steps);
                         }
                     }
                 }
@@ -1960,7 +1964,7 @@ impl ValidationApp {
         let x_max = self.get_measurement_end();
         let num_points = 200;
 
-        let label = format!("{}{}{}", key.gas_type, key.label, kind.as_str());
+        let label = format!("{}{}{}", key.gas_type, key.id, kind.as_str());
         if let Some(model) = self.get_model(key, kind) {
             let points: PlotPoints = (0..=num_points)
                 .filter_map(|i| {
@@ -1979,7 +1983,7 @@ impl ValidationApp {
 }
 pub fn init_attribute_plot(attribute: String, key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
     let attrib = attribute.clone();
-    Plot::new(format!("{}{}{}", key.gas_type, key.label, attrib))
+    Plot::new(format!("{}{}{}", key.gas_type, key.id, attrib))
         // .coordinates_formatter(
         //     Corner::LeftBottom,
         //     CoordinatesFormatter::new(move |value, _| {
@@ -1996,7 +2000,7 @@ pub fn init_attribute_plot(attribute: String, key: &GasKey, w: f32, h: f32) -> e
         .width(w)
         .height(h)
         .x_axis_formatter(format_x_axis)
-        .y_axis_label(format!("{} {} {}", key.gas_type, key.label, attribute))
+        .y_axis_label(format!("{} {} {}", key.gas_type, key.id, attribute))
 }
 pub fn init_residual_plot(gas_type: &GasType, kind: FluxKind, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}{}residual_plot", gas_type, kind.as_str()))
@@ -2010,21 +2014,21 @@ pub fn init_standardized_residuals_plot(
     w: f32,
     h: f32,
 ) -> egui_plot::Plot {
-    Plot::new(format!("{}{}{}standardized_residual_plot",key.label, key.gas_type, kind.as_str()))
+    Plot::new(format!("{}{}{}standardized_residual_plot",key.id, key.gas_type, kind.as_str()))
         .width(w)
         .height(h)
         .x_axis_formatter(|_val, _range| String::new()) // Hide tick labels.width(w)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}",key.label, key.gas_type))
+        .y_axis_label(format!("{}{}",key.id, key.gas_type))
 }
 pub fn init_residual_bars(key: &GasKey, kind: FluxKind, w: f32, h: f32) -> egui_plot::Plot {
-    Plot::new(format!("{}{}{}residual_bars", key.label, key.gas_type, kind.as_str()))
+    Plot::new(format!("{}{}{}residual_bars", key.id, key.gas_type, kind.as_str()))
         .width(w)
         .height(h)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}", key.label, key.gas_type))
+        .y_axis_label(format!("{}{}", key.id, key.gas_type))
 }
 pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui_plot::Plot {
     let _x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
@@ -2037,7 +2041,7 @@ pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui
             .map(|dt| dt.format("%H:%M").to_string())
             .unwrap_or_else(|| "Invalid".to_string())
     };
-    Plot::new(format!("{}{}gas_plot", key.gas_type, key.label))
+    Plot::new(format!("{}{}gas_plot", key.gas_type, key.id))
         .coordinates_formatter(
             Corner::RightBottom,
             CoordinatesFormatter::new(move |value, _| {
@@ -2098,7 +2102,7 @@ pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
 }
 
 pub fn init_lag_plot(key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
-    Plot::new(format!("{}{}lag_plot",key.gas_type,key.label))
+    Plot::new(format!("{}{}lag_plot",key.gas_type,key.id))
         // .coordinates_formatter(
         //     Corner::LeftBottom,
         //     CoordinatesFormatter::new(move |value, _| {
@@ -2125,7 +2129,7 @@ pub fn init_lag_plot(key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
         .allow_drag(false)
         .width(w)
         .height(h)
-        .y_axis_label(format!("{} {} lag s", key.gas_type, key.label))
+        .y_axis_label(format!("{} {} lag s", key.gas_type, key.id))
         .x_axis_formatter(format_x_axis)
 }
 fn _generate_grid_marks(range: GridInput) -> Vec<GridMark> {
