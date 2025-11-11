@@ -5,7 +5,6 @@ use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 use crate::processevent::{ProcessEvent, QueryEvent};
 use crate::ui::processor::{Datasets, Infra, Processor};
-use crate::ui::recalc::RecalculateApp;
 use crate::ui::validation_ui::ValidationApp;
 use eframe::egui::Context;
 use egui::Color32;
@@ -15,7 +14,7 @@ use std::sync::Mutex;
 use tokio::sync::mpsc;
 
 impl ValidationApp {
-    pub fn init_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
+    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
         // Show info if no project selected
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
@@ -29,7 +28,6 @@ impl ValidationApp {
             if self.query_in_progress {
                 ui.label("Querying data, this can take a while for large time ranges.");
             } else if let Some((_, total)) = self.cycles_state {
-                // ui.label(format!("Processed {}/{} cycles...", self.cycles_progress, total));
                 let pb =
                     egui::widgets::ProgressBar::new(self.cycles_progress as f32 / total as f32)
                         .desired_width(200.)
@@ -162,6 +160,7 @@ impl ValidationApp {
             ui.separator();
             self.recalc.ui(
                 ui,
+                ctx,
                 &self.runtime,
                 self.start_date.to_utc(),
                 self.end_date.to_utc(),

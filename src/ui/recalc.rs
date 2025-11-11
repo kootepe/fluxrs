@@ -2,12 +2,13 @@ use crate::cycle::cycle::load_cycles;
 use crate::data_formats::chamberdata::query_chamber_async;
 use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
-use crate::processevent::{ProcessEvent, QueryEvent};
+use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
+use crate::ui::manage_proj::project_ui::input_block_overlay;
 use crate::Project;
 
 use crate::ui::recalcer::{Datasets, Infra, Recalcer};
 use chrono::{DateTime, Utc};
-use eframe::egui::Ui;
+use eframe::egui::{Align2, Color32, Context, Frame, Ui, Window};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
@@ -115,8 +116,67 @@ impl RecalculateApp {
                 ui.add(pb);
             } else {
                 ui.label("Recalculating fluxes");
+
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &Context,
+        runtime: &tokio::runtime::Runtime,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+        project: Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) {
+        ui.vertical(|ui| {
+            ui.label("Compare the current chamber measurementsa and meteo data of all calculated fluxes and recalculate if a new one is found.");
+            ui.label("Does not change the adjusted calculation areas in any way.");
+
+
+            if ui.add_enabled(self.calc_enabled && !self.calc_in_progress,egui::Button::new("Recalculate.")).clicked() {
+                    self.calc_enabled = false;
+                    self.query_in_progress = true;
+                    self.calculate(runtime, start_date, end_date, project, progress_sender)
+
             }
-            // return;
-        }
+            if self.calc_in_progress || !self.calc_enabled || self.query_in_progress {
+                input_block_overlay(ctx, "blocker");
+
+                Window::new("Manage project")
+                    .title_bar(false)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
+                    .frame(
+                        Frame::window(&ctx.style())
+                            .fill(Color32::from_rgb(30, 30, 30))
+                            .corner_radius(8)
+                            .inner_margin(egui::Margin::symmetric(16, 12)),
+                    )
+                    .show(ctx, |ui| {
+
+                        ui.add(egui::Spinner::new());
+
+                        if self.query_in_progress {
+                            ui.label("Querying data, this can take a while for large time ranges.");
+                        } else if self.calc_in_progress {
+                            ui.label("Recalculating fluxes");
+
+                        }
+
+                        if let Some((_, total)) = self.cycles_state {
+
+                            let total = total.max(1); // avoid division by zero
+                            let fraction = (self.cycles_progress as f32 / total as f32).clamp(0.0, 1.0);
+                            let pb =
+                                egui::widgets::ProgressBar::new(fraction)
+                                    .desired_width(200.)
+                                    .corner_radius(1)
+                                    .show_percentage()
+                                    .text(format!("{}/{}", self.cycles_progress, total));
+                            ui.add(pb);
+                        }
+                });
+            }
+    });
     }
 }
