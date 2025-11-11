@@ -4,7 +4,9 @@ use crate::data_formats::heightdata::query_height_async;
 use crate::data_formats::meteodata::query_meteo_async;
 use crate::data_formats::timedata::query_cycles_async;
 use crate::processevent::{ProcessEvent, QueryEvent};
-use crate::ui::validation_ui::{render_recalculate_ui, Datasets, Infra, Processor, ValidationApp};
+use crate::ui::processor::{Datasets, Infra, Processor};
+use crate::ui::recalc::RecalculateApp;
+use crate::ui::validation_ui::ValidationApp;
 use eframe::egui::Context;
 use egui::Color32;
 use rusqlite::Connection;
@@ -44,7 +46,7 @@ impl ValidationApp {
 
         // Main UI layout
         let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-        let sender_clone = progress_sender.clone();
+        let sender_clone = self.prog_sender.clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 self.date_picker(ui);
@@ -77,7 +79,7 @@ impl ValidationApp {
                         },
                     };
                     let arc_conn = Arc::new(Mutex::new(conn));
-                    self.progress_receiver = Some(progress_receiver);
+                    // self.progress_receiver = Some(progress_receiver);
 
                     self.runtime.spawn(async move {
                         let cycles_result = query_cycles_async(
@@ -158,7 +160,7 @@ impl ValidationApp {
             });
 
             ui.separator();
-            render_recalculate_ui(
+            self.recalc.ui(
                 ui,
                 &self.runtime,
                 self.start_date.to_utc(),
@@ -167,7 +169,6 @@ impl ValidationApp {
                 sender_clone,
             );
         });
-        // Handle messages from background processing
 
         // Display log messages
         self.log_display(ui);

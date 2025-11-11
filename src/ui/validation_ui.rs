@@ -11,6 +11,7 @@ use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
+use crate::ui::recalc::RecalculateApp;
 use crate::ui::tz_picker::TimezonePickerState;
 use crate::utils::{bad_message, ensure_utf8, good_message, warn_message};
 
@@ -171,7 +172,8 @@ impl std::fmt::Debug for Mode {
     }
 }
 type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
-type ProgReceiver = Option<UnboundedReceiver<ProcessEvent>>;
+type ProgReceiver = UnboundedReceiver<ProcessEvent>;
+type ProgSender = UnboundedSender<ProcessEvent>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GasKey {
@@ -206,13 +208,15 @@ impl From<(&GasType, &i64)> for GasKey {
 }
 pub struct ValidationApp {
     pub runtime: tokio::runtime::Runtime,
+    pub prog_sender: ProgSender,
+    pub prog_receiver: Option<ProgReceiver>,
+    pub recalc: RecalculateApp,
     pub init_enabled: bool,
     pub init_in_progress: bool,
     pub cycles_progress: usize,
     pub cycles_state: Option<(usize, usize)>,
     pub query_in_progress: bool,
     pub load_result: LoadResult,
-    pub progress_receiver: ProgReceiver,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
     pub enabled_gases: BTreeSet<GasKey>,
@@ -313,9 +317,12 @@ pub struct ValidationApp {
 impl Default for ValidationApp {
     fn default() -> Self {
         let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
+        let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
         Self {
             runtime: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
-            progress_receiver: None,
+            recalc: RecalculateApp::new(),
+            prog_receiver: Some(progress_receiver),
+            prog_sender: progress_sender,
             dirty_cycles: HashSet::new(),
             task_done_sender,
             task_done_receiver,
@@ -1984,10 +1991,10 @@ impl ValidationApp {
         ui.heading("Plot selection");
     }
     pub fn handle_progress_messages(&mut self) {
-        if let Some(mut receiver) = self.progress_receiver.take() {
+        if let Some(mut receiver) = self.prog_receiver.take() {
             drain_progress_messages(self, &mut receiver);
 
-            self.progress_receiver = Some(receiver);
+            self.prog_receiver = Some(receiver);
         }
     }
     // pub fn handle_progress_messages(&mut self) {
@@ -2625,13 +2632,16 @@ impl ProcessEventSink for ValidationApp {
         match ev {
             QueryEvent::InitStarted => {
                 self.init_in_progress = true;
+                self.recalc.calc_in_progress = true;
             },
             QueryEvent::InitEnded => {
                 self.init_in_progress = false;
+                self.recalc.calc_in_progress = false;
             },
             QueryEvent::QueryComplete => {
                 self.query_in_progress = false;
                 self.log_messages.push_front(good_message("Finished queries."));
+                self.recalc.query_in_progress = false;
             },
             QueryEvent::HeightFail(msg) => {
                 self.log_messages.push_front(bad_message(msg));
@@ -2837,73 +2847,6 @@ pub fn create_polygon(
 
 pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine {
     VLine::new(id, x).allow_hover(true).style(style).stroke(Stroke::new(2.0, color))
-}
-
-// TableApp struct
-
-const MAX_CONCURRENT_TASKS: usize = 10;
-
-pub fn render_recalculate_ui(
-    ui: &mut Ui,
-    runtime: &tokio::runtime::Runtime,
-    start_date: DateTime<Utc>,
-    end_date: DateTime<Utc>,
-    project: Project,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) {
-    ui.vertical(|ui| {
-        ui.label("Compare the current chamber height of all calculated fluxes and recalculate if a new one is found.");
-        ui.label("Only changes the fluxes and height, no need to redo manual validation.");
-
-        if ui.button("Recalculate.").clicked() {
-
-            let conn = match Connection::open("fluxrs.db") {
-                Ok(conn) => conn,
-                Err(e) => {
-                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::DbFail(e.to_string())));
-                    // log_messages.push_front(bad_message(&"Failed to open database."));
-                    return;
-                },
-            };
-
-            let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
-            match (
-                load_cycles(&conn, &project, start_date, end_date, progress_sender.clone()),
-                query_height(&conn, start_date, end_date, project.id.unwrap()),
-            ) {
-                (Ok(mut cycles), Ok(heights)) => {
-                    if heights.height.is_empty() {
-                        progress_sender.send(ProcessEvent::Query(QueryEvent::HeightFail("No height data loaded.".to_owned())));
-                        return;
-                    }
-                    runtime.spawn_blocking(move || {
-                        for c in &mut cycles {
-                            let old_height = c.chamber.internal_height();
-                            // set new chamber height
-                            c.chamber.set_height(heights
-                                .get_nearest_previous_height(c.start_time.timestamp(), &c.chamber_id)
-                                .unwrap_or(old_height));
-                            c.compute_all_fluxes();
-                        }
-
-                        if let Ok(mut conn) = Connection::open("fluxrs.db") {
-                            if let Err(e) = update_fluxes(&mut conn, &cycles, project) {
-                        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!("Flux update error: {}", e))));
-                            }
-                        }
-                    });
-                },
-                (Err(rusqlite::Error::InvalidQuery), Err(_)) => {
-                    // log_messages.push_front(bad_message(&"No cycles found in db, have you initiated the data?"));
-                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::CyclesFail("No cycles found in db, have you initiated the data?".to_owned())));
-                },
-                e => {
-                    eprintln!("Error processing cycles: {:?}", e);
-                    let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::CyclesFail("Error processing cycles, do you have cycles initiated?".to_owned())));
-                }
-            }
-        }
-    });
 }
 
 pub fn upload_gas_data_async(

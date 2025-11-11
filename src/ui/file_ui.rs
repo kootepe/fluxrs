@@ -156,8 +156,9 @@ impl ValidationApp {
                             let tz = self.tz_for_files.unwrap_or(UTC);
 
                             // set up progress only when we're actually starting work
-                            let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-                            self.progress_receiver = Some(progress_receiver);
+                            // let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+                            // self.progress_receiver = Some(progress_receiver);
+                            let progress_sender = self.prog_sender.clone();
 
                             let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
 

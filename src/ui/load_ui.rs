@@ -57,8 +57,7 @@ impl ValidationApp {
                 let start_date = self.start_date;
                 let end_date = self.end_date;
                 let project = self.get_project().clone();
-                let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-                self.progress_receiver = Some(progress_receiver);
+                let progress_sender = self.prog_sender.clone();
 
                 self.init_enabled = false;
                 self.init_in_progress = true;
