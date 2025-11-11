@@ -350,10 +350,10 @@ pub fn create_flux_table() -> String {
             roblin_range_start		FLOAT,
             roblin_range_end		FLOAT,
 
-            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE.
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id) ON DELETE CASCAD#,
-            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id),
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id) ON DELETE CASCADE
+            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
 
             UNIQUE (instrument_link, start_time, project_link, gas)
         )"
