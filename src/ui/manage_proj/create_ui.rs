@@ -20,6 +20,10 @@ impl ProjectApp {
         self.mode = Mode::default();
         self.message = None;
         self.del_message = None;
+        self.project_timezone_str.clear();
+        self.project_timezone = None;
+        self.tz_state.selected = None;
+        self.tz_state.query.clear();
     }
 
     pub fn show_proj_create_prompt(&mut self, ctx: &egui::Context) {

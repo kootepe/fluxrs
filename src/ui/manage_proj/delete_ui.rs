@@ -110,7 +110,7 @@ impl ProjectApp {
                     .corner_radius(8),
             )
             .show(ctx, |ui| {
-                ui.heading("Are you sure?");
+                ui.heading("Are you sure? You are about to delete the project and all it's associated data.");
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(!self.delete_success, |ui| {
                         if ui.button("Yes").clicked() {
@@ -172,24 +172,11 @@ impl ProjectApp {
     }
 }
 
-pub fn delete_project_data(conn: &mut Connection, project_id: &str) -> Result<()> {
-    let tables = [
-        "measurements",
-        "chamber_metadata",
-        "height",
-        "meteo",
-        "cycles",
-        "projects",
-        "fluxes",
-        "flux_history",
-    ];
-
+pub fn delete_project_data(conn: &mut Connection, project_name: &str) -> Result<()> {
     let tx = conn.transaction()?; // optional transaction for atomic delete
 
-    for table in &tables {
-        let sql = format!("DELETE FROM {} WHERE project_id == ?1", table);
-        tx.execute(&sql, params![project_id])?;
-    }
+    let sql = "DELETE FROM projects WHERE project_name == ?1".to_string();
+    tx.execute(&sql, params![project_name])?;
 
     tx.commit()?;
     Ok(())

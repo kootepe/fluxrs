@@ -1,15 +1,234 @@
+use crate::ui::manage_proj::datepickerstate::DateRangePickerState;
 use crate::ui::manage_proj::project::Project;
-use crate::ui::manage_proj::project_ui::{clicked_outside_window, ProjectApp};
-use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
+use crate::ui::validation_ui::DataType;
+use chrono::NaiveDateTime;
+use egui::{Align2, Color32, Context, Frame, Ui, Window};
+use egui::{ScrollArea, WidgetInfo, WidgetType};
+use rusqlite::{params, Connection};
+use std::collections::HashSet;
+
+#[derive(Debug, Clone)]
+struct DataFileRow {
+    id: i64,
+    file_name: String,
+    data_type: String,
+    uploaded_at: Option<NaiveDateTime>,
+    project_link: i64,
+}
+
+pub struct DeleteMeasurementApp {
+    project: Project,
+    date_range: DateRangePickerState,
+    reload_requested: bool,
+    selected_ids: HashSet<i64>,
+    files: Vec<DataFileRow>,
+    last_error: Option<String>,
+    datatype: DataType,
+}
+
+impl DeleteMeasurementApp {
+    fn new(project: Project, datatype: DataType) -> Self {
+        let mut app = Self {
+            project,
+            date_range: DateRangePickerState::default(),
+            files: Vec::new(),
+            selected_ids: HashSet::new(),
+            reload_requested: true,
+            last_error: None,
+            datatype,
+        };
+        app.reload_files(); // initial load
+        app
+    }
+
+    fn ui(&mut self, ui: &mut Ui, ctx: &Context, project: Project, datatype: DataType) {
+        self.project = project;
+
+        if self.datatype != datatype {
+            self.datatype = datatype;
+            self.reload_requested = true;
+        }
+
+        if self.reload_requested {
+            self.reload_files();
+            self.reload_requested = false;
+        }
+        ui.vertical_centered(|ui| {
+            ui.heading("Delete fluxes");
+            ui.separator();
+        });
+        self.date_range.date_picker(ui, ctx);
+        ui.heading("Data Files");
+
+        ui.horizontal(|ui| {
+            if ui.button("Refresh").clicked() {
+                self.reload_requested = true;
+            }
+
+            if ui.button("Delete selected").clicked() && !self.selected_ids.is_empty() {
+                self.delete_selected();
+            }
+
+            ui.label(format!("Total files: {}", self.files.len()));
+        });
+
+        if let Some(err) = &self.last_error {
+            ui.colored_label(egui::Color32::RED, err);
+        }
+
+        ui.separator();
+
+        // Table header
+        ui.horizontal(|ui| {
+            ui.label(""); // checkbox column
+            ui.label("ID");
+            ui.label("File name");
+            ui.label("Type");
+            ui.label("Uploaded at");
+            ui.label("Project");
+        });
+
+        ui.separator();
+
+        let cols = ["ID", "File name", "Type", "Upload date", "Project"];
+        ScrollArea::vertical().show(ui, |ui| {
+            egui::Grid::new("data_table").striped(true).show(ui, |ui| {
+                for col in cols {
+                    ui.label(col); // show headers as-is
+                }
+                ui.end_row();
+                for file in &self.files {
+                    ui.horizontal(|ui| {
+                        let mut checked = self.selected_ids.contains(&file.id);
+                        if ui.checkbox(&mut checked, "").changed() {
+                            if checked {
+                                self.selected_ids.insert(file.id);
+                            } else {
+                                self.selected_ids.remove(&file.id);
+                            }
+                        }
+
+                        ui.label(file.id.to_string());
+                        ui.label(&file.file_name);
+                        ui.label(&file.data_type);
+
+                        let uploaded = file
+                            .uploaded_at
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or_else(|| "-".to_string());
+                        ui.label(uploaded);
+
+                        ui.label(file.project_link.to_string());
+                    });
+                    ui.end_row();
+                }
+            });
+        });
+    }
+
+    fn reload_files(&mut self) {
+        self.files.clear();
+        self.selected_ids.clear();
+        self.last_error = None;
+
+        let conn = Connection::open("fluxrs.db").expect("Failed to open database");
+        let mut stmt = match conn.prepare(
+            "
+            SELECT id, file_name, data_type, uploaded_at, project_link
+            FROM data_files
+            WHERE data_type = ?1
+            ORDER BY uploaded_at DESC, id DESC
+            ",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                self.last_error = Some(format!("Failed to prepare query: {e}"));
+                return;
+            },
+        };
+
+        let rows = stmt.query_map([self.datatype.type_str()], |row| {
+            Ok(DataFileRow {
+                id: row.get(0)?,
+                file_name: row.get(1)?,
+                data_type: row.get(2)?,
+                uploaded_at: row.get(3).ok(), // TIMESTAMP -> Option<NaiveDateTime>
+                project_link: row.get(4)?,
+            })
+        });
+
+        match rows {
+            Ok(iter) => {
+                for row in iter {
+                    match row {
+                        Ok(file) => self.files.push(file),
+                        Err(e) => {
+                            self.last_error = Some(format!("Error reading row: {e}"));
+                            break;
+                        },
+                    }
+                }
+            },
+            Err(e) => {
+                self.last_error = Some(format!("Query error: {e}"));
+            },
+        }
+    }
+
+    fn delete_selected(&mut self) {
+        self.last_error = None;
+
+        let mut conn = Connection::open("fluxrs.db").expect("Failed to open database");
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(e) => {
+                self.last_error = Some(format!("Could not start transaction: {e}"));
+                return;
+            },
+        };
+
+        for id in &self.selected_ids {
+            if let Err(e) = tx.execute("DELETE FROM data_files WHERE id = ?", params![id]) {
+                self.last_error = Some(format!("Failed to delete id {id}: {e}"));
+                let _ = tx.rollback(); // explicitly rollback
+                return;
+            }
+        }
+
+        if let Err(e) = tx.commit() {
+            self.last_error = Some(format!("Failed to commit deletion: {e}"));
+            return;
+        }
+
+        // Refresh list after deletion
+        self.reload_files();
+    }
+}
+
+#[derive(PartialEq, Eq)]
+enum ManagePanel {
+    DeleteCycle,
+    DeleteMeasurement,
+    DeleteMeteo,
+    DeleteHeight,
+    DeleteChamber,
+    DeleteFlux,
+    Empty,
+}
+impl Default for ManagePanel {
+    fn default() -> Self {
+        Self::Empty
+    }
+}
 
 pub struct ManageApp {
     pub open: bool,
     project: Project,
-    delete_measurement: bool,
-    delete_fluxes: bool,
-    delete_meteo: bool,
-    delete_height: bool,
-    delete_chamber: bool,
+    live_panel: ManagePanel,
+    del_measurement: DeleteMeasurementApp,
+    del_meteo: DeleteMeasurementApp,
+    del_height: DeleteMeasurementApp,
+    del_meta: DeleteMeasurementApp,
 }
 
 impl Default for ManageApp {
@@ -22,12 +241,12 @@ impl ManageApp {
     pub fn new() -> Self {
         Self {
             open: false,
+            live_panel: ManagePanel::default(),
             project: Project::default(),
-            delete_measurement: false,
-            delete_fluxes: false,
-            delete_meteo: false,
-            delete_height: false,
-            delete_chamber: false,
+            del_measurement: DeleteMeasurementApp::new(Project::default(), DataType::Gas),
+            del_meteo: DeleteMeasurementApp::new(Project::default(), DataType::Meteo),
+            del_height: DeleteMeasurementApp::new(Project::default(), DataType::Height),
+            del_meta: DeleteMeasurementApp::new(Project::default(), DataType::Chamber),
         }
     }
 }
@@ -35,6 +254,7 @@ impl ManageApp {
 impl ManageApp {
     fn close_manage_proj(&mut self) {
         self.open = false;
+        self.live_panel = ManagePanel::default();
     }
     pub fn show_manage_proj_data(&mut self, ctx: &egui::Context, project: Project) {
         self.project = project;
@@ -43,13 +263,13 @@ impl ManageApp {
             return;
         }
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.open = false;
+            self.close_manage_proj();
             return;
         }
 
-        let can_close = true;
-        let wr = Window::new("Manage project")
-            .open(&mut self.open)
+        let mut open = self.open;
+        Window::new("Manage project")
+            .open(&mut open)
             .title_bar(false)
             .collapsible(false)
             .resizable(false)
@@ -61,27 +281,73 @@ impl ManageApp {
                     .inner_margin(egui::Margin::symmetric(16, 12)),
             )
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button("Delete measurement data").clicked() {
-                        self.delete_measurement = true;
-                    };
-                    if ui.button("Delete calculated fluxes").clicked() {
-                        self.delete_fluxes = true;
-                    };
-                    if ui.button("Delete meteo data").clicked() {
-                        self.delete_meteo = true;
-                    };
-                    if ui.button("Delete height data").clicked() {
-                        self.delete_height = true;
-                    };
-                    if ui.button("Delete chamber data").clicked() {
-                        self.delete_chamber = true;
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                    if ui.button("Close").clicked() {
+                        self.close_manage_proj();
                     };
                 });
-            });
+                ui.horizontal_wrapped(|ui| {
+                    let container_response = ui.response();
+                    container_response.widget_info(|| {
+                        WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel")
+                    });
 
-        if clicked_outside_window(ctx, wr.as_ref()) && can_close {
-            self.close_manage_proj();
-        }
+                    // let panel_switching_allowed = !self.validation_panel.init_in_progress;
+                    let panel_switching_allowed = true;
+                    ui.ctx().clone().with_accessibility_parent(container_response.id, || {
+                        ui.add_enabled(panel_switching_allowed, |ui: &mut egui::Ui| {
+                            ui.horizontal(|ui| {
+                                ui.selectable_value(
+                                    &mut self.live_panel,
+                                    ManagePanel::DeleteCycle,
+                                    "Delete chamber cycles",
+                                );
+                                ui.selectable_value(
+                                    &mut self.live_panel,
+                                    ManagePanel::DeleteMeasurement,
+                                    "Delete gas measurements",
+                                );
+                                ui.selectable_value(
+                                    &mut self.live_panel,
+                                    ManagePanel::DeleteMeteo,
+                                    "Delete meteo data",
+                                );
+                                ui.selectable_value(
+                                    &mut self.live_panel,
+                                    ManagePanel::DeleteHeight,
+                                    "Delete height data",
+                                );
+                                ui.selectable_value(
+                                    &mut self.live_panel,
+                                    ManagePanel::DeleteChamber,
+                                    "Delete chamber metadata",
+                                );
+                            })
+                            .response
+                        });
+                    });
+                });
+                ui.separator();
+                let project_clone = self.project.clone();
+                match self.live_panel {
+                    ManagePanel::DeleteMeasurement => {
+                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Gas);
+                    },
+                    ManagePanel::DeleteCycle => {
+                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Cycle);
+                    },
+                    ManagePanel::DeleteMeteo => {
+                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Meteo);
+                    },
+                    ManagePanel::DeleteHeight => {
+                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Height);
+                    },
+                    ManagePanel::DeleteChamber => {
+                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Chamber);
+                    },
+                    ManagePanel::Empty => {},
+                    ManagePanel::DeleteFlux => {},
+                }
+            });
     }
 }

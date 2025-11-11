@@ -1,6 +1,6 @@
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::gastype::GasType;
-use crate::instruments::instruments::InstrumentType;
+use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::ui::main_app::AppEvent;
 use crate::ui::manage_proj::manage_ui::ManageApp;
 use crate::ui::manage_proj::project::ProjectExistsError;
@@ -148,6 +148,7 @@ impl ProjectApp {
                                 eprintln!("Failed to set project as current: {}", err);
                             }
                             self.project = Some(project.clone());
+                            self.update_project();
                         }
                     }
                 });
@@ -167,14 +168,19 @@ impl ProjectApp {
         self.show_verify_delete(ctx);
     }
 
-    pub fn update_project(&mut self) -> Option<AppEvent> {
+    pub fn update_project(&self) -> Option<AppEvent> {
         Some(AppEvent::SelectProject(self.project.clone()))
     }
     pub fn build_project_from_form(&self) -> Option<Project> {
+        let instrument = Instrument {
+            model: self.selected_instrument,
+            serial: self.selected_serial.clone(),
+            id: None,
+        };
         Some(Project {
+            id: None,
             name: self.project_name.clone(),
-            instrument: self.selected_instrument,
-            instrument_serial: self.selected_serial.clone(),
+            instrument,
             main_gas: self.main_gas,
             deadband: self.deadband,
             mode: self.mode,
@@ -188,7 +194,21 @@ impl ProjectApp {
         self.all_projects = Vec::new();
         let conn = Connection::open("fluxrs.db")?;
 
-        let mut stmt = conn.prepare("SELECT * FROM projects")?;
+        let mut stmt = conn.prepare(
+            "SELECT
+                    p.id                AS project_rowid,
+                    p.project_name      AS project_name,
+                    i.instrument_model,
+                    i.instrument_serial,
+                    i.id                AS instrument_id,
+                    p.main_gas,
+                    p.deadband,
+                    p.min_calc_len,
+                    p.mode,
+                    p.tz
+                FROM projects p
+                LEFT JOIN instruments i ON p.main_instrument_link = i.id",
+        )?;
 
         let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
         let column_index: HashMap<String, usize> =
@@ -197,10 +217,11 @@ impl ProjectApp {
         let mut rows = stmt.query([])?;
 
         while let Some(row) = rows.next()? {
-            let name: String = row.get(*column_index.get("project_id").unwrap())?;
+            let name: String = row.get(*column_index.get("project_name").unwrap())?;
+            let id: i64 = row.get(*column_index.get("project_rowid").unwrap())?;
             let model_string: String = row.get(*column_index.get("instrument_model").unwrap())?;
 
-            let instrument = match model_string.parse::<InstrumentType>() {
+            let instrument_model = match model_string.parse::<InstrumentType>() {
                 Ok(val) => val,
                 Err(_) => {
                     eprintln!("Unexpected invalid instrument type from DB: '{}'", model_string);
@@ -209,6 +230,7 @@ impl ProjectApp {
             };
             let instrument_serial: String =
                 row.get(*column_index.get("instrument_serial").unwrap())?;
+            let instrument_id: i64 = row.get(*column_index.get("instrument_id").unwrap())?;
             let gas_int = row.get(*column_index.get("main_gas").unwrap())?;
             let main_gas = GasType::from_int(gas_int);
             let mode_int = row.get(*column_index.get("mode").unwrap())?;
@@ -217,38 +239,74 @@ impl ProjectApp {
             let min_calc_len = row.get(*column_index.get("min_calc_len").unwrap())?;
             let tz_str: String = row.get(*column_index.get("tz").unwrap())?;
             let tz: Tz = tz_str.parse().expect("Invalid timezone string");
+            let instrument = Instrument {
+                model: instrument_model,
+                serial: instrument_serial,
+                id: Some(instrument_id),
+            };
 
-            self.all_projects.push(Project {
+            let proj = Project {
+                id: Some(id),
                 name,
                 instrument,
-                instrument_serial,
                 deadband,
                 min_calc_len,
                 main_gas,
                 mode,
                 tz,
                 upload_from: None,
-            })
+            };
+
+            self.all_projects.push(proj)
         }
 
-        let result: Result<(String, String,String, usize, f64, f64, u8, String), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode, tz FROM projects WHERE current = 1",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?,row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
-        );
+        let result: Result<(i64, String, String, String, i64, usize, f64, f64, u8, String), _> =
+            conn.query_row(
+                "SELECT
+                        p.id                AS project_rowid,
+                        p.project_name      AS project_name,
+                        i.instrument_model,
+                        i.instrument_serial,
+                        i.id                AS instrument_id,
+                        p.main_gas,
+                        p.deadband,
+                        p.min_calc_len,
+                        p.mode,
+                        p.tz
+                    FROM projects p
+                    LEFT JOIN instruments i ON i.project_link = p.id
+                    WHERE p.current = 1",
+                [],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                    ))
+                },
+            );
 
         match result {
             Ok((
-                project_id,
-                instrument_serial,
+                id,
+                project_name,
                 instrument_string,
+                instrument_serial,
+                instrument_id,
                 gas_i,
                 deadband,
                 min_calc_len,
                 mode_i,
                 tz_str,
             )) => {
-                let name = project_id.clone();
+                let name = project_name.clone();
                 let serial = instrument_serial.clone();
 
                 let main_gas = GasType::from_int(gas_i);
@@ -266,10 +324,11 @@ impl ProjectApp {
                 };
                 let tz: Tz = tz_str.parse().expect("Invalid timezone string");
 
+                let instrument = Instrument { model: instrument, serial, id: Some(instrument_id) };
                 let project = Project {
+                    id: Some(id),
                     name,
                     instrument,
-                    instrument_serial: serial,
                     main_gas,
                     deadband,
                     min_calc_len,
@@ -293,7 +352,7 @@ impl ProjectApp {
         let mut conn = Connection::open("fluxrs.db")?;
         let tx = conn.transaction()?;
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
-        tx.execute("UPDATE projects SET current = 1 WHERE project_id = ?1", [project_name])?;
+        tx.execute("UPDATE projects SET current = 1 WHERE project_name = ?1", [project_name])?;
         tx.commit()?;
         println!("Current project set: {}", project_name);
 
@@ -316,34 +375,65 @@ impl ProjectApp {
             return Err(rusqlite::Error::FromSqlConversionFailure(
                 0,
                 rusqlite::types::Type::Text,
-                Box::new(ProjectExistsError { project_id: self.project_name.clone() }),
+                Box::new(ProjectExistsError { project_name: self.project_name.clone() }),
             ));
         }
         tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
 
         tx.execute(
-            "INSERT OR REPLACE INTO projects (project_id, main_gas, instrument_model, instrument_serial, deadband, min_calc_len, mode, tz, current)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1)",
-            params![&self.project_name, &main_gas, &instrument_model, &self.selected_serial, &deadband, min_calc_len, &mode, tz],
+            "INSERT INTO projects (project_name, main_gas, deadband, min_calc_len, mode, tz, current)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1)",
+            params![&self.project_name, &main_gas, &deadband, min_calc_len, &mode, tz],
         )?;
 
-        tx.commit()?; //   Commit the transaction
+        let project_rowid = tx.last_insert_rowid(); // i64
+
+        // 3. Insert an instrument linked to that project
+        // tx.execute(
+        //     "INSERT INTO instruments (instrument_model, instrument_serial, project_link)
+        //  VALUES (?1, ?2, ?3)",
+        //     params![&instrument_model, &self.selected_serial, project_rowid,],
+        // )?;
+
+        // let instrument_rowid =
+        //     get_or_insert_instrument(&tx, &project.instrument, project.id.unwrap());
+
+        let instrument_rowid =
+            match get_or_insert_instrument(&tx, &project.instrument, project_rowid) {
+                Ok(id) => id,
+                Err(e) => {
+                    eprintln!(
+                        "Failed to insert/find data file '{}': {}",
+                        project.instrument.serial, e
+                    );
+                    69
+                    // Optionally notify UI
+                },
+            };
+
+        tx.execute(
+            "UPDATE projects
+         SET main_instrument_link = ?1
+         WHERE id = ?2",
+            params![instrument_rowid, project_rowid],
+        )?;
 
         println!(
             "Project set as current: {}, {}, {}, {}, {}",
             current_project.name, main_gas, instrument_model, deadband, mode
         );
 
+        tx.commit()?; //   Commit the transaction
         self.load_projects_from_db()?;
 
         Ok(())
     }
-    fn check_exists(&self, project_id: &str) -> Result<bool> {
+    fn check_exists(&self, project_name: &str) -> Result<bool> {
         let conn = Connection::open("fluxrs.db")?;
 
         let exists: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM projects WHERE project_id = ?1 LIMIT 1)",
-            params![project_id],
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE project_name = ?1 LIMIT 1)",
+            params![project_name],
             |row| row.get(0),
         )?;
 
@@ -377,4 +467,29 @@ pub fn clicked_outside_window<R>(
     } else {
         false
     }
+}
+
+pub fn get_or_insert_instrument(
+    conn: &Connection,
+    instrument: &Instrument,
+    project_id: i64,
+) -> Result<i64> {
+    // First, check if the file already exists for this project
+    if let Ok(existing_id) = conn.query_row(
+        "SELECT id FROM instruments WHERE instrument_serial = ?1 AND project_link = ?2",
+        params![instrument.serial, project_id],
+        |row| row.get::<_, i64>(0),
+    ) {
+        // Found existing entry
+        return Ok(existing_id);
+    }
+
+    // If not found, insert it
+    conn.execute(
+        "INSERT INTO instruments (instrument_model, instrument_serial, project_link) VALUES (?1, ?2, ?3)",
+        params![instrument.model.to_string(), instrument.serial, project_id],
+    )?;
+
+    // Return the new ID
+    Ok(conn.last_insert_rowid())
 }
