@@ -1,6 +1,6 @@
 use crate::appview::AppState;
 use crate::cycle::cycle::{
-    insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
+    insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles_sync, process_cycles,
     update_fluxes,
 };
 use crate::cycle_navigator::CycleNavigator;

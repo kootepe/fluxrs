@@ -2402,6 +2402,7 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &i64) 
     Ok(())
 }
 pub fn load_cycles(
+pub fn load_cycles_sync(
     conn: &Connection,
     project: &Project,
     start: DateTime<Utc>,

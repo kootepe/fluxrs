@@ -1,4 +1,4 @@
-use crate::cycle::cycle::load_cycles;
+use crate::cycle::cycle::load_cycles_sync;
 use crate::processevent::ProcessEvent;
 use crate::ui::validation_ui::ValidationApp;
 use crate::utils::{bad_message, good_message, warn_message};
@@ -65,7 +65,7 @@ impl ValidationApp {
 
                 self.runtime.spawn(async move {
                     let result = match Connection::open("fluxrs.db") {
-                        Ok(conn) => load_cycles(
+                        Ok(conn) => load_cycles_sync(
                             &conn,
                             &project,
                             start_date.to_utc(),
