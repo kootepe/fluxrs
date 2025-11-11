@@ -80,8 +80,9 @@ impl MeteoData {
     }
 }
 pub fn insert_meteo_data(
-    conn: &mut Connection,
-    project_id: &str,
+    tx: &Connection,
+    file_id: &i64,
+    project_id: &i64,
     meteo_data: &MeteoData,
 ) -> Result<usize> {
     let mut inserted = 0;
@@ -91,12 +92,12 @@ pub fn insert_meteo_data(
         return Err(rusqlite::Error::InvalidQuery); // Ensure all arrays have the same length
     }
 
-    let tx = conn.transaction()?;
     {
+        // BUG: BAD SQL
         let mut stmt = tx.prepare(
-            "INSERT INTO meteo (project_id, datetime, temperature, pressure)
+            "INSERT INTO meteo (project_link, datetime, temperature, pressure)
              VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(datetime, project_id)
+             ON CONFLICT(datetime, project_link)
              DO UPDATE SET temperature = excluded.temperature, pressure = excluded.pressure",
         )?;
 
@@ -109,20 +110,19 @@ pub fn insert_meteo_data(
             stmt.execute(params![project_id, datetime, temperature, pressure])?;
         }
     }
-    tx.commit()?;
     Ok(inserted)
 }
 
-pub fn get_nearest_meteo_data(conn: &Connection, project: String, time: i64) -> Result<(f64, f64)> {
+pub fn get_nearest_meteo_data(conn: &Connection, project_id: i64, time: i64) -> Result<(f64, f64)> {
     let mut stmt = conn.prepare(
         "SELECT temperature, pressure
              FROM meteo
-             WHERE project_id = ?1
+             WHERE project_link = ?1
              ORDER BY ABS(datetime - ?2)
              LIMIT 1",
     )?;
 
-    let result = stmt.query_row(params![&project, time], |row| Ok((row.get(0)?, row.get(1)?)));
+    let result = stmt.query_row(params![&project_id, time], |row| Ok((row.get(0)?, row.get(1)?)));
 
     match result {
         Ok((temperature, pressure)) => Ok((temperature, pressure)),
@@ -133,21 +133,21 @@ pub fn query_meteo(
     conn: &Connection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    project: String,
+    project_id: i64,
 ) -> Result<MeteoData> {
     println!("Querying meteo data");
     // let mut data = HashMap::new();
 
     let mut stmt = conn.prepare(
         "SELECT datetime, temperature, pressure
-             FROM meteo
+             FROM meteo m
              WHERE datetime BETWEEN ?1 AND ?2
-             and project_id = ?3
+             and project_link = ?3
              ORDER BY datetime",
     )?;
 
     let rows = stmt.query_map(
-        params![start.timestamp() - 86400, end.timestamp() + 86400, project],
+        params![start.timestamp() - 86400, end.timestamp() + 86400, project_id],
         |row| {
             let datetime_unix: i64 = row.get(0)?;
             let temp: f64 = row.get(1)?;
@@ -177,7 +177,7 @@ pub async fn query_meteo_async(
 
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_meteo(&conn, start, end, project.name)
+        query_meteo(&conn, start, end, project.id.unwrap())
     })
     .await;
     match result {
