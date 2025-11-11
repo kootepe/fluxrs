@@ -1,4 +1,4 @@
-use crate::cycle::Cycle;
+use crate::cycle::cycle::Cycle;
 use crate::fluxes_schema::make_insert_flux_history;
 use crate::GasType;
 use chrono::Utc;

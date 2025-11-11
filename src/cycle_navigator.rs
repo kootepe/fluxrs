@@ -1,8 +1,8 @@
 use crate::flux::FluxKind;
 use crate::ui::validation_ui::GasKey;
 
+use crate::cycle::cycle::Cycle;
 use crate::errorcode::ErrorCode;
-use crate::Cycle;
 
 use std::cell::Cell;
 use std::collections::HashMap;

@@ -52,7 +52,7 @@ impl TableApp {
         let mut project_col = None;
 
         if table_name != "projects" && self.project.is_some() {
-            project_col = Some("project_id");
+            project_col = Some("project_link");
         }
 
         if matches!(table_name, "fluxes" | "flux_history" | "cycles") {
@@ -67,7 +67,11 @@ impl TableApp {
         let mut query = format!("SELECT * FROM {}", table_name);
 
         if let Some(col) = project_col {
-            query.push_str(&format!(" WHERE {} = '{}'", col, self.project.as_ref().unwrap().name));
+            query.push_str(&format!(
+                " WHERE {} = '{}'",
+                col,
+                self.project.as_ref().unwrap().id.unwrap()
+            ));
         }
 
         if let Some(col) = index {

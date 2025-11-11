@@ -9,7 +9,7 @@ use crate::fluxes_schema::{
 };
 use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
-use crate::instruments::instruments::InstrumentType;
+use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::stats::{self, LinReg, PolyReg, RobReg};
 use crate::ui::validation_ui::GasKey;
@@ -21,7 +21,8 @@ use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
 use crate::data_formats::gasdata::GasData;
 use crate::data_formats::heightdata::HeightData;
 use crate::data_formats::meteodata::MeteoData;
-use crate::data_formats::timedata::TimeData;
+use crate::data_formats::timedata::{get_instrument_by_project_and_id, TimeData};
+use crate::types::FastMap;
 
 use chrono::{DateTime, TimeDelta, Utc};
 use rayon::prelude::*;
@@ -32,6 +33,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::process;
 use tokio::sync::mpsc;
+
 // the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: f64 = 180.;
 // how many seconds to increment the moving window searching for max r
@@ -43,7 +45,7 @@ pub const WINDOW_INCREMENT: usize = 1;
 struct CycleKey {
     start_time: i64,
     instrument_serial: InstrumentSerial,
-    project_id: String,
+    project_id: i64,
     chamber_id: String,
 }
 
@@ -51,12 +53,11 @@ struct CycleKey {
 pub struct Cycle {
     pub id: i64,
     pub chamber_id: String,
-    pub main_instrument_model: InstrumentType,
-    pub main_instrument_serial: String,
-    pub instrument_model: InstrumentType,
-    pub instrument_serial: String,
+    pub main_instrument: Instrument,
+    pub instrument: Instrument,
+    pub instruments: FastMap<i64, Instrument>,
     pub chamber: ChamberShape,
-    pub project_name: String,
+    pub project_id: Option<i64>,
     pub start_time: chrono::DateTime<Tz>,
     pub air_temperature: f64,
     pub air_pressure: f64,
@@ -64,7 +65,7 @@ pub struct Cycle {
     pub snow_depth_m: f64,
     pub error_code: ErrorMask,
     pub is_valid: bool,
-    pub gas_is_valid: HashMap<GasKey, bool>,
+    pub gas_is_valid: FastMap<GasKey, bool>,
     pub override_valid: Option<bool>,
     pub manual_valid: bool,
     pub main_gas: GasType,
@@ -77,40 +78,40 @@ pub struct Cycle {
     pub start_lag_s: f64,
     pub max_idx: f64,
     pub gases: Vec<GasKey>,
-    pub calc_range_start: HashMap<GasKey, f64>,
-    pub calc_range_end: HashMap<GasKey, f64>,
+    pub calc_range_start: FastMap<GasKey, f64>,
+    pub calc_range_end: FastMap<GasKey, f64>,
     pub manual_adjusted: bool,
-    pub min_y: HashMap<GasKey, f64>,
-    pub max_y: HashMap<GasKey, f64>,
-    pub flux: HashMap<GasKey, f64>,
-    pub linfit: HashMap<GasKey, LinReg>,
+    pub min_y: FastMap<GasKey, f64>,
+    pub max_y: FastMap<GasKey, f64>,
+    pub flux: FastMap<GasKey, f64>,
+    pub linfit: FastMap<GasKey, LinReg>,
     pub measurement_range_start: f64,
     pub measurement_range_end: f64,
-    pub deadbands: HashMap<GasKey, f64>,
+    pub deadbands: FastMap<GasKey, f64>,
 
-    pub fluxes: HashMap<(GasKey, FluxKind), FluxRecord>,
-    pub measurement_r2: HashMap<GasKey, f64>,
-    pub calc_r2: HashMap<GasKey, f64>,
+    pub fluxes: FastMap<(GasKey, FluxKind), FluxRecord>,
+    pub measurement_r2: FastMap<GasKey, f64>,
+    pub calc_r2: FastMap<GasKey, f64>,
 
     // datetime vectors
     // pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
     // pub dt_v: Vec<f64>,
-    pub dt_v: HashMap<String, Vec<f64>>,
+    pub dt_v: FastMap<i64, Vec<f64>>,
     // pub dt_v_f: Vec<f64>,
-    pub calc_dt_v: HashMap<GasKey, Vec<f64>>,
+    pub calc_dt_v: FastMap<GasKey, Vec<f64>>,
     pub measurement_dt_v: Vec<f64>,
 
     // gas vectors
-    pub gas_v: HashMap<GasKey, Vec<Option<f64>>>,
-    pub gas_v_mole: HashMap<GasKey, Vec<Option<f64>>>,
-    pub calc_gas_v: HashMap<GasKey, Vec<Option<f64>>>,
-    pub measurement_gas_v: HashMap<GasKey, Vec<Option<f64>>>,
-    pub t0_concentration: HashMap<GasKey, f64>,
+    pub gas_v: FastMap<GasKey, Vec<Option<f64>>>,
+    pub gas_v_mole: FastMap<GasKey, Vec<Option<f64>>>,
+    pub calc_gas_v: FastMap<GasKey, Vec<Option<f64>>>,
+    pub measurement_gas_v: FastMap<GasKey, Vec<Option<f64>>>,
+    pub t0_concentration: FastMap<GasKey, f64>,
 
-    pub diag_v: HashMap<String, Vec<i64>>,
-    pub measurement_diag_v: HashMap<String, Vec<i64>>,
+    pub diag_v: FastMap<i64, Vec<i64>>,
+    pub measurement_diag_v: FastMap<i64, Vec<i64>>,
     pub min_calc_len: f64,
-    pub gas_channels: HashMap<GasKey, GasChannel>,
+    pub gas_channels: FastMap<GasKey, GasChannel>,
 }
 
 impl fmt::Debug for Cycle {
@@ -735,7 +736,7 @@ impl Cycle {
             // Find index closest to `target_time` in `dt_v`
             let target_idx = self
                 .dt_v
-                .get(&key.label)
+                .get(&key.id)
                 .unwrap()
                 .iter()
                 .enumerate()
@@ -751,7 +752,7 @@ impl Cycle {
                 gas_v[a].partial_cmp(&gas_v[b]).unwrap_or(std::cmp::Ordering::Equal)
             });
             if let Some(idx) = max_idx {
-                if let Some(peak_time) = self.dt_v.get(&key.label).unwrap().get(idx).cloned() {
+                if let Some(peak_time) = self.dt_v.get(&key.id).unwrap().get(idx).cloned() {
                     let lags = peak_time - (self.start_time.timestamp() + self.open_offset) as f64;
                     self.set_open_lag(lags);
 
@@ -778,7 +779,7 @@ impl Cycle {
                 .map(|(idx, _)| start_index + idx);
 
             if let Some(idx) = max_idx {
-                if let Some(peak_time) = self.dt_v.get(&key.label).unwrap().get(idx) {
+                if let Some(peak_time) = self.dt_v.get(&key.id).unwrap().get(idx) {
                     self.open_lag_s =
                         peak_time - (self.start_time.timestamp() + self.open_offset) as f64;
 
@@ -795,12 +796,12 @@ impl Cycle {
         // println!("{}/{}", nonzero_count, total_count);
         let nonzero_count = self
             .diag_v
-            .get(&self.main_instrument_serial)
+            .get(&self.main_instrument.id.unwrap())
             .unwrap()
             .iter()
             .filter(|&&x| x != 0)
             .count();
-        let total_count = self.diag_v.get(&self.main_instrument_serial).unwrap().len();
+        let total_count = self.diag_v.get(&self.main_instrument.id.unwrap()).unwrap().len();
 
         // Check if more than 50% of the values are nonzero
         let check = (nonzero_count as f64 / total_count as f64) > 0.5;
@@ -920,8 +921,8 @@ impl Cycle {
         // let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
 
         // prepare gas value vectors
-        let mut gas_vecs = HashMap::new();
-        let mut dt_vecs = HashMap::new();
+        let mut gas_vecs = FastMap::default();
+        let mut dt_vecs = FastMap::default();
         for key in self.gases.clone() {
             let (dv, gv) = self.get_measurement_data(&key);
             // let gv = self.get_measurement_gas_v2(&key);
@@ -1028,13 +1029,13 @@ impl Cycle {
     }
 
     pub fn main_key(&self) -> GasKey {
-        GasKey::from((&self.main_gas, self.main_instrument_serial.as_str()))
+        GasKey::from((&self.main_gas, &self.main_instrument.id.unwrap()))
     }
 
     pub fn check_main_r(&mut self) {
         if let Some(r2) = self
             .measurement_r2
-            .get(&(GasKey::from((&self.main_gas, self.main_instrument_serial.as_str()))))
+            .get(&(GasKey::from((&self.main_gas, &self.main_instrument.id.unwrap()))))
         {
             if *r2 < 0.98 {
                 self.add_error(ErrorCode::LowR);
@@ -1048,7 +1049,7 @@ impl Cycle {
 
     pub fn check_missing(&mut self) {
         if let Some(values) =
-            self.gas_v.get(&(GasKey::from((&self.main_gas, self.main_instrument_serial.as_str()))))
+            self.gas_v.get(&(GasKey::from((&self.main_gas, &self.main_instrument.id.unwrap()))))
         {
             let valid_count = values.iter().filter(|v| v.is_some()).count();
             let threshold = self.end_offset as f64 * 0.7;
@@ -1093,10 +1094,7 @@ impl Cycle {
         if !self.has_error(ErrorCode::ErrorsInMeasurement)
             || !self.has_error(ErrorCode::TooFewMeasurements)
         {
-            self.search_open_lag(GasKey::from((
-                &self.main_gas,
-                self.main_instrument_serial.as_str(),
-            )));
+            self.search_open_lag(GasKey::from((&self.main_gas, &self.main_instrument.id.unwrap())));
             if use_best_r {
                 self.find_best_r_indices();
             } else {
@@ -1170,7 +1168,7 @@ impl Cycle {
 
             // Clear previous results
             self.calc_gas_v.insert(key.clone(), gas_v[s..e].to_vec());
-            self.calc_dt_v.insert(key.clone(), self.dt_v.get(&key.label).unwrap()[s..e].to_vec());
+            self.calc_dt_v.insert(key.clone(), self.dt_v.get(&key.id).unwrap()[s..e].to_vec());
         }
     }
     pub fn get_gas_v(&self, key: &GasKey) -> Vec<f64> {
@@ -1180,7 +1178,7 @@ impl Cycle {
             .unwrap_or_default()
     }
     pub fn get_dt_v(&self, key: &GasKey) -> Vec<f64> {
-        self.dt_v.clone().get(&key.clone().label).unwrap().to_vec()
+        self.dt_v.clone().get(&key.clone().id).unwrap().to_vec()
     }
     pub fn get_measurement_gas_v2(&self, key: &GasKey) -> Vec<f64> {
         let s = self.get_adjusted_close_i();
@@ -1203,7 +1201,7 @@ impl Cycle {
         // let e = open_time as usize;
         let s = self.get_adjusted_close_i();
         let e = self.get_adjusted_open_i();
-        let ret = self.dt_v.get(&key.label).unwrap();
+        let ret = self.dt_v.get(&key.id).unwrap();
         if s > ret.len() {
             return ret.to_vec();
         }
@@ -1213,12 +1211,12 @@ impl Cycle {
         let start_time = self.get_adjusted_close();
         let end_time = self.get_adjusted_open();
 
-        let dt_vec = match self.dt_v.get(&key.label) {
+        let dt_vec = match self.dt_v.get(&key.id) {
             Some(vec) => vec,
             None => &vec![],
         };
 
-        let diag_vec = match self.diag_v.get(key.label()) {
+        let diag_vec = match self.diag_v.get(key.id()) {
             Some(vec) => vec,
             None => &vec![],
         };
@@ -1241,7 +1239,7 @@ impl Cycle {
         let start_time = self.get_adjusted_close();
         let end_time = self.get_adjusted_open();
 
-        let dt_vec = match self.dt_v.get(&key.label) {
+        let dt_vec = match self.dt_v.get(&key.id) {
             Some(vec) => vec,
             None => return (vec![], vec![]),
         };
@@ -1336,7 +1334,7 @@ impl Cycle {
     pub fn _get_calc_dt2(&self, key: GasKey) -> Vec<f64> {
         let s = (self.get_calc_start(&key) - self.start_time.timestamp() as f64) as usize;
         let e = (self.get_calc_end(&key) - self.start_time.timestamp() as f64) as usize;
-        let ret: Vec<f64> = self.dt_v.get(&key.label).unwrap().clone();
+        let ret: Vec<f64> = self.dt_v.get(&key.id).unwrap().clone();
         if s > ret.len() {
             return ret;
         }
@@ -1380,7 +1378,7 @@ impl Cycle {
         let start_time = self.get_calc_start(key);
         let end_time = self.get_calc_end(key);
 
-        let dt_vec = match self.dt_v.get(&key.label) {
+        let dt_vec = match self.dt_v.get(&key.id) {
             Some(vec) => vec,
             None => return (vec![], vec![]),
         };
@@ -1458,6 +1456,8 @@ impl Cycle {
             return; // Not enough data to fit
         }
 
+        // println!("channel {:?}", self.gas_channels);
+        // println!("key {}", &key);
         let channel = self.gas_channels.get(&key).unwrap().clone();
         if let Some(data) = LinearFlux::from_data(
             "lin",
@@ -1579,7 +1579,7 @@ impl Cycle {
 
         let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
         let ppb_to_nmol = conversion_factor * 1e-9 * 1e9; // mol → nmol, and ppb = 1e-9
-        let mut converted: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
+        let mut converted: FastMap<GasKey, Vec<Option<f64>>> = FastMap::default();
         for key in self.gases.clone() {
             if let Some(values) = self.gas_v.get(&key) {
                 let new_vals = values.iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
@@ -1627,17 +1627,17 @@ impl Cycle {
         };
 
         let tz = self.start_time.timezone();
-        match query_gas_all(&conn, start, end, tz, self.project_name.clone()) {
+        match query_gas_all(&conn, start, end, tz, self.project_id.unwrap()) {
             Ok(gasdata) => {
                 self.gas_v = gasdata.gas;
                 // self.dt_v = gasdata.datetime.iter().map(|t| t.timestamp() as f64).collect();
                 self.dt_v = gasdata
                     .datetime
                     .iter()
-                    .map(|(serial, dt_list)| {
+                    .map(|(id, dt_list)| {
                         let timestamps =
                             dt_list.iter().map(|t| t.timestamp() as f64).collect::<Vec<f64>>();
-                        (serial.clone(), timestamps)
+                        (*id, timestamps)
                     })
                     .collect();
                 self.diag_v = gasdata.diag;
@@ -1723,9 +1723,11 @@ pub struct CycleBuilder {
     end_offset: Option<i64>,
     min_calc_len: Option<f64>,
     snow_depth: Option<f64>,
-    project: Option<String>,
+    project: Option<Project>,
+    id: Option<i64>,
     instrument_model: Option<InstrumentType>,
     instrument_serial: Option<String>,
+    instrument_id: Option<i64>,
 }
 impl CycleBuilder {
     /// Create a new CycleBuilder
@@ -1739,8 +1741,10 @@ impl CycleBuilder {
             min_calc_len: None,
             snow_depth: None,
             project: None,
+            id: None,
             instrument_model: None,
             instrument_serial: None,
+            instrument_id: None,
         }
     }
 
@@ -1773,12 +1777,20 @@ impl CycleBuilder {
         self.end_offset = Some(offset);
         self
     }
-    pub fn project_name(mut self, project: String) -> Self {
+    pub fn project_id(mut self, id: i64) -> Self {
+        self.id = Some(id);
+        self
+    }
+    pub fn project(mut self, project: Project) -> Self {
         self.project = Some(project);
         self
     }
     pub fn min_calc_len(mut self, min_calc_len: f64) -> Self {
         self.min_calc_len = Some(min_calc_len);
+        self
+    }
+    pub fn instrument_id(mut self, instrument_id: i64) -> Self {
+        self.instrument_id = Some(instrument_id);
         self
     }
     pub fn instrument_serial(mut self, instrument_serial: String) -> Self {
@@ -1813,10 +1825,9 @@ impl CycleBuilder {
             id: 0,
             chamber_id: chamber,
             start_time: start,
-            main_instrument_model: InstrumentType::LI7810,
-            main_instrument_serial: String::new(),
-            instrument_model: InstrumentType::LI7810,
-            instrument_serial: String::new(),
+            main_instrument: Instrument::default(),
+            instrument: Instrument::default(),
+            instruments: FastMap::default(),
             chamber: ChamberShape::Box {
                 width_m: 1.,
                 length_m: 1.,
@@ -1824,7 +1835,7 @@ impl CycleBuilder {
                 snow_height_m: 0.,
             },
             snow_depth_m: 0.,
-            project_name: String::new(),
+            project_id: None,
             min_calc_len: MIN_CALC_AREA_RANGE,
             close_offset: close,
             open_offset: open,
@@ -1832,42 +1843,42 @@ impl CycleBuilder {
             main_gas: GasType::CH4,
             error_code: ErrorMask(0),
             manual_adjusted: false,
-            calc_range_end: HashMap::new(),
-            calc_range_start: HashMap::new(),
-            min_y: HashMap::new(),
-            max_y: HashMap::new(),
-            t0_concentration: HashMap::new(),
+            calc_range_end: FastMap::default(),
+            calc_range_start: FastMap::default(),
+            min_y: FastMap::default(),
+            max_y: FastMap::default(),
+            t0_concentration: FastMap::default(),
             open_lag_s: 0.,
             close_lag_s: 0.,
             end_lag_s: 0.,
             start_lag_s: 0.,
-            deadbands: HashMap::new(),
+            deadbands: FastMap::default(),
             max_idx: 0.,
-            flux: HashMap::new(),
-            fluxes: HashMap::new(),
-            linfit: HashMap::new(),
-            calc_r2: HashMap::new(),
-            measurement_r2: HashMap::new(),
+            flux: FastMap::default(),
+            fluxes: FastMap::default(),
+            linfit: FastMap::default(),
+            calc_r2: FastMap::default(),
+            measurement_r2: FastMap::default(),
             measurement_range_start: 0.,
             measurement_range_end: 0.,
-            diag_v: HashMap::new(),
-            dt_v: HashMap::new(),
-            gas_v: HashMap::new(),
-            gas_v_mole: HashMap::new(),
-            calc_gas_v: HashMap::new(),
-            calc_dt_v: HashMap::new(),
-            measurement_gas_v: HashMap::new(),
+            diag_v: FastMap::default(),
+            dt_v: FastMap::default(),
+            gas_v: FastMap::default(),
+            gas_v_mole: FastMap::default(),
+            calc_gas_v: FastMap::default(),
+            calc_dt_v: FastMap::default(),
+            measurement_gas_v: FastMap::default(),
             measurement_dt_v: vec![],
-            measurement_diag_v: HashMap::new(),
+            measurement_diag_v: FastMap::default(),
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
             chamber_height: 1.,
             is_valid: true,
-            gas_is_valid: HashMap::new(),
+            gas_is_valid: FastMap::default(),
             override_valid: None,
             manual_valid: false,
-            gas_channels: HashMap::new(),
+            gas_channels: FastMap::default(),
         })
     }
     pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error + Send + Sync>> {
@@ -1878,18 +1889,38 @@ impl CycleBuilder {
         let end = self.end_offset.ok_or("End offset is required")?;
         // FIX: snow_depth is unused
         let snow_depth_m = self.snow_depth.ok_or("Snow depth is required")?;
-        let instrument_model = self.instrument_model.ok_or("Instrument model is requred")?;
-        let instrument_serial = self.instrument_serial.ok_or("Instrument serial is required")?;
+        let instrument_id = self.instrument_id.ok_or("Instrument id is required")?;
         let project = self.project.ok_or("Project is required")?;
         let min_calc_len = self.min_calc_len.ok_or("Project is required")?;
+
+        let conn = Connection::open("fluxrs.db").expect("Failed to open database");
+        let instrument = get_instrument_by_project_and_id(
+            &conn,
+            project.id.unwrap(),
+            self.instrument_id.unwrap(),
+        )
+        .expect("Failure");
+        // let instrument = match get_instrument_by_project_and_id(
+        //     &conn,
+        //     project.id.unwrap(),
+        //     self.instrument_id.unwrap(),
+        // )? {
+        //     Some(inst) => inst,
+        //     None => {
+        //         eprintln!(
+        //             "Instrument not found for project={} id={}",
+        //             project.id.unwrap(),
+        //             self.instrument_id.unwrap()
+        //         );
+        //     },
+        // };
 
         Ok(Cycle {
             id: 0,
             chamber_id: chamber,
-            main_instrument_model: instrument_model,
-            main_instrument_serial: instrument_serial.clone(),
-            instrument_model,
-            instrument_serial,
+            main_instrument: instrument.clone().unwrap(),
+            instrument: instrument.unwrap(),
+            instruments: FastMap::default(),
             chamber: ChamberShape::Box {
                 width_m: 1.,
                 length_m: 1.,
@@ -1898,7 +1929,7 @@ impl CycleBuilder {
             },
             snow_depth_m,
             min_calc_len,
-            project_name: project,
+            project_id: project.id,
             start_time: start,
             // close_time: start + chrono::Duration::seconds(close),
             // open_time: start + chrono::Duration::seconds(open),
@@ -1909,42 +1940,42 @@ impl CycleBuilder {
             error_code: ErrorMask(0),
             main_gas: GasType::CH4,
             manual_adjusted: false,
-            calc_range_end: HashMap::new(),
-            calc_range_start: HashMap::new(),
-            min_y: HashMap::new(),
-            max_y: HashMap::new(),
-            t0_concentration: HashMap::new(),
+            calc_range_end: FastMap::default(),
+            calc_range_start: FastMap::default(),
+            min_y: FastMap::default(),
+            max_y: FastMap::default(),
+            t0_concentration: FastMap::default(),
             open_lag_s: 0.,
             close_lag_s: 0.,
             end_lag_s: 0.,
             start_lag_s: 0.,
-            deadbands: HashMap::new(),
+            deadbands: FastMap::default(),
             max_idx: 0.,
-            flux: HashMap::new(),
-            fluxes: HashMap::new(),
-            linfit: HashMap::new(),
-            calc_r2: HashMap::new(),
-            measurement_r2: HashMap::new(),
+            flux: FastMap::default(),
+            fluxes: FastMap::default(),
+            linfit: FastMap::default(),
+            calc_r2: FastMap::default(),
+            measurement_r2: FastMap::default(),
             measurement_range_start: 0.,
             measurement_range_end: 0.,
-            diag_v: HashMap::new(),
-            dt_v: HashMap::new(),
-            gas_v: HashMap::new(),
-            gas_v_mole: HashMap::new(),
-            calc_gas_v: HashMap::new(),
-            calc_dt_v: HashMap::new(),
-            measurement_gas_v: HashMap::new(),
+            diag_v: FastMap::default(),
+            dt_v: FastMap::default(),
+            gas_v: FastMap::default(),
+            gas_v_mole: FastMap::default(),
+            calc_gas_v: FastMap::default(),
+            calc_dt_v: FastMap::default(),
+            measurement_gas_v: FastMap::default(),
             measurement_dt_v: vec![],
-            measurement_diag_v: HashMap::new(),
+            measurement_diag_v: FastMap::default(),
             gases: vec![],
             air_pressure: 1000.,
             air_temperature: 10.,
             chamber_height: 1.,
             is_valid: true,
-            gas_is_valid: HashMap::new(),
+            gas_is_valid: FastMap::default(),
             override_valid: None,
             manual_valid: false,
-            gas_channels: HashMap::new(),
+            gas_channels: FastMap::default(),
         })
     }
 }
@@ -1952,7 +1983,7 @@ impl CycleBuilder {
 pub fn insert_fluxes_ignore_duplicates(
     conn: &mut Connection,
     cycles: &[Option<Cycle>],
-    project: String,
+    project_id: &i64,
 ) -> Result<(usize, usize)> {
     let mut inserted = 0;
     // BUG: figure out this skipped logic... it starts in cycle processing when inserting nones
@@ -1964,7 +1995,7 @@ pub fn insert_fluxes_ignore_duplicates(
         for cycle in cycles {
             match cycle {
                 Some(c) => {
-                    let affected = execute_insert(&mut insert_stmt, c, &project)?;
+                    let affected = execute_insert(&mut insert_stmt, c, &project_id)?;
                     if affected > 0 {
                         inserted += 1
                     } else {
@@ -1987,7 +2018,7 @@ pub fn insert_fluxes_ignore_duplicates(
 pub fn insert_flux_results(
     conn: &mut Connection,
     cycle_id: i64,
-    fluxes: HashMap<(GasKey, FluxKind), FluxRecord>,
+    fluxes: FastMap<(GasKey, FluxKind), FluxRecord>,
 ) -> rusqlite::Result<(usize, usize)> {
     let mut inserted = 0;
     let mut skipped = 0;
@@ -2037,7 +2068,7 @@ pub fn update_fluxes(
         let mut update_stmt = tx.prepare(&make_update_fluxes())?;
 
         for cycle in cycles {
-            match execute_update(&mut update_stmt, cycle, &project.name) {
+            match execute_update(&mut update_stmt, cycle, &project.id.unwrap()) {
                 Ok(_) => println!("Fluxes updated successfully!"),
                 Err(e) => eprintln!("Error updating fluxes: {}", e),
             }
@@ -2093,10 +2124,8 @@ fn execute_history_insert(
             archived_at,
             cycle.start_time.timestamp(),
             cycle.chamber_id,
-            cycle.main_instrument_model.to_string(),
-            cycle.main_instrument_serial,
-            cycle.instrument_model.to_string(),
-            cycle.instrument_serial,
+            cycle.main_instrument.id,
+            cycle.instrument.id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
             project,
@@ -2121,7 +2150,7 @@ fn execute_history_insert(
             cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
             cycle
                 .measurement_r2
-                .get(&(GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))))
+                .get(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))))
                 .copied()
                 .unwrap_or(0.0),
             // Linear fields
@@ -2174,7 +2203,7 @@ fn execute_history_insert(
 fn execute_insert(
     stmt: &mut rusqlite::Statement,
     cycle: &Cycle,
-    project: &String,
+    project_id: &i64,
 ) -> Result<usize> {
     let mut affected = 0;
     for key in cycle.gases.clone() {
@@ -2187,29 +2216,25 @@ fn execute_insert(
         // NOTE: FluxRecord is gas specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
         let deadband = cycle.deadbands.get(&key);
-        let measurement_r2 = cycle.measurement_r2.get(&key);
-        let instrument_model = if key.label.contains("TG20") {
-            InstrumentType::LI7820
-        } else {
-            InstrumentType::LI7810
-        };
-
+        let measurement_r2 = cycle.measurement_r2.get(&key).unwrap_or(&0.0);
         // Skip row if no model exists
         if linear.is_none() && poly.is_none() && roblin.is_none() {
             eprintln!("Skipping gas {} {}: no models available", key, cycle.start_time);
             continue;
         }
 
-        affected += stmt.execute(params![
+        let tx = Connection::open("fluxrs.db").expect("Failed to open database");
+        let instrument_id = &key.id;
+
+        let inserts = stmt.execute(params![
             cycle.start_time.timestamp(),
             cycle.chamber_id,
-            cycle.main_instrument_model.to_string(),
-            cycle.main_instrument_serial.to_string(),
-            instrument_model.to_string(),
-            key.label.to_owned(),
+            cycle.main_instrument.id,
+            instrument_id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
-            project,
+            project_id,
+            cycle.id,
             cycle.close_offset,
             cycle.open_offset,
             cycle.end_offset,
@@ -2278,10 +2303,11 @@ fn execute_insert(
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
+        affected += inserts;
     }
     Ok(affected)
 }
-fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &String) -> Result<()> {
+fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &i64) -> Result<()> {
     for key in cycle.gases.clone() {
         let linear = cycle.fluxes.get(&(key.clone(), FluxKind::Linear));
         let polynomial = cycle.fluxes.get(&(key.clone(), FluxKind::Poly));
@@ -2297,14 +2323,11 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             continue;
         }
 
-        // FIXME: instrument model will be wrong, need to build a struct for the key..
         stmt.execute(params![
             cycle.start_time.timestamp(),
             cycle.chamber_id,
-            cycle.main_instrument_model.to_string(),
-            cycle.main_instrument_serial,
-            cycle.instrument_model.to_string(),
-            cycle.instrument_serial,
+            cycle.main_instrument.id,
+            cycle.instrument.id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
             project,
@@ -2329,9 +2352,9 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project: &Strin
             cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
             cycle
                 .measurement_r2
-                .get(&(GasKey::from((&cycle.main_gas, cycle.instrument_serial.as_str()))))
+                .get(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))))
                 .copied()
-                .unwrap_or(1.0),
+                .unwrap_or(0.0),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2390,27 +2413,45 @@ pub fn load_cycles(
     let start = start.timestamp();
     let end = end.timestamp();
     let gas_data = query_gas2(conn, start, end, project.to_owned())?;
-    let chamber_metadata = query_chambers(conn, project.name.to_owned())?;
+    let chamber_metadata = query_chambers(conn, project.id.unwrap())?;
+    let instruments = get_instruments_by_project_map(conn, project.id.unwrap())?;
     let mut stmt = conn.prepare(
-        "SELECT * FROM fluxes
-         WHERE project_id = ?1 AND start_time BETWEEN ?2 AND ?3
-         ORDER BY start_time",
+        "
+            SELECT
+                f.*,
+
+                main_i.id              AS main_instrument_id,
+                main_i.instrument_model AS main_instrument_model,
+                main_i.instrument_serial AS main_instrument_serial,
+
+                i.id                   AS instrument_id,
+                i.instrument_model     AS instrument_model,
+                i.instrument_serial    AS instrument_serial
+
+            FROM fluxes f
+            LEFT JOIN instruments main_i ON f.main_instrument_link = main_i.id
+            LEFT JOIN instruments i       ON f.instrument_link      = i.id
+            WHERE f.project_link = ?1
+            AND f.start_time BETWEEN ?2 AND ?3
+            ORDER BY f.start_time;
+",
     )?;
-    let mut cycle_map: HashMap<CycleKey, Cycle> = HashMap::new();
+    let mut cycle_map: FastMap<CycleKey, Cycle> = FastMap::default();
 
     let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
-    let column_index: HashMap<String, usize> =
+    let column_index: FastMap<String, usize> =
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
     let mut serials: HashSet<String> = HashSet::new();
 
-    let mut rows = stmt.query(params![project.name, start, end])?;
+    let mut rows = stmt.query(params![project.id.unwrap(), start, end])?;
 
     while let Some(row) = rows.next()? {
         let deadband = row.get(*column_index.get("deadband").unwrap())?;
         let start_time: i64 = row.get(*column_index.get("start_time").unwrap())?;
         let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
+        let main_instrument_id: i64 = row.get(*column_index.get("main_instrument_id").unwrap())?;
+        let instrument_id: i64 = row.get(*column_index.get("instrument_id").unwrap())?;
         serials.insert(instrument_serial.clone());
-        let project_id: String = row.get(*column_index.get("project_id").unwrap())?;
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
 
         let mut chamber = chamber_metadata.get(&chamber_id).cloned().unwrap_or_default();
@@ -2422,7 +2463,7 @@ pub fn load_cycles(
         let key = CycleKey {
             start_time,
             instrument_serial: main_instrument_serial.clone(),
-            project_id: project_id.clone(),
+            project_id: project.id.unwrap(),
             chamber_id: chamber_id.clone(),
         };
 
@@ -2483,7 +2524,6 @@ pub fn load_cycles(
         let error_code = ErrorMask::from_u16(error_code_u16);
         let is_valid: bool = row.get(*column_index.get("measurement_is_valid").unwrap())?;
         let gas_is_valid: bool = row.get(*column_index.get("gas_is_valid").unwrap())?;
-        let project_name = row.get(*column_index.get("project_id").unwrap())?;
         let manual_adjusted = row.get(*column_index.get("manual_adjusted").unwrap())?;
         let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
         let m_r2: f64 = row.get(*column_index.get("measurement_r2").unwrap())?;
@@ -2494,18 +2534,18 @@ pub fn load_cycles(
             override_valid = Some(is_valid);
         }
 
-        let dt_v = HashMap::new();
-        let diag_v = HashMap::new();
+        let dt_v = FastMap::default();
+        let diag_v = FastMap::default();
         let gases = Vec::new();
-        let gas_v = HashMap::new();
+        let gas_v = FastMap::default();
         let measurement_dt_v = Vec::new();
-        let measurement_diag_v = HashMap::new();
-        let measurement_gas_v = HashMap::new();
-        let min_y = HashMap::new();
-        let max_y = HashMap::new();
-        let deadbands = HashMap::new();
-        let t0_concentration = HashMap::new();
-        let measurement_r2 = HashMap::new();
+        let measurement_diag_v = FastMap::default();
+        let measurement_gas_v = FastMap::default();
+        let min_y = FastMap::default();
+        let max_y = FastMap::default();
+        let deadbands = FastMap::default();
+        let t0_concentration = FastMap::default();
+        let measurement_r2 = FastMap::default();
         let measurement_range_start =
             start_time.timestamp() as f64 + close_offset as f64 + close_lag_s + open_lag_s;
         let measurement_range_end =
@@ -2513,11 +2553,11 @@ pub fn load_cycles(
 
         if let Some(gas_data_day) = gas_data.get(&day) {
             let serial = instrument_serial.clone();
-            let gas_key = GasKey::from((&gas, serial.as_str()));
-            let mut gas_channels = HashMap::new();
+            let gas_key = GasKey::from((&gas, &instrument_id));
+            let mut gas_channels = FastMap::default();
             let instrument_cfg = instrument_model.get_config();
             for ch in &instrument_cfg.channels {
-                let gas_key = GasKey::from((&ch.gas, main_instrument_serial.as_str()));
+                let gas_key = GasKey::from((&ch.gas, &instrument_id));
                 match ch.gas {
                     GasType::CH4 => {
                         gas_channels.insert(
@@ -2570,19 +2610,28 @@ pub fn load_cycles(
             //     .iter()
             //     .enumerate()
             //     {
-            let dt_values = gas_data_day.datetime.get(&serial.clone()).unwrap();
-            let diag_values = gas_data_day.diag.get(&serial.clone()).unwrap();
+            let dt_values = gas_data_day.datetime.get(&instrument_id).unwrap();
+            let diag_values = gas_data_day.diag.get(&instrument_id).unwrap();
             // let g_values = gas_data_day.gas.get(&gas_key.clone()).unwrap();
+            let main_instrument = Instrument {
+                model: main_instrument_model,
+                serial: main_instrument_serial,
+                id: Some(main_instrument_id),
+            };
+            let instrument = Instrument {
+                model: instrument_model,
+                serial: instrument_serial,
+                id: Some(instrument_id),
+            };
 
             let cycle = cycle_map.entry(key.clone()).or_insert_with(|| Cycle {
                 id: 0, // you might get this from elsewhere
                 chamber_id: chamber_id.clone(),
-                main_instrument_model, // Set properly if stored
-                main_instrument_serial,
-                instrument_model, // Set properly if stored
-                instrument_serial: instrument_serial.clone(),
+                main_instrument,
+                instrument,
+                instruments: instruments.clone(),
                 chamber,
-                project_name,
+                project_id: Some(project.id.unwrap()),
                 start_time,
                 air_temperature,
                 air_pressure,
@@ -2590,7 +2639,7 @@ pub fn load_cycles(
                 snow_depth_m,
                 error_code,
                 is_valid,
-                gas_is_valid: HashMap::new(),
+                gas_is_valid: FastMap::default(),
                 override_valid,
                 manual_valid,
                 main_gas,
@@ -2604,24 +2653,24 @@ pub fn load_cycles(
                 start_lag_s,
                 max_idx: 0.0,
                 gases,
-                calc_range_start: HashMap::new(),
-                calc_range_end: HashMap::new(),
+                calc_range_start: FastMap::default(),
+                calc_range_end: FastMap::default(),
                 manual_adjusted,
                 min_y,
                 max_y,
-                flux: HashMap::new(),
-                linfit: HashMap::new(),
+                flux: FastMap::default(),
+                linfit: FastMap::default(),
                 measurement_range_start,
                 measurement_range_end,
-                fluxes: HashMap::new(),
+                fluxes: FastMap::default(),
                 measurement_r2,
-                calc_r2: HashMap::new(),
+                calc_r2: FastMap::default(),
                 dt_v,
-                calc_dt_v: HashMap::new(),
+                calc_dt_v: FastMap::default(),
                 measurement_dt_v,
                 gas_v,
-                gas_v_mole: HashMap::new(),
-                calc_gas_v: HashMap::new(),
+                gas_v_mole: FastMap::default(),
+                calc_gas_v: FastMap::default(),
                 measurement_gas_v,
                 measurement_diag_v,
                 t0_concentration,
@@ -2673,13 +2722,13 @@ pub fn load_cycles(
                     .find(|(_, &t)| t.timestamp() as f64 >= measurement_range_start)
                     .map(|(i, _)| i);
 
-                cycle.dt_v.insert(serial.clone(), dt_slice);
+                cycle.dt_v.insert(instrument_id, dt_slice);
 
                 cycle.gas_v.insert(gas_key.clone(), gas_slice.clone());
                 let t0 = g_values.get(target.unwrap()).unwrap_or(&Some(0.));
                 cycle.t0_concentration.insert(gas_key.clone(), t0.unwrap());
 
-                cycle.diag_v.insert(serial.clone(), diag_slice);
+                cycle.diag_v.insert(instrument_id, diag_slice);
 
                 if !cycle.gases.contains(&gas_key) {
                     cycle.gases.push(gas_key.clone());
@@ -2707,7 +2756,7 @@ pub fn load_cycles(
                 Ok(calc_start),
                 Ok(calc_end),
                 Ok(gas_i),
-                Ok(instrument_serial),
+                Ok(instrument_id),
             ) = (
                 row.get(*column_index.get("lin_flux").unwrap()),
                 row.get(*column_index.get("lin_r2").unwrap()),
@@ -2721,11 +2770,10 @@ pub fn load_cycles(
                 row.get(*column_index.get("lin_range_start").unwrap()),
                 row.get(*column_index.get("lin_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
-                row.get(*column_index.get("instrument_serial").unwrap()),
+                row.get(*column_index.get("instrument_id").unwrap()),
             ) {
                 let gas_type = GasType::from_int(gas_i).unwrap();
-                let serial: String = instrument_serial;
-                let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.calc_range_start.insert(gk.clone(), calc_start);
                 cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
@@ -2761,7 +2809,7 @@ pub fn load_cycles(
                 Ok(calc_start),
                 Ok(calc_end),
                 Ok(gas_i),
-                Ok(instrument_serial),
+                Ok(instrument_id),
             ) = (
                 row.get(*column_index.get("roblin_flux").unwrap()),
                 row.get(*column_index.get("roblin_r2").unwrap()),
@@ -2774,14 +2822,13 @@ pub fn load_cycles(
                 row.get(*column_index.get("roblin_range_start").unwrap()),
                 row.get(*column_index.get("roblin_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
-                row.get(*column_index.get("instrument_serial").unwrap()),
+                row.get(*column_index.get("instrument_id").unwrap()),
             ) {
                 let gas_type = GasType::from_int(gas_i).unwrap();
                 if gas_type != gk.clone().gas_type {
                     continue;
                 }
-                let serial: String = instrument_serial;
-                let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.calc_range_start.insert(gk.clone(), calc_start);
                 cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
@@ -2817,7 +2864,7 @@ pub fn load_cycles(
                 Ok(calc_start),
                 Ok(calc_end),
                 Ok(gas_i),
-                Ok(instrument_serial),
+                Ok(instrument_id),
             ) = (
                 row.get(*column_index.get("poly_flux").unwrap()),
                 row.get(*column_index.get("poly_r2").unwrap()),
@@ -2831,14 +2878,13 @@ pub fn load_cycles(
                 row.get(*column_index.get("poly_range_start").unwrap()),
                 row.get(*column_index.get("poly_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
-                row.get(*column_index.get("instrument_serial").unwrap()),
+                row.get(*column_index.get("instrument_id").unwrap()),
             ) {
                 let gas_type = GasType::from_int(gas_i).unwrap();
                 if gas_type != gk.gas_type {
                     continue;
                 }
-                let serial: String = instrument_serial;
-                let key: GasKey = GasKey::from((&gas_type, serial.as_str()));
+                let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.calc_range_start.insert(gk.clone(), calc_start);
                 cycle.calc_range_end.insert(gk.clone(), calc_end + 1.);
@@ -3040,7 +3086,9 @@ where
 {
     let mut cycle_vec = Vec::new();
 
-    for (chamber, start, close, open, end, snow_depth, model, serial, _) in timev.iter() {
+    for (chamber, start, close, open, end, snow_depth, id, project_id, instrument_id) in
+        timev.iter()
+    {
         let day = start.format("%Y-%m-%d").to_string();
 
         let mut cycle = CycleBuilder::new()
@@ -3049,10 +3097,9 @@ where
             .close_offset(*close)
             .open_offset(*open)
             .end_offset(*end)
-            .instrument_model(*model)
-            .instrument_serial(serial.clone())
+            .instrument_id(*instrument_id)
             .snow_depth(*snow_depth)
-            .project_name(project.name.to_owned())
+            .project(project.clone())
             .min_calc_len(project.min_calc_len)
             .build()?;
 
@@ -3061,6 +3108,7 @@ where
             cycle_vec.push(None);
             continue;
         };
+        cycle.id = *id;
 
         let mut found_data = false;
 
@@ -3126,22 +3174,90 @@ where
             }
 
             // Model + serial for this cycle (uses the matched serial)
-            cycle.instrument_serial = ser.clone();
-            cycle.instrument_model = *cur_data.model_key.get(ser).unwrap();
+
+            // cycle.main_instrument = project.instrument.clone();
+            // cycle.instrument = Instrument {
+            //     model: *cur_data.model_key.get(ser).unwrap(),
+            //     serial: ser.clone(),
+            //     id: None,
+            // };
+            for item in &cur_data.instruments {
+                if item.id.unwrap() == *ser {
+                    cycle.instrument = item.clone();
+                }
+            }
+            let tx = Connection::open("fluxrs.db").expect("Failed to open database");
+            let instrument_id = get_instrument_id_by_project_and_serial(
+                &tx,
+                project.id.unwrap(),
+                &cycle.instrument.serial,
+            )
+            .expect("Failure");
+
+            cycle.instrument.id = instrument_id;
 
             // Gas values for this serial only
             for (key, gas_values) in &cur_data.gas {
-                if &key.label != ser {
+                if &key.id != ser {
                     continue;
                 }
 
                 if cur_data
                     .model_key
-                    .get(&key.label)
+                    .get(&key.id)
                     .unwrap()
                     .available_gases()
                     .contains(&key.gas_type)
                 {
+                    let instrument = cur_data.model_key.get(&key.id).unwrap();
+                    let cfg = instrument.get_config();
+                    let key_gas = key.gas_type;
+                    for ch in &cfg.channels {
+                        match ch.gas {
+                            GasType::CH4 => {
+                                cycle.gas_channels.insert(
+                                    key.clone(),
+                                    GasChannel {
+                                        gas: ch.gas,
+                                        unit: ch.unit,
+                                        instrument_id: ch.instrument_id.clone(),
+                                    },
+                                );
+                            },
+                            GasType::CO2 => {
+                                cycle.gas_channels.insert(
+                                    key.clone(),
+                                    GasChannel {
+                                        gas: ch.gas,
+                                        unit: ch.unit,
+                                        instrument_id: ch.instrument_id.clone(),
+                                    },
+                                );
+                            },
+                            GasType::H2O => {
+                                cycle.gas_channels.insert(
+                                    key.clone(),
+                                    GasChannel {
+                                        gas: ch.gas,
+                                        unit: ch.unit,
+                                        instrument_id: ch.instrument_id.clone(),
+                                    },
+                                );
+                            },
+                            GasType::N2O => {
+                                cycle.gas_channels.insert(
+                                    key.clone(),
+                                    GasChannel {
+                                        gas: ch.gas,
+                                        unit: ch.unit,
+                                        instrument_id: ch.instrument_id.clone(),
+                                    },
+                                );
+                            },
+                            _ => {},
+                        }
+                    }
+
                     let gas_slice: Vec<Option<f64>> = gas_values[idx_range.clone()].to_vec();
                     cycle.gas_v.insert(key.clone(), gas_slice);
                 }
@@ -3158,57 +3274,59 @@ where
         if found_data {
             cycle.gases = cycle.gas_v.keys().cloned().collect();
             cycle.main_gas = project.main_gas.unwrap();
-            cycle.main_instrument_serial = project.instrument_serial.clone();
-            cycle.main_instrument_model = project.instrument;
-            let mut gas_channels = HashMap::new();
-            let instrument_cfg = project.instrument.get_config();
-            for ch in &instrument_cfg.channels {
-                let gas_key = GasKey::from((&ch.gas, cycle.instrument_serial.as_str()));
-                match ch.gas {
-                    GasType::CH4 => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    GasType::CO2 => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    GasType::H2O => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    GasType::N2O => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    _ => {},
-                }
-            }
-            cycle.gas_channels = gas_channels;
+            cycle.main_instrument = project.instrument.clone();
+
+            // println!("gase: {:?}", cycle.gases);
+            // println!("chan: {:?}", cycle.gas_channels);
+            // let mut gas_channels = FastMap::default();
+            // let instrument_cfg = cycle.instrument.model.get_config();
+            // for ch in &instrument_cfg.channels {
+            //     let gas_key = GasKey::from((&ch.gas, cycle.instrument.serial.as_str()));
+            //     match ch.gas {
+            //         GasType::CH4 => {
+            //             gas_channels.insert(
+            //                 gas_key.clone(),
+            //                 GasChannel {
+            //                     gas: ch.gas,
+            //                     unit: ch.unit,
+            //                     instrument_id: ch.instrument_id.clone(),
+            //                 },
+            //             );
+            //         },
+            //         GasType::CO2 => {
+            //             gas_channels.insert(
+            //                 gas_key.clone(),
+            //                 GasChannel {
+            //                     gas: ch.gas,
+            //                     unit: ch.unit,
+            //                     instrument_id: ch.instrument_id.clone(),
+            //                 },
+            //             );
+            //         },
+            //         GasType::H2O => {
+            //             gas_channels.insert(
+            //                 gas_key.clone(),
+            //                 GasChannel {
+            //                     gas: ch.gas,
+            //                     unit: ch.unit,
+            //                     instrument_id: ch.instrument_id.clone(),
+            //                 },
+            //             );
+            //         },
+            //         GasType::N2O => {
+            //             gas_channels.insert(
+            //                 gas_key.clone(),
+            //                 GasChannel {
+            //                     gas: ch.gas,
+            //                     unit: ch.unit,
+            //                     instrument_id: ch.instrument_id.clone(),
+            //                 },
+            //             );
+            //         },
+            //         _ => {},
+            //     }
+            // }
+            // cycle.gas_channels = gas_channels;
 
             let target = (*start + chrono::TimeDelta::seconds(*close)).timestamp();
 
@@ -3247,7 +3365,7 @@ where
 
             cycle_vec.push(Some(cycle));
         } else {
-            let msg = format!("{}, ID: {}", start, chamber);
+            let msg = format!("{}, ID: {} {}", start, chamber, cycle.instrument.serial);
             let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(msg)));
             cycle_vec.push(None);
         }
@@ -3256,6 +3374,60 @@ where
     Ok(cycle_vec)
 }
 
+pub fn get_instrument_id_by_project_and_serial(
+    conn: &Connection,
+    project_id: i64,
+    serial: &str,
+) -> Result<Option<i64>> {
+    let mut stmt = conn.prepare(
+        "SELECT id
+         FROM instruments
+         WHERE project_link = ?1 AND instrument_serial = ?2",
+    )?;
+
+    let result = stmt.query_row(params![project_id, serial], |row| {
+        let id: i64 = row.get(0)?;
+        Ok(id)
+    });
+
+    match result {
+        Ok(id) => Ok(Some(id)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+pub fn get_instruments_by_project_map(
+    conn: &Connection,
+    project_id: i64,
+) -> Result<FastMap<i64, Instrument>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, instrument_model, instrument_serial
+         FROM instruments
+         WHERE project_link = ?1",
+    )?;
+
+    let instrument_iter = stmt.query_map(params![project_id], |row| {
+        let id: i64 = row.get(0)?;
+        let model_str: String = row.get(1)?;
+        let serial: String = row.get(2)?;
+
+        // Parse InstrumentType from string
+        let model = model_str.parse::<InstrumentType>().map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+        })?;
+
+        Ok((id, Instrument { id: Some(id), model, serial }))
+    })?;
+
+    // Collect into a FastMap<i64, Instrument>
+    let mut instruments: FastMap<i64, Instrument> = FastMap::default();
+    for item in instrument_iter {
+        let (id, inst) = item?;
+        instruments.insert(id, inst);
+    }
+
+    Ok(instruments)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3338,7 +3510,7 @@ mod tests {
 
     #[derive(Default)]
     struct DummyCycle {
-        fluxes: HashMap<(GasType, FluxKind), Box<dyn FluxModel>>,
+        fluxes: FastMap<(GasType, FluxKind), Box<dyn FluxModel>>,
     }
 
     impl DummyCycle {

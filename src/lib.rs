@@ -1,7 +1,6 @@
 use crate::processevent::{ProcessEvent, QueryEvent};
 use crate::traits::EqualLen;
 use csv::Writer;
-use cycle::Cycle;
 use rusqlite::{Connection, Result};
 use std::error::Error;
 use std::fs::File;

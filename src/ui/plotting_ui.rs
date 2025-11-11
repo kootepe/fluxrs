@@ -1,4 +1,4 @@
-use crate::cycle::{insert_flux_history, update_fluxes, Cycle};
+use crate::cycle::cycle::{insert_flux_history, update_fluxes, Cycle};
 use crate::cycle_navigator::compute_visible_indexes;
 use crate::errorcode::ErrorCode;
 use crate::flux::{FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};

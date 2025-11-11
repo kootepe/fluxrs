@@ -1,4 +1,4 @@
-use crate::cycle::Cycle;
+use crate::cycle::cycle::Cycle;
 use crate::errorcode::ErrorMask;
 use crate::instruments::InstrumentType;
 use chrono::prelude::DateTime;
