@@ -28,6 +28,7 @@ mod index;
 pub mod instruments;
 mod keybinds;
 pub mod processevent;
+pub mod processor;
 mod stats;
 pub mod traits;
 pub mod types;

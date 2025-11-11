@@ -56,11 +56,6 @@ use std::sync::{Arc, Mutex};
 
 pub type InstrumentSerial = String;
 pub type InstrumentId = i64;
-type GasDataSet = HashMap<String, Arc<GasData>>;
-type HeightDataSet = HeightData;
-type ChamberDataSet = HashMap<String, ChamberShape>;
-type MeteoDataSet = MeteoData;
-type TimeDataSet = TimeData;
 // times: TimeData,
 // gas_data:
 // meteo_data: MeteoData,
@@ -2833,153 +2828,6 @@ pub fn create_vline(x: f64, color: Color32, style: LineStyle, id: &str) -> VLine
 
 const MAX_CONCURRENT_TASKS: usize = 10;
 
-pub struct Datasets {
-    pub gas: Arc<GasDataSet>,
-    pub meteo: MeteoDataSet,
-    pub height: HeightDataSet,
-    pub chambers: ChamberDataSet,
-}
-pub struct Infra {
-    pub conn: Arc<Mutex<rusqlite::Connection>>,
-    pub progress: UnboundedSender<ProcessEvent>,
-}
-
-pub struct Processor {
-    project: Project,
-    data: Arc<Datasets>, // Arc so tasks can share cheaply
-    infra: Infra,
-}
-impl Processor {
-    pub fn new(project: Project, data: Datasets, infra: Infra) -> Self {
-        Self { project, data: Arc::new(data), infra }
-    }
-
-    pub async fn run_processing_dynamic(&self, times: TimeDataSet) {
-        let all_empty = self.data.gas.values().all(|g| g.datetime.is_empty());
-        if all_empty {
-            let _ =
-                self.infra.progress.send(ProcessEvent::Done(Err("No data available".to_owned())));
-            return;
-        }
-
-        let total_cycles = times.start_time.len();
-        let gas_data_arc = Arc::clone(&self.data.gas); // cheap
-
-        let mut time_chunks = VecDeque::from(times.chunk());
-        let mut active_tasks = Vec::new();
-
-        // track progress correctly
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        let processed = Arc::new(AtomicUsize::new(0));
-
-        let mut total_inserts = 0;
-        let mut total_skips = 0;
-        while !time_chunks.is_empty() || !active_tasks.is_empty() {
-            while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
-                let chunk = time_chunks.pop_front().unwrap();
-
-                // Build a lightweight map of ARC references (no deep clone)
-                let mut chunk_gas_data = HashMap::new();
-                for dt in &chunk.start_time {
-                    let date_str = dt.format("%Y-%m-%d").to_string();
-                    if let Some(data) = gas_data_arc.get(&date_str) {
-                        chunk_gas_data.insert(date_str, Arc::clone(data)); // bump refcount only
-                    }
-                }
-
-                let meteo = self.data.meteo.clone();
-                let height = self.data.height.clone();
-                let chambers = self.data.chambers.clone();
-                let project_clone = self.project.clone();
-                let progress_sender = self.infra.progress.clone();
-                let processed_ctr = Arc::clone(&processed);
-
-                let task = tokio::task::spawn_blocking(move || {
-                    match process_cycles(
-                        &chunk,
-                        &chunk_gas_data, // now holds Arc<GasDay>, not heavy clones
-                        &meteo,
-                        &height,
-                        &chambers,
-                        project_clone,
-                        progress_sender.clone(),
-                    ) {
-                        Ok(result) => {
-                            let count = result.iter().flatten().count();
-                            processed_ctr.fetch_add(count, Ordering::Relaxed);
-                            let _ = progress_sender.send(ProcessEvent::Progress(
-                                ProgressEvent::Rows(count, total_cycles),
-                            ));
-                            Ok(result)
-                        },
-                        Err(e) => {
-                            let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
-                            Err(e)
-                        },
-                    }
-                });
-
-                active_tasks.push(task);
-            }
-
-            let (result, _i, remaining_tasks) = futures::future::select_all(active_tasks).await;
-            active_tasks = remaining_tasks;
-
-            match result {
-                Ok(Ok(cycles)) => {
-                    if !cycles.is_empty() {
-                        let mut conn = self.infra.conn.lock().unwrap();
-                        match insert_fluxes_ignore_duplicates(
-                            &mut conn,
-                            &cycles,
-                            &self.project.id.unwrap(),
-                        ) {
-                            Ok((inserts, skips)) => {
-                                total_inserts += inserts;
-                                total_skips += skips;
-                            },
-                            Err(e) => {
-                                let _ = self
-                                    .infra
-                                    .progress
-                                    .send(ProcessEvent::Done(Err(e.to_string())));
-                            },
-                            // for cycle_opt in cycles.into_iter().flatten() {
-                            //     let cycle_id: i64 = conn.query_row(
-                            //     "SELECT id FROM fluxes
-                            //      WHERE instrument_serial = ?1 AND start_time = ?2 AND project_link = ?3",
-                            //     params![
-                            //         cycle_opt.instrument.serial,
-                            //         cycle_opt.start_time.timestamp(),
-                            //         cycle_opt.project_id
-                            //     ],
-                            //     |row| row.get(0),
-                            // ).unwrap_or(-1);
-                            //
-                            //     if cycle_id >= 0 {
-                            //         if let Err(e) =
-                            //             insert_flux_results(&mut conn, cycle_id, cycle_opt.fluxes)
-                            //         {
-                            //             eprintln!("Error inserting flux results: {}", e);
-                            //         }
-                            //     }
-                            // }
-                        }
-                    }
-                },
-                Ok(Err(e)) => eprintln!("Cycle error: {e}"),
-                Err(e) => eprintln!("Join error: {e}"),
-            }
-        }
-
-        let progress_sender = self.infra.progress.clone();
-        let _ = progress_sender
-            .send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(total_inserts, total_skips)));
-        // Send Done exactly once, here.
-        let _ = self.infra.progress.send(ProcessEvent::Done(Ok(())));
-    }
-}
-
 pub fn render_recalculate_ui(
     ui: &mut Ui,
     runtime: &tokio::runtime::Runtime,
@@ -3005,7 +2853,7 @@ pub fn render_recalculate_ui(
 
             let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
             match (
-                load_cycles(&conn, &project, start_date.to_utc(), end_date.to_utc(), progress_sender.clone()),
+                load_cycles(&conn, &project, start_date, end_date, progress_sender.clone()),
                 query_height(&conn, start_date, end_date, project.id.unwrap()),
             ) {
                 (Ok(mut cycles), Ok(heights)) => {
