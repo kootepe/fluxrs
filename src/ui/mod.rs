@@ -7,6 +7,8 @@ pub mod main_frame;
 pub mod manage_proj;
 pub mod plotting_ui;
 pub mod processor;
+pub mod recalc;
+pub mod recalcer;
 pub mod table_ui;
 pub mod tz_picker;
 pub mod validation_ui;
