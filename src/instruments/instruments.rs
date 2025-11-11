@@ -5,12 +5,56 @@ use crate::gastype::GasType;
 use crate::ui::validation_ui::GasKey;
 use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone};
 use chrono_tz::{Tz, UTC};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
+
+pub struct InstrumentMeasurement {
+    pub instrument: Instrument,
+    pub datetime: Vec<i64>,
+    pub gas: HashMap<GasType, Vec<Option<f64>>>,
+    pub diag: Vec<i64>,
+}
+
+impl InstrumentMeasurement {
+    pub fn validate_lengths(&self) -> bool {
+        // check that all fields are equal length
+        let mut gas_lengths = Vec::new();
+        for gas in self.instrument.model.available_gases() {
+            let len = self.gas.get(&gas).unwrap().len();
+            gas_lengths.push(len);
+        }
+        let lengths = [&self.datetime.len(), &self.gas.len(), &self.diag.len()];
+        let mut check: bool = true;
+
+        for vec_len in lengths.iter() {
+            let len = vec_len;
+            if vec_len != len {
+                check = false;
+                break;
+            } else {
+                continue;
+            };
+        }
+        check
+    }
+}
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+pub struct Instrument {
+    // id in instruments table from db
+    pub id: Option<i64>,
+    pub model: InstrumentType,
+    pub serial: String,
+}
+
+impl fmt::Display for Instrument {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "model: {}, serial: {}", self.model, self.serial,)
+    }
+}
 
 #[derive(Debug)]
 pub struct ParseInstrumentError(String);
@@ -204,7 +248,10 @@ impl InstrumentConfig {
         }
     }
 
-    pub fn read_data_file<P: AsRef<Path>>(&self, filename: P) -> Result<GasData, Box<dyn Error>> {
+    pub fn read_data_file<P: AsRef<Path>>(
+        &self,
+        filename: P,
+    ) -> Result<InstrumentMeasurement, Box<dyn Error>> {
         let file = File::open(filename)?;
         let mut rdr = csv::ReaderBuilder::new()
             .delimiter(self.sep)
@@ -231,9 +278,8 @@ impl InstrumentConfig {
         }
 
         let mut gas_data: HashMap<GasType, Vec<f64>> = HashMap::new();
-        // let mut diag: Vec<i64> = Vec::new();
-        let mut datetime_map: HashMap<String, Vec<DateTime<Tz>>> = HashMap::new();
-        let mut diag_map: HashMap<String, Vec<i64>> = HashMap::new();
+        let mut datetime_vec: Vec<i64> = Vec::new();
+        let mut diag_vec: Vec<i64> = Vec::new();
         let mut header = csv::StringRecord::new();
 
         if let Some(result) = rdr.records().next() {
@@ -270,7 +316,7 @@ impl InstrumentConfig {
             }
 
             if let Ok(val) = record.get(idx_diag).unwrap_or("0").parse::<i64>() {
-                diag_map.entry(instrument_serial.clone()).or_default().push(val);
+                diag_vec.push(val);
             }
 
             let timestamp = match self.time_source {
@@ -291,42 +337,38 @@ impl InstrumentConfig {
                 },
             };
 
-            datetime_map.entry(instrument_serial.clone()).or_default().push(timestamp);
+            datetime_vec.push(timestamp.timestamp());
         }
 
         // Sort timestamps and align data accordingly
-        let mut datetime_sorted: HashMap<String, Vec<DateTime<Tz>>> = HashMap::new();
-        let mut diag_sorted: HashMap<String, Vec<i64>> = HashMap::new();
+        let mut datetime_sorted: Vec<i64> = Vec::new();
+        let mut diag_sorted: Vec<i64> = Vec::new();
         // let mut diag_sorted: Vec<i64> = Vec::new();
         let mut sorted_gas_data: HashMap<GasKey, Vec<Option<f64>>> = HashMap::new();
+        let mut instruments: HashSet<Instrument> = HashSet::new();
 
-        if let Some(dt_list) = datetime_map.get(&instrument_serial) {
-            let mut indices: Vec<usize> = (0..dt_list.len()).collect();
-            indices.sort_by_key(|&i| dt_list[i]);
+        let mut indices: Vec<usize> = (0..datetime_vec.len()).collect();
 
-            datetime_sorted
-                .insert(instrument_serial.clone(), indices.iter().map(|&i| dt_list[i]).collect());
-            diag_sorted.insert(
-                instrument_serial.clone(),
-                indices.iter().map(|&i| diag_map.get(&instrument_serial).unwrap()[i]).collect(),
-            );
+        // Sort indices based on the datetime values
+        indices.sort_by_key(|&i| datetime_vec[i]);
 
-            // diag_sorted = indices.iter().map(|&i| diag[i]).collect();
+        // Sort datetime and diag vectors using the same ordering
+        let datetime_sorted: Vec<i64> = indices.iter().map(|&i| datetime_vec[i]).collect();
+        let diag_sorted: Vec<i64> = indices.iter().map(|&i| diag_vec[i]).collect();
 
-            for (&gas_type, values) in &gas_data {
-                let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
-                sorted_gas_data
-                    .insert(GasKey::from((&gas_type, instrument_serial.as_str())), sorted);
-            }
+        // Sort all gas data vectors consistently
+        let mut sorted_gas_data: HashMap<GasType, Vec<Option<f64>>> = HashMap::new();
+        for (&gas_type, values) in &gas_data {
+            let sorted: Vec<_> = indices.iter().map(|&i| Some(values[i])).collect();
+            sorted_gas_data.insert(gas_type, sorted);
         }
         if instrument_model != self.model {
             return Err("Given instrument model and file instrument model don't match.".into());
         }
 
-        let mut model_key = HashMap::new();
         // model_key.insert(instrument_serial.clone(), InstrumentType::from_str(&self.model.clone()));
         // let model_string = self.model.clone().parse::<InstrumentType>().ok();
-        let model_string = match self.model.parse::<InstrumentType>() {
+        let ins_model = match self.model.parse::<InstrumentType>() {
             Ok(val) => val,
             Err(_) => {
                 return Err(format!(
@@ -337,13 +379,10 @@ impl InstrumentConfig {
             },
         };
 
-        model_key.insert(instrument_serial.clone(), model_string);
+        let instrument = Instrument { model: ins_model, serial: instrument_serial, id: None };
 
-        Ok(GasData {
-            header,
-            instrument_model: self.model.clone(),
-            instrument_serial,
-            model_key,
+        Ok(InstrumentMeasurement {
+            instrument,
             datetime: datetime_sorted,
             gas: sorted_gas_data,
             diag: diag_sorted,
