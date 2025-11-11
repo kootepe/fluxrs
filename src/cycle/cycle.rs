@@ -2061,7 +2061,7 @@ pub fn insert_flux_results(
 pub fn update_fluxes(
     conn: &mut Connection,
     cycles: &[Cycle],
-    project: Project,
+    project: &Project,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let tx = conn.transaction()?; // Start transaction for consistency
     {
