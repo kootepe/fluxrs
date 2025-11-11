@@ -209,12 +209,10 @@ pub async fn query_chamber_async(
 }
 
 pub fn insert_chamber_metadata(
-    conn: &mut Connection,
+    tx: &Connection,
     chambers: &HashMap<String, ChamberShape>,
-    project_id: &str,
+    project_id: &i64,
 ) -> Result<()> {
-    let tx = conn.transaction()?; // Use transaction for performance and atomicity
-
     for (chamber_id, shape) in chambers {
         let (shape_str, diameter, width, length, height) = match shape {
             ChamberShape::Cylinder { diameter_m, height_m, snow_height_m } => {
@@ -227,13 +225,12 @@ pub fn insert_chamber_metadata(
 
         tx.execute(
             "INSERT OR IGNORE INTO chamber_metadata (
-                chamber_id, shape, diameter, width, length, height, project_id
+                chamber_id, shape, diameter, width, length, height, project_link
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![chamber_id, shape_str, diameter, width, length, height, project_id],
         )?;
     }
 
-    tx.commit()?;
     Ok(())
 }
 impl TryFrom<&Row<'_>> for ChamberShape {

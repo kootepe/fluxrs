@@ -3015,9 +3015,55 @@ pub fn upload_chamber_metadata_async(
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
+        let project_id = project.id.unwrap();
+
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => {
+                eprintln!("Skipping path with invalid filename: {:?}", path);
+                // Optionally notify UI:
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                    path.to_string_lossy().to_string(),
+                    "Invalid file name (non-UTF8)".to_string(),
+                )));
+                return (); // or `continue` if this is in a loop
+            },
+        };
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(e) => {
+                eprintln!("Failed to start transaction: {}", e);
+                let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
+                    "Could not start transaction for '{}': {}",
+                    file_name, e
+                ))));
+                continue;
+            },
+        };
+        let file_id = match get_or_insert_data_file(&tx, DataType::Chamber, file_name, project_id) {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
+                // Optionally notify UI
+                let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
+                    "File '{}' skipped: {}",
+                    file_name, e
+                ))));
+                continue; // or return if not inside a loop
+            },
+        };
         match read_chamber_metadata(path) {
-            Ok(chambers) => match insert_chamber_metadata(conn, &chambers, &project.name) {
-                Ok(_) => {},
+            Ok(chambers) => match insert_chamber_metadata(&tx, &chambers, &project.id.unwrap()) {
+                Ok(_) => {
+                    if let Err(e) = tx.commit() {
+                        eprintln!("Failed to commit transaction for '{}': {}", file_name, e);
+                        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
+                            format!("Commit failed for file '{}': {}", file_name, e),
+                        )));
+
+                        continue;
+                    }
+                },
                 Err(e) => {
                     let msg = format!("Failed to insert chamber data. Error: {}", e);
                     let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
@@ -3074,4 +3120,32 @@ pub fn drain_progress_messages<T: ProcessEventSink>(
             },
         }
     }
+}
+
+/// Inserts or fetches a data_file for a given project.
+/// Returns the file's ID (existing or newly inserted).
+pub fn get_or_insert_data_file(
+    conn: &Connection,
+    datatype: DataType,
+    file_name: &str,
+    project_id: i64,
+) -> Result<i64> {
+    // First, check if the file already exists for this project
+    if let Ok(existing_id) = conn.query_row(
+        "SELECT id FROM data_files WHERE file_name = ?1 AND project_link = ?2",
+        params![file_name, project_id],
+        |row| row.get::<_, i64>(0),
+    ) {
+        // Found existing entry
+        return Ok(existing_id);
+    }
+
+    // If not found, insert it
+    conn.execute(
+        "INSERT INTO data_files (file_name, data_type, project_link) VALUES (?1, ?2, ?3)",
+        params![file_name, datatype.type_str(), project_id],
+    )?;
+
+    // Return the new ID
+    Ok(conn.last_insert_rowid())
 }
