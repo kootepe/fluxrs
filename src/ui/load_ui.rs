@@ -3,6 +3,7 @@ use crate::processevent::ProcessEvent;
 use crate::ui::validation_ui::ValidationApp;
 use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
+use egui::Color32;
 use rusqlite::Connection;
 use tokio::sync::mpsc;
 
@@ -46,7 +47,7 @@ impl ValidationApp {
             if ui
                 .add_enabled(
                     self.init_enabled && !self.init_in_progress && start_after_end,
-                    egui::Button::new("Load measurements"),
+                    egui::Button::new("Load measurements").fill(Color32::DARK_GREEN),
                 )
                 .clicked()
             {

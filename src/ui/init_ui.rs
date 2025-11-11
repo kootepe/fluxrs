@@ -6,6 +6,7 @@ use crate::data_formats::timedata::query_cycles_async;
 use crate::processevent::{ProcessEvent, QueryEvent};
 use crate::ui::validation_ui::{render_recalculate_ui, Datasets, Infra, Processor, ValidationApp};
 use eframe::egui::Context;
+use egui::Color32;
 use rusqlite::Connection;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -54,7 +55,7 @@ impl ValidationApp {
                 if ui
                     .add_enabled(
                         self.init_enabled && !self.init_in_progress && start_after_end,
-                        egui::Button::new("Initiate measurements"),
+                        egui::Button::new("Initiate measurements").fill(Color32::DARK_GREEN),
                     )
                     .clicked()
                 {
