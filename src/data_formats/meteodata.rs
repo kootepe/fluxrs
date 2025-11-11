@@ -187,6 +187,10 @@ pub async fn query_meteo_async(
             Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
         },
     }
+    // match result {
+    //     Ok(inst) => inst,
+    //     Err(_) => Ok(MeteoData::default()),
+    // }
 }
 pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<MeteoData, Box<dyn Error>> {
     let content = ensure_utf8(&file_path)?;
