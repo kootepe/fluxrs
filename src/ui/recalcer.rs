@@ -58,7 +58,6 @@ impl Recalcer {
         let _ = progsender.send(ProcessEvent::Progress(ProgressEvent::CalculationStarted));
 
         let total_cycles = cycles.len();
-        let mut count = 0;
         for c in &mut cycles {
             let old_height = c.chamber.internal_height();
 
@@ -82,9 +81,8 @@ impl Recalcer {
                 c.chamber = *chamber
             }
             c.compute_all_fluxes();
-            count += 1;
-            let _ = progsender
-                .send(ProcessEvent::Progress(ProgressEvent::Recalced(count, total_cycles)));
+            let _ =
+                progsender.send(ProcessEvent::Progress(ProgressEvent::Recalced(1, total_cycles)));
         }
 
         if !cycles.is_empty() {
@@ -93,10 +91,6 @@ impl Recalcer {
                 Ok((inserts, skips)) => {
                     total_inserts += inserts;
                     total_skips += skips;
-                    let _ = progsender.send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(
-                        total_inserts,
-                        total_skips,
-                    )));
                 },
                 Err(e) => {
                     let _ = progsender.send(ProcessEvent::Done(Err(e.to_string())));
@@ -104,9 +98,6 @@ impl Recalcer {
             }
         }
 
-        let _ = progsender
-            .send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(total_inserts, total_skips)));
-        // Send Done exactly once, here.
-        let _ = self.infra.progress.send(ProcessEvent::Done(Ok(())));
+        let _ = progsender.send(ProcessEvent::Done(Ok(())));
     }
 }
