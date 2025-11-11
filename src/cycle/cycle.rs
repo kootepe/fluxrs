@@ -32,7 +32,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
 use std::process;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tokio::task;
 
 // the window of max r must be at least 240 seconds
 pub const MIN_WINDOW_SIZE: f64 = 180.;
@@ -2414,7 +2416,31 @@ fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle, project_id: &i6
     }
     Ok(())
 }
-pub fn load_cycles(
+type DbConn = Arc<Mutex<rusqlite::Connection>>;
+pub async fn load_cycles(
+    conn: DbConn,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    project: Project,
+    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+) -> rusqlite::Result<Vec<Cycle>> {
+    let result = task::spawn_blocking(move || {
+        // This closure is sync and runs on a blocking thread
+        let conn_guard = conn.lock().expect("DB mutex poisoned");
+        load_cycles_sync(&conn_guard, &project, start, end, progress_sender)
+    })
+    .await;
+
+    match result {
+        Ok(inner) => inner, // inner: rusqlite::Result<Vec<Cycle>>
+        Err(join_err) => {
+            // You probably want your *own* error or anyhow::Error here.
+            // If you must stick to rusqlite::Error, pick the least-wrong variant or wrap it.
+            eprintln!("spawn_blocking panicked or was cancelled: {join_err}");
+            Err(rusqlite::Error::ExecuteReturnedResults)
+        },
+    }
+}
 pub fn load_cycles_sync(
     conn: &Connection,
     project: &Project,
