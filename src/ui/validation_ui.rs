@@ -2664,6 +2664,17 @@ impl ProcessEventSink for ValidationApp {
                 self.cycles_progress += current;
                 println!("Processed {} out of {} cycles", current, total);
             },
+            ProgressEvent::Recalced(current, total) => {
+                self.recalc.cycles_state = Some((*current, *total));
+                self.recalc.cycles_progress += current;
+                println!("Processed {} out of {} cycles", current, total);
+            },
+            ProgressEvent::CalculationStarted => {
+                self.init_in_progress = true;
+                self.init_enabled = false;
+                self.recalc.calc_enabled = false;
+                self.recalc.calc_in_progress = true;
+            },
             ProgressEvent::Day(date) => {
                 self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
             },
@@ -2783,6 +2794,10 @@ impl ProcessEventSink for ValidationApp {
         self.init_in_progress = false;
         self.init_enabled = true;
         self.query_in_progress = false;
+        self.recalc.calc_enabled = true;
+        self.recalc.calc_in_progress = false;
+        self.recalc.query_in_progress = false;
+        self.recalc.cycles_progress = 0;
     }
 }
 pub fn is_inside_polygon(

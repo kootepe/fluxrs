@@ -43,6 +43,9 @@ pub enum InsertEvent {
 
 #[derive(Debug)]
 pub enum ProgressEvent {
+    CalculationStarted,
+    // use to send processed and total recalculated cycles
+    Recalced(usize, usize),
     Generic(String),
     Day(String),
     Rows(usize, usize),

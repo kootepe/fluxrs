@@ -8,11 +8,12 @@ use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
+use crate::ui::processor::{Datasets, Infra, Processor};
+use crate::ui::validation_ui::Mode;
 use crate::ui::validation_ui::{
     upload_cycle_data_async, upload_gas_data_async, upload_height_data_async,
     upload_meteo_data_async, DataType,
 };
-use crate::ui::validation_ui::{Datasets, Infra, Mode, Processor};
 use crate::Project;
 
 use chrono::{DateTime, Utc};
@@ -371,12 +372,14 @@ impl ProcessEventSink for Config {
     fn on_progress_event(&mut self, ev: &ProgressEvent) {
         match ev {
             ProgressEvent::Rows(_, _) => {},
+            ProgressEvent::Recalced(_, _) => {},
             ProgressEvent::Day(date) => {
                 println!("Loaded cycles from {}", date);
             },
             ProgressEvent::NoGas(msg) => {
                 println!("gas missing: {}", msg);
             },
+            ProgressEvent::CalculationStarted => {},
             ProgressEvent::Generic(msg) => {
                 println!("{}", msg);
             },
