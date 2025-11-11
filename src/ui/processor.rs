@@ -1,6 +1,6 @@
 use crate::cycle::cycle::{
     insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
-    update_fluxes,
+    update_fluxes, Cycle,
 };
 use crate::data_formats::chamberdata::{
     insert_chamber_metadata, read_chamber_metadata, ChamberShape,
@@ -27,6 +27,7 @@ type HeightDataSet = HeightData;
 type ChamberDataSet = HashMap<String, ChamberShape>;
 type MeteoDataSet = MeteoData;
 type TimeDataSet = TimeData;
+type CycleDataSet = Vec<Cycle>;
 
 pub struct Datasets {
     pub gas: Arc<GasDataSet>,
@@ -34,6 +35,7 @@ pub struct Datasets {
     pub height: HeightDataSet,
     pub chambers: ChamberDataSet,
 }
+
 pub struct Infra {
     pub conn: Arc<Mutex<rusqlite::Connection>>,
     pub progress: UnboundedSender<ProcessEvent>,
