@@ -2827,20 +2827,80 @@ pub fn upload_gas_data_async(
         if let Some(ref mut inst) = instrument {
             match inst.read_data_file(path) {
                 Ok(data) => {
-                    inst.serial = Some(data.instrument_serial.clone());
-                    if data.validate_lengths() && !data.any_col_invalid() {
+                    // inst.serial = Some(data.instrument.serial.clone());
+                    if data.validate_lengths() {
                         let _rows = data.datetime.len();
-                        let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileDetail(
-                            path.to_string_lossy().to_string(),
-                            format!("from {}", instrument.unwrap()),
-                        )));
-                        match insert_measurements(conn, &data, project) {
+                        let project_id = project.id.unwrap();
+
+                        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                            Some(name) => name,
+                            None => {
+                                eprintln!("Skipping path with invalid filename: {:?}", path);
+                                // Optionally notify UI:
+                                let _ =
+                                    progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                                        path.to_string_lossy().to_string(),
+                                        "Invalid file name (non-UTF8)".to_string(),
+                                    )));
+                                return (); // or `continue` if this is in a loop
+                            },
+                        };
+                        let tx = match conn.transaction() {
+                            Ok(tx) => tx,
+                            Err(e) => {
+                                eprintln!("Failed to start transaction: {}", e);
+                                let _ = progress_sender.send(ProcessEvent::Insert(
+                                    InsertEvent::Fail(format!(
+                                        "Could not start transaction for '{}': {}",
+                                        file_name, e
+                                    )),
+                                ));
+                                continue;
+                            },
+                        };
+                        let file_id = match get_or_insert_data_file(
+                            &tx,
+                            DataType::Gas,
+                            file_name,
+                            project_id,
+                        ) {
+                            Ok(id) => id,
+                            Err(e) => {
+                                eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
+                                // Optionally notify UI
+                                let _ =
+                                    progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
+                                        format!("File '{}' skipped: {}", file_name, e),
+                                    )));
+                                continue; // or return if not inside a loop
+                            },
+                        };
+
+                        match insert_measurements(&tx, &data, project, &file_id) {
                             Ok((count, duplicates)) => {
                                 let _ = progress_sender.send(ProcessEvent::Insert(
                                     InsertEvent::OkSkip(count, duplicates),
                                 ));
-                                let _ = progress_sender
-                                    .send(ProcessEvent::Query(QueryEvent::InitEnded));
+                                let _ = progress_sender.send(ProcessEvent::Read(
+                                    ReadEvent::FileDetail(
+                                        path.to_string_lossy().to_string(),
+                                        format!("from {}", instrument.unwrap()),
+                                    ),
+                                ));
+                                if let Err(e) = tx.commit() {
+                                    eprintln!(
+                                        "Failed to commit transaction for '{}': {}",
+                                        file_name, e
+                                    );
+                                    let _ = progress_sender.send(ProcessEvent::Insert(
+                                        InsertEvent::Fail(format!(
+                                            "Commit failed for file '{}': {}",
+                                            file_name, e
+                                        )),
+                                    ));
+                                    // no commit = rollback
+                                    continue;
+                                }
                             },
                             Err(e) => {
                                 println!("{}", e);
@@ -2849,10 +2909,6 @@ pub fn upload_gas_data_async(
                                 ));
                             },
                         }
-
-                        let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
-                            path.to_str().unwrap().to_owned(),
-                        )));
                     }
                 },
                 Err(e) => {
@@ -2863,9 +2919,8 @@ pub fn upload_gas_data_async(
                 },
             }
         }
+        let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::InitEnded));
     }
-    // done event should be set at the end of the loop so that the init_progress gets set to false
-    // even in case of errors
     let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
 }
 pub fn upload_cycle_data_async(
