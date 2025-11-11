@@ -31,7 +31,7 @@ impl DownloadApp {
             ui.label("add or select a project in the initiate project tab.");
             return;
         }
-        let gases = self.project.as_ref().unwrap().instrument.available_gases();
+        let gases = self.project.as_ref().unwrap().instrument.model.available_gases();
         for gas in &gases {
             self.gas_checked.entry(*gas).or_insert(false);
         }
