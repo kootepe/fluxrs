@@ -4,6 +4,7 @@ use crate::ui::dl_ui::DownloadApp;
 use crate::ui::table_ui::TableApp;
 use crate::ui::validation_ui::ValidationApp;
 use crate::{Project, ProjectApp};
+use chrono_tz::UTC;
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
 use std::fs;
 use std::io::Write;
@@ -54,15 +55,6 @@ impl MainApp {
             font_id.family = FontFamily::Monospace;
         }
 
-        if !self.app_state_loaded {
-            if let Ok(app) = load_app_state(Path::new("app_state.json")) {
-                self.validation_panel.start_date = app.start_date;
-                self.validation_panel.end_date = app.end_date;
-                // prevent constantly reloading the app state file
-                self.app_state_loaded = true;
-            }
-        }
-
         if self.validation_panel.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
             self.validation_panel.selected_project = self.proj_panel.project.clone();
@@ -75,8 +67,20 @@ impl MainApp {
                     Some(self.validation_panel.selected_project.clone().unwrap().tz);
                 self.validation_panel.tz_for_files =
                     Some(self.validation_panel.selected_project.clone().unwrap().tz);
+
+                let user_tz = self.validation_panel.selected_project.clone().unwrap_or_default().tz;
+                if !self.app_state_loaded {
+                    if let Ok(app) = load_app_state(Path::new("app_state.json")) {
+                        println!("Reload app state");
+                        self.validation_panel.start_date = app.start_date.with_timezone(&user_tz);
+                        self.validation_panel.end_date = app.end_date.with_timezone(&user_tz);
+                        // prevent constantly reloading the app state file
+                        self.app_state_loaded = true;
+                    }
+                }
             }
         }
+
         if let Some(event) = self.proj_panel.update_project() {
             match event {
                 AppEvent::SelectProject(proj) => {
