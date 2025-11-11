@@ -2465,6 +2465,7 @@ pub fn load_cycles_sync(
         let instrument_serial: String = row.get(*column_index.get("instrument_serial").unwrap())?;
         let main_instrument_id: i64 = row.get(*column_index.get("main_instrument_id").unwrap())?;
         let instrument_id: i64 = row.get(*column_index.get("instrument_id").unwrap())?;
+        let cycle_link: i64 = row.get(*column_index.get("cycle_link").unwrap())?;
         serials.insert(instrument_serial.clone());
         let chamber_id: String = row.get(*column_index.get("chamber_id").unwrap())?;
 
