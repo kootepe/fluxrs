@@ -6,6 +6,7 @@ use crate::cycle::cycle::{
 use crate::cycle_navigator::CycleNavigator;
 use crate::errorcode::ErrorCode;
 use crate::flux::{FluxKind, FluxUnit};
+use crate::ui::manage_proj::project_ui::get_or_insert_instrument;
 use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
@@ -24,13 +25,13 @@ use crate::data_formats::meteodata::{insert_meteo_data, read_meteo_csv, MeteoDat
 use crate::data_formats::timedata::{insert_cycles, try_all_formats, TimeData};
 use crate::gastype::GasType;
 
+use crate::cycle::cycle::Cycle;
 use crate::instruments::instruments::InstrumentConfig;
 use crate::instruments::instruments::InstrumentType;
 use crate::keybinds::{Action, KeyBindings};
 use crate::processevent::{
-    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+    self, InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
-use crate::Cycle;
 use crate::EqualLen;
 use crate::Project;
 use std::str::FromStr;
@@ -41,7 +42,7 @@ use eframe::egui::{Color32, Context, Label, RichText, Stroke, TextWrapMode, Ui};
 use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeDelta, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeDelta, TimeZone, Utc};
 use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
 use std::collections::BTreeMap;
@@ -54,6 +55,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 pub type InstrumentSerial = String;
+pub type InstrumentId = i64;
 type GasDataSet = HashMap<String, Arc<GasData>>;
 type HeightDataSet = HeightData;
 type ChamberDataSet = HashMap<String, ChamberShape>;
@@ -84,6 +86,7 @@ impl fmt::Display for DataType {
         }
     }
 }
+
 impl DataType {
     pub fn type_str(&self) -> &'static str {
         match self {
@@ -272,8 +275,8 @@ pub struct ValidationApp {
     pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
     pub visible_traces: HashMap<String, bool>,
     pub all_traces: HashSet<String>,
-    pub start_date: DateTime<Utc>,
-    pub end_date: DateTime<Utc>,
+    pub start_date: DateTime<Tz>,
+    pub end_date: DateTime<Tz>,
     pub opened_files: Option<Vec<PathBuf>>,
     pub open_file_dialog: Option<FileDialog>,
     pub initial_path: Option<PathBuf>,
@@ -376,16 +379,8 @@ impl Default for ValidationApp {
             chamber_colors: HashMap::new(),
             visible_traces: HashMap::new(),
             all_traces: HashSet::new(),
-            start_date: NaiveDate::from_ymd_opt(2024, 9, 20)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_utc(),
-            end_date: NaiveDate::from_ymd_opt(2024, 9, 30)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap()
-                .and_utc(),
+            start_date: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
+            end_date: UTC.with_ymd_and_hms(2024, 9, 30, 23, 59, 59).unwrap(),
             opened_files: None,
             open_file_dialog: None,
             initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
@@ -1875,6 +1870,8 @@ impl ValidationApp {
     pub fn date_picker(&mut self, ui: &mut egui::Ui) {
         let mut picker_start = self.start_date.date_naive();
         let mut picker_end = self.end_date.date_naive();
+        let user_tz = self.selected_project.as_ref().unwrap().tz;
+
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 // Start Date Picker
@@ -1887,13 +1884,12 @@ impl ValidationApp {
                     )
                     .changed()
                 {
-                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                        NaiveDateTime::from(picker_start),
-                        Utc,
-                    );
+                    let naive = NaiveDateTime::from(picker_start);
+                    let pick: DateTime<Tz> = user_tz.clone().from_local_datetime(&naive).unwrap();
                     self.start_date = pick;
                 }
             });
+
             ui.vertical(|ui| {
                 ui.label("Pick end date:");
                 if ui
@@ -1904,37 +1900,62 @@ impl ValidationApp {
                     )
                     .changed()
                 {
-                    let pick = DateTime::<Utc>::from_naive_utc_and_offset(
-                        NaiveDateTime::from(picker_end),
-                        Utc,
-                    );
+                    let naive = NaiveDateTime::from(picker_end);
+                    let pick: DateTime<Tz> = user_tz.clone().from_local_datetime(&naive).unwrap();
                     self.end_date = pick + TimeDelta::seconds(86399);
                 }
             });
         });
 
-        let start_after_end = self.start_date < self.end_date;
-        let mut delta_days = TimeDelta::zero();
-        let mut days = 0;
-        if start_after_end {
-            delta_days = self.end_date - self.start_date;
-            days = delta_days.to_std().unwrap().as_secs() / 86400;
-        }
-        if ui
-            .add_enabled(start_after_end, egui::Button::new(format!("Next {} days", days)))
-            .clicked()
-        {
-            self.start_date += delta_days;
-            self.end_date += delta_days;
-        }
-        if ui
-            .add_enabled(start_after_end, egui::Button::new(format!("Previous {} days", days)))
-            .clicked()
-        {
-            self.start_date -= delta_days;
-            self.end_date -= delta_days;
+        let start_before_end = self.start_date < self.end_date;
+        let mut delta = TimeDelta::zero();
+        let mut duration_str = String::new();
+
+        if start_before_end {
+            delta = self.end_date - self.start_date;
+
+            if let Ok(duration) = delta.to_std() {
+                let total_secs = duration.as_secs();
+
+                let days = total_secs / 86_400;
+                let hours = (total_secs % 86_400) / 3_600;
+                let minutes = (total_secs % 3_600) / 60;
+                let seconds = total_secs % 60;
+
+                duration_str = if days > 0 {
+                    format!("{}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
+                } else if hours > 0 {
+                    format!("{:02}h {:02}m {:02}s", hours, minutes, seconds)
+                } else if minutes > 0 {
+                    format!("{:02}m {:02}s", minutes, seconds)
+                } else {
+                    format!("{:02}s", seconds)
+                };
+                ui.label(format!("From: {}", self.start_date));
+                ui.label(format!("to: {}", self.end_date));
+
+                ui.label(format!("Duration: {}", duration_str));
+
+                // Buttons with full duration string
+                if ui
+                    .add_enabled(true, egui::Button::new(format!("Next ({})", duration_str)))
+                    .clicked()
+                {
+                    self.start_date += delta;
+                    self.end_date += delta;
+                }
+
+                if ui
+                    .add_enabled(true, egui::Button::new(format!("Previous ({})", duration_str)))
+                    .clicked()
+                {
+                    self.start_date -= delta;
+                    self.end_date -= delta;
+                }
+            }
         }
     }
+
     pub fn log_display(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         if ui.button("Clear Log").clicked() {
@@ -2398,7 +2419,7 @@ impl ValidationApp {
         }
     }
     pub fn to_app_state(&self) -> AppState {
-        AppState { start_date: self.start_date, end_date: self.end_date }
+        AppState { start_date: self.start_date.to_utc(), end_date: self.end_date.to_utc() }
     }
 }
 
@@ -2768,8 +2789,8 @@ pub fn render_recalculate_ui(
 
             let (progress_sender, _progress_receiver) = mpsc::unbounded_channel();
             match (
-                load_cycles(&conn, &project, start_date, end_date, progress_sender.clone()),
-                query_height(&conn, start_date, end_date, project.name.clone()),
+                load_cycles(&conn, &project, start_date.to_utc(), end_date.to_utc(), progress_sender.clone()),
+                query_height(&conn, start_date, end_date, project.id.unwrap()),
             ) {
                 (Ok(mut cycles), Ok(heights)) => {
                     if heights.height.is_empty() {

@@ -82,29 +82,29 @@ impl ValidationApp {
                     self.runtime.spawn(async move {
                         let cycles_result = query_cycles_async(
                             arc_conn.clone(),
-                            start_date,
-                            end_date,
+                            start_date.to_utc(),
+                            end_date.to_utc(),
                             project.clone(),
                         )
                         .await;
                         let gas_result = query_gas_async(
                             arc_conn.clone(),
-                            start_date,
-                            end_date,
+                            start_date.to_utc(),
+                            end_date.to_utc(),
                             project.clone(),
                         )
                         .await;
                         let meteo_result = query_meteo_async(
                             arc_conn.clone(),
-                            start_date,
-                            end_date,
+                            start_date.to_utc(),
+                            end_date.to_utc(),
                             project.clone(),
                         )
                         .await;
                         let height_result = query_height_async(
                             arc_conn.clone(),
-                            start_date,
-                            end_date,
+                            start_date.to_utc(),
+                            end_date.to_utc(),
                             project.clone(),
                         )
                         .await;
@@ -161,8 +161,8 @@ impl ValidationApp {
             render_recalculate_ui(
                 ui,
                 &self.runtime,
-                self.start_date,
-                self.end_date,
+                self.start_date.to_utc(),
+                self.end_date.to_utc(),
                 self.get_project().clone(),
                 sender_clone,
             );

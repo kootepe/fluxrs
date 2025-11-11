@@ -68,8 +68,8 @@ impl ValidationApp {
                         Ok(conn) => load_cycles(
                             &conn,
                             &project,
-                            start_date,
-                            end_date,
+                            start_date.to_utc(),
+                            end_date.to_utc(),
                             progress_sender.clone(),
                         ),
                         Err(e) => {
