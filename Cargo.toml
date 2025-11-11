@@ -15,11 +15,11 @@ dyn-clone = "1.0.19"
 rayon = "1.10.0"
 egui_file = "0.22"
 egui_extras = { version = "*", default-features = false, features = ["datepicker"] }
-rusqlite = { version = "0.35.0", features = ["bundled"] }
+rusqlite = { version = "0.35.0", features = ["bundled", "chrono"] }
 fxhash = "0.2.1"
 csv = "1.3.1"
 chrono = {version = "0.4.39", features = ["serde", "clock"]}
-chrono-tz = "0.10.1"
+chrono-tz = {version = "0.10.1", features = ["serde"]}
 glob = "0.3.2"
 itertools = "0.14.0"
 plotters = "0.3.7"
@@ -27,6 +27,7 @@ egui = {version = "0.31.0", features = ["serde"]}
 ecolor = "0.31.0"
 eframe = "0.31.0"
 egui_plot = "0.32.1"
+rustc-hash = "2.1.1"
 image = "0.25.0"
 futures = "0.3.31"
 tokio = {version = "1.44.1", features = ["rt-multi-thread", "macros", "sync", "time"]}
