@@ -40,23 +40,24 @@ impl HeightData {
 }
 
 pub fn insert_height_data(
-    conn: &mut Connection,
-    project_id: &str,
+    tx: &Connection,
+    file_id: &i64,
+    project_id: &i64,
     height_data: &HeightData,
-) -> Result<usize> {
-    let mut inserted: usize = 0;
+) -> Result<u64> {
+    let mut inserted: u64 = 0;
     if height_data.datetime.len() != height_data.chamber_id.len()
         || height_data.datetime.len() != height_data.height.len()
     {
         return Err(rusqlite::Error::InvalidQuery); // Ensure all vectors have the same length
     }
 
-    let tx = conn.transaction()?;
     {
+        // BUG: BAD SQL
         let mut stmt = tx.prepare(
-            "INSERT INTO height (chamber_id, project_id, datetime, height)
+            "INSERT INTO height (chamber_id, project_link, datetime, height)
              VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(chamber_id, project_id, datetime)
+             ON CONFLICT(chamber_id, project_link, datetime)
              DO UPDATE SET height = excluded.height",
         )?;
 
@@ -67,30 +68,30 @@ pub fn insert_height_data(
                 height_data.datetime[i],
                 height_data.height[i]
             ])?;
-            inserted += 1;
+            // inserted += 1;
+            inserted += tx.changes();
         }
     }
-    tx.commit()?;
     Ok(inserted)
 }
 
 pub fn get_previous_height(
     conn: &Connection,
-    project: String,
+    project_id: i64,
     chamber_id: String,
     time: i64,
 ) -> Result<f64> {
     let mut stmt = conn.prepare(
         "SELECT height
              FROM height
-             WHERE project_id = ?1
+             WHERE project_link = ?1
              AND datetime - ?3 < 0
              AND chamber_id = ?2
              ORDER BY datetime - ?3
              LIMIT 1",
     )?;
 
-    let result = stmt.query_row(params![&project, &chamber_id, time], |row| (row.get(0)));
+    let result = stmt.query_row(params![&project_id, &chamber_id, time], |row| (row.get(0)));
 
     match result {
         Ok(height) => Ok(height),
@@ -102,7 +103,7 @@ pub fn query_height(
     conn: &Connection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    project: String,
+    project_id: i64,
 ) -> Result<HeightData> {
     println!("Querying height data");
     // let mut data = HashMap::new();
@@ -111,12 +112,12 @@ pub fn query_height(
         "SELECT datetime, height, chamber_id
              FROM height
              WHERE datetime BETWEEN ?1 AND ?2
-             and project_id = ?3
+             and project_link = ?3
              ORDER BY datetime",
     )?;
 
     let rows = stmt.query_map(
-        params![start.timestamp() - (86400 * 365), end.timestamp() + (86400 * 365), project],
+        params![start.timestamp() - (86400 * 365), end.timestamp() + (86400 * 365), project_id],
         |row| {
             let datetime_unix: i64 = row.get(0)?;
             let height: f64 = row.get(1)?;
@@ -143,7 +144,7 @@ pub async fn query_height_async(
 ) -> Result<HeightData> {
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_height(&conn, start, end, project.name)
+        query_height(&conn, start, end, project.id.unwrap())
     })
     .await;
     match result {
