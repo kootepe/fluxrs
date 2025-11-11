@@ -35,7 +35,7 @@ impl ValidationApp {
         }
         let mut gas_btn_text = "Select Analyzer Files".to_owned();
         if let Some(project) = self.selected_project.as_mut() {
-            let current_value = project.upload_from.unwrap_or(project.instrument); // fallback display value
+            let current_value = project.upload_from.unwrap_or(project.instrument.model); // fallback display value
 
             egui::ComboBox::from_label("Instrument")
                 .selected_text(current_value.to_string())
@@ -102,37 +102,14 @@ impl ValidationApp {
                     let selected_paths: Vec<PathBuf> =
                         dialog.selection().into_iter().map(|p: &Path| p.to_path_buf()).collect();
 
-                    // let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-                    // self.progress_receiver = Some(progress_receiver);
-                    // let arc_msgs = Arc::new(Mutex::new(self.log_messages.clone()));
-
                     if selected_paths.is_empty() {
                     } else {
                         self.opened_files = Some(selected_paths.clone());
                         // open the timezone prompt next frame
                         self.tz_prompt_open = true;
 
-                        self.tz_state.focus_search_once = true; // autofocus the search field
-                                                                // self.process_files_async(
-                                                                //     selected_paths,
-                                                                //     self.selected_data_type.clone(),
-                                                                //     self.get_project(),
-                                                                //     arc_msgs,
-                                                                //     progress_sender.clone(),
-                                                                //     &self.runtime,
-                                                                // );
+                        self.tz_state.focus_search_once = true;
                     }
-                    // if !selected_paths.is_empty() {
-                    //     self.opened_files = Some(selected_paths.clone());
-                    //     self.process_files_async(
-                    //         selected_paths,
-                    //         self.selected_data_type.clone(),
-                    //         self.get_project(),
-                    //         arc_msgs,
-                    //         progress_sender.clone(),
-                    //         &self.runtime,
-                    //     );
-                    // }
 
                     self.open_file_dialog = None; //   Close the dialog
                 },
