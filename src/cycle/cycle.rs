@@ -2069,7 +2069,19 @@ pub fn update_fluxes(
 
         for cycle in cycles {
             match execute_update(&mut update_stmt, cycle, &project.id.unwrap()) {
-                Ok(_) => println!("Fluxes updated successfully!"),
+                Ok(_) => {
+                    let archived_at = Utc::now().to_rfc3339();
+                    let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
+                    match execute_history_insert(
+                        &mut insert_stmt,
+                        &archived_at,
+                        cycle,
+                        &project.name,
+                    ) {
+                        Ok(_) => println!("Archived cycle successfully."),
+                        Err(e) => eprintln!("Error archiving fluxes: {}", e),
+                    }
+                },
                 Err(e) => eprintln!("Error updating fluxes: {}", e),
             }
         }
