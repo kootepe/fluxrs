@@ -1,13 +1,15 @@
-use crate::instruments::instruments::InstrumentType;
+use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
+use crate::ui::manage_proj::project_ui::get_or_insert_instrument;
 use crate::EqualLen;
 use crate::Project;
 use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Europe::Helsinki;
 use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
+use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
 use std::path::Path;
@@ -48,7 +50,7 @@ pub trait TimeFormatParser {
         &self,
         path: &Path,
         tz: &Tz,
-        project_id: &Project,
+        project_name: &Project,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>>;
 
@@ -63,9 +65,9 @@ pub struct TimeData {
     pub open_offset: Vec<i64>,
     pub end_offset: Vec<i64>,
     pub snow_depth: Vec<f64>,
-    pub project: Vec<String>,
-    pub instrument_model: Vec<InstrumentType>,
-    pub instrument_serial: Vec<String>,
+    pub id: Vec<i64>,
+    pub project_id: Vec<i64>,
+    pub instrument_id: Vec<i64>,
 }
 
 impl EqualLen for TimeData {
@@ -118,7 +120,8 @@ impl OulankaManualFormat {
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
-        let mut project_vec: Vec<String> = Vec::new();
+        let mut project_id_vec: Vec<i64> = Vec::new();
+        let mut instrument_id_vec: Vec<i64> = Vec::new();
         let mut snow_in_chamber: Vec<f64> = Vec::new();
 
         let mut records = rdr.records();
@@ -223,14 +226,21 @@ impl OulankaManualFormat {
                 snow_in_chamber.push(0.0);
                 eprintln!("Missing column 2 in row {}", i + 1);
             }
+
+            let conn = Connection::open("fluxrs.db").expect("Failed to open database");
+            let instrument = Instrument { model: insmodel, serial: insserial.clone(), id: None };
+            let instrument_id = get_or_insert_instrument(&conn, &instrument, project.id.unwrap())?;
+
             chamber_id.push(record[0].to_owned());
             instrument_model.push(insmodel);
             instrument_serial.push(insserial.clone());
             close_offset.push(60);
             open_offset.push(measurement_time + 60);
             end_offset.push(measurement_time + 120);
-            project_vec.push(project.name.to_owned());
+            project_id_vec.push(project.id.unwrap());
+            instrument_id_vec.push(instrument_id)
         }
+        let id = Vec::new();
 
         Ok(TimeData {
             chamber_id,
@@ -238,10 +248,10 @@ impl OulankaManualFormat {
             close_offset,
             open_offset,
             end_offset,
+            id,
             snow_depth: snow_in_chamber,
-            project: project_vec,
-            instrument_serial,
-            instrument_model,
+            project_id: project_id_vec,
+            instrument_id: instrument_id_vec,
         })
     }
 }
@@ -278,17 +288,24 @@ impl DefaultFormat {
         let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(reader);
 
         let mut chamber_id: Vec<String> = Vec::new();
-        let mut instrument_model: Vec<InstrumentType> = Vec::new();
-        let mut instrument_serial: Vec<String> = Vec::new();
         let mut start_time: Vec<DateTime<Tz>> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
         let mut snow_in_chamber: Vec<f64> = Vec::new();
-        let mut project_id: Vec<String> = Vec::new();
+        let mut project_id: Vec<i64> = Vec::new();
+        let mut instrument_id: Vec<i64> = Vec::new();
 
         let mut parsed_any = false;
         let file_display = path.display().to_string();
+
+        let conn = Connection::open("fluxrs.db").expect("Failed to open database");
+        let instrument = Instrument {
+            model: project.instrument.model,
+            serial: project.instrument.serial.clone(),
+            id: None,
+        };
+        let ins_id = get_or_insert_instrument(&conn, &instrument, project.id.unwrap())?;
 
         for (row_idx, r) in rdr.records().enumerate() {
             let record = r.map_err(|e| {
@@ -325,8 +342,8 @@ impl DefaultFormat {
                 })?;
 
             let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
-                LocalResult::Single(dt) => dt.with_timezone(&Utc),
-                LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
+                LocalResult::Single(dt) => dt.with_timezone(&UTC),
+                LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&UTC),
                 LocalResult::None => {
                     return Err(format!(
                 "invalid local time '{}' in file {} (row {}): nonexistent timestamp in timezone Helsinki",
@@ -337,17 +354,15 @@ impl DefaultFormat {
                 },
             };
 
-            let dt_utc_hack = dt_utc.with_timezone(&UTC);
+            // let dt_utc_hack = dt_utc.with_timezone(&UTC);
 
-            // ✅ Now safely push — all fields align
             chamber_id.push(record[0].to_owned());
-            start_time.push(dt_utc_hack);
+            start_time.push(dt_utc);
             close_offset.push(record[2].parse::<i64>().unwrap_or(0));
             open_offset.push(record[3].parse::<i64>().unwrap_or(0));
             end_offset.push(record[4].parse::<i64>().unwrap_or(0));
-            project_id.push(project.name.to_owned());
-            instrument_model.push(project.instrument);
-            instrument_serial.push(project.instrument_serial.to_owned());
+            project_id.push(project.id.unwrap());
+            instrument_id.push(ins_id);
             snow_in_chamber.push(0.0);
 
             parsed_any = true;
@@ -360,16 +375,17 @@ impl DefaultFormat {
             )
             .into());
         }
+        let id = Vec::new();
         let df = TimeData {
             chamber_id,
             start_time,
             close_offset,
             open_offset,
             end_offset,
+            id,
             snow_depth: snow_in_chamber,
-            instrument_serial,
-            instrument_model,
-            project: project_id,
+            project_id,
+            instrument_id,
         };
         Ok(df)
     }
@@ -408,10 +424,10 @@ impl TimeData {
             close_offset: Vec::new(),
             open_offset: Vec::new(),
             end_offset: Vec::new(),
+            id: Vec::new(),
             snow_depth: Vec::new(),
-            project: Vec::new(),
-            instrument_serial: Vec::new(),
-            instrument_model: Vec::new(),
+            project_id: Vec::new(),
+            instrument_id: Vec::new(),
         }
     }
     pub fn chunk(&self) -> Vec<TimeData> {
@@ -427,10 +443,10 @@ impl TimeData {
                 open_offset: self.open_offset[i..end].to_vec(),
                 end_offset: self.end_offset[i..end].to_vec(),
                 chamber_id: self.chamber_id[i..end].to_vec(),
+                id: self.id[i..end].to_vec(),
                 snow_depth: self.snow_depth[i..end].to_vec(),
-                instrument_serial: self.instrument_serial[i..end].to_vec(),
-                instrument_model: self.instrument_model[i..end].to_vec(),
-                project: self.project[i..end].to_vec(),
+                project_id: self.project_id[i..end].to_vec(),
+                instrument_id: self.instrument_id[i..end].to_vec(),
             };
             chunks.push(chunk);
         }
@@ -439,9 +455,8 @@ impl TimeData {
     }
     pub fn iter(
         &self,
-    ) -> impl Iterator<
-        Item = (&String, &DateTime<Tz>, &i64, &i64, &i64, &f64, &InstrumentType, &String, &String),
-    > {
+    ) -> impl Iterator<Item = (&String, &DateTime<Tz>, &i64, &i64, &i64, &f64, &i64, &i64, &i64)>
+    {
         self.chamber_id
             .iter()
             .zip(&self.start_time)
@@ -449,15 +464,15 @@ impl TimeData {
             .zip(&self.open_offset)
             .zip(&self.end_offset)
             .zip(&self.snow_depth)
-            .zip(&self.instrument_model)
-            .zip(&self.instrument_serial)
-            .zip(&self.project)
+            .zip(&self.id)
+            .zip(&self.project_id)
+            .zip(&self.instrument_id)
             .map(
                 |(
-                    (((((((chamber, start), close), open), end), snow_depth), model), serial),
-                    project,
+                    (((((((chamber, start), close), open), end), snow_depth), id), project_id),
+                    instrument_id,
                 )| {
-                    (chamber, start, close, open, end, snow_depth, model, serial, project)
+                    (chamber, start, close, open, end, snow_depth, id, instrument_id, project_id)
                 },
             )
     }
@@ -470,52 +485,40 @@ pub fn query_cycles(
 ) -> Result<TimeData> {
     println!("Querying cycles");
     let mut stmt = conn.prepare(
-        "SELECT chamber_id, start_time, close_offset, open_offset, end_offset, snow_depth, instrument_model, instrument_serial, project_id
-         FROM cycles
-         WHERE start_time BETWEEN ?1 AND ?2
-         AND project_id = ?3
-         ORDER BY start_time",
+        "SELECT c.chamber_id, c.start_time, c.close_offset, c.open_offset, c.end_offset, c.snow_depth, c.id, i.id AS instrument_id, p.id
+         FROM cycles c
+         LEFT JOIN instruments i ON c.instrument_link = i.id
+         LEFT JOIN projects p ON c.project_link = p.id
+         WHERE c.start_time BETWEEN ?1 AND ?2
+         AND c.project_link = ?3
+         ORDER BY c.start_time",
     )?;
 
     let mut times = TimeData::new();
     let cycle_iter =
-        stmt.query_map(params![start.timestamp(), end.timestamp(), project.name], |row| {
+        stmt.query_map(params![start.timestamp(), end.timestamp(), project.id.unwrap()], |row| {
             let chamber_id: String = row.get(0)?;
-            let start_timestamp: i64 = row.get(1)?; // Start time as UNIX timestamp
+            let start_timestamp: i64 = row.get(1)?;
             let close_offset: i64 = row.get(2)?;
             let open_offset: i64 = row.get(3)?;
             let end_offset: i64 = row.get(4)?;
             let snow_depth: f64 = row.get(5)?;
-            let model: String = row.get(6)?;
-            let serial: String = row.get(7)?;
-            let project_id: String = row.get(8)?;
-            let instrument_model = match model.parse::<InstrumentType>() {
-                Ok(val) => val,
-                Err(_) => {
-                    eprintln!("Unexpected invalid instrument type from DB: '{}'", model);
+            let id: i64 = row.get(6)?;
+            let instrument_id: i64 = row.get(7)?;
+            let project_id: i64 = row.get(8)?;
 
-                    return Err(rusqlite::Error::FromSqlConversionFailure(
-                        0,
-                        rusqlite::types::Type::Text,
-                        Box::new(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            format!("Unexpected invalid instrument type from DB: '{}'", model),
-                        )),
-                    ));
-                },
-            };
             let utc_start = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
             let start_time = utc_start.with_timezone(&project.tz);
+
             times.chamber_id.push(chamber_id);
             times.start_time.push(start_time);
             times.close_offset.push(close_offset);
             times.open_offset.push(open_offset);
             times.end_offset.push(end_offset);
+            times.id.push(id);
             times.snow_depth.push(snow_depth);
-
-            times.instrument_model.push(instrument_model);
-            times.instrument_serial.push(serial);
-            times.project.push(project_id);
+            times.project_id.push(project_id);
+            times.instrument_id.push(instrument_id);
 
             Ok(())
         })?;
@@ -541,6 +544,7 @@ pub async fn query_cycles_async(
         Ok(inner) => inner,
         Err(e) => {
             // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
+            println!("{}", e);
             Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
         },
     }
@@ -549,24 +553,25 @@ pub async fn query_cycles_async(
 pub fn insert_cycles(
     conn: &mut Connection,
     cycles: &TimeData,
-    project: &String,
+    project_id: &i64,
+    file_id: &i64,
 ) -> Result<(usize, usize)> {
     let close_vec = &cycles.close_offset;
     let open_vec = &cycles.open_offset;
     let end_vec = &cycles.end_offset;
     let chamber_vec = &cycles.chamber_id;
     let snow_vec = &cycles.snow_depth;
-    let model_vec = &cycles.instrument_model;
-    let serial_vec = &cycles.instrument_serial;
+    let ins_id_vec = &cycles.instrument_id;
+    let proj_id_vec = &cycles.project_id;
     let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
 
     if !(close_vec.len() == open_vec.len()
         && open_vec.len() == end_vec.len()
         && end_vec.len() == chamber_vec.len()
         && chamber_vec.len() == snow_vec.len()
-        && snow_vec.len() == model_vec.len()
-        && model_vec.len() == serial_vec.len()
-        && serial_vec.len() == start_vec.len())
+        && snow_vec.len() == ins_id_vec.len()
+        && ins_id_vec.len() == proj_id_vec.len()
+        && proj_id_vec.len() == start_vec.len())
     {
         return Err(rusqlite::Error::FromSqlConversionFailure(
             0,
@@ -575,14 +580,14 @@ pub fn insert_cycles(
                 std::io::ErrorKind::InvalidData,
                 format!(
                     "Mismatched vector lengths:\n\
-            close: {}, open: {}, end: {}, chamber: {}, snow: {}, model: {}, serial: {}, start: {}",
+            close: {}, open: {}, end: {}, chamber: {}, snow: {}, ins_id: {}, proj_id: {}, start: {}",
                     close_vec.len(),
                     open_vec.len(),
                     end_vec.len(),
                     chamber_vec.len(),
                     snow_vec.len(),
-                    model_vec.len(),
-                    serial_vec.len(),
+                    ins_id_vec.len(),
+                    proj_id_vec.len(),
                     start_vec.len()
                 ),
             )),
@@ -592,46 +597,95 @@ pub fn insert_cycles(
     let tx = conn.transaction()?;
     let mut duplicates = 0;
     let mut inserted = 0;
-    // let site_id = "oulanka_fen"; // Example site
 
-    //   Prepare the statements **before** the loop
-    let mut insert_stmt = tx.prepare(
-        "INSERT INTO cycles (start_time, close_offset, open_offset, end_offset, chamber_id, snow_depth, project_id, instrument_model, instrument_serial)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+    // Cache so we don't repeatedly look up the same instrument in the DB
+
+    // Prepare statements BEFORE the loop
+    // 1) Find instrument id for this project + model + serial
+
+    // 2) Insert new instrument for this project
+
+    // 3) Check for duplicate cycle
+    let mut check_stmt = tx.prepare(
+        "SELECT 1 FROM cycles
+         WHERE start_time = ?1
+           AND chamber_id = ?2
+           AND project_link = ?3",
     )?;
 
-    let mut check_stmt = tx.prepare(
-        "SELECT 1 FROM cycles WHERE start_time = ?1 AND chamber_id = ?2 AND project_id = ?3",
+    // 4) Insert new cycle row (note: instrument_link instead of model/serial)
+    let mut insert_cycle_stmt = tx.prepare(
+        "INSERT INTO cycles (
+            start_time,
+            close_offset,
+            open_offset,
+            end_offset,
+            chamber_id,
+            snow_depth,
+            project_link,
+            instrument_link,
+            file_link
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
     )?;
 
     for i in 0..start_vec.len() {
         // Check for duplicates first
-        let mut rows = check_stmt.query(params![start_vec[i], chamber_vec[i], project])?;
+        let mut rows = check_stmt.query(params![start_vec[i], chamber_vec[i], project_id])?;
         if rows.next()?.is_some() {
-            //   Duplicate found, skip insert
             duplicates += 1;
             println!(
                 "Warning: Duplicate record found for start_time: {}, chamber_id: {}, project_id: {}",
-                start_vec[i], chamber_vec[i], project
+                start_vec[i], chamber_vec[i], project_id
             );
-        } else {
-            //   Insert new record
-            insert_stmt.execute(params![
-                start_vec[i],
-                close_vec[i],
-                open_vec[i],
-                end_vec[i],
-                chamber_vec[i],
-                snow_vec[i],
-                project,
-                model_vec[i].to_string(),
-                serial_vec[i],
-            ])?;
-            inserted += 1;
+            continue;
         }
+
+        // Resolve instrument_id: from cache -> from DB -> insert new
+        let instrument = match get_instrument_by_project_and_id(&tx, *project_id, ins_id_vec[i])? {
+            Some(inst) => inst,
+            None => {
+                eprintln!("Instrument not found for project={} id={}", project_id, ins_id_vec[i]);
+                return Ok((0, 0)); // or whatever your function returns
+            },
+        };
+        // let key = (instrument.model.to_string(), instrument.serial.clone());
+
+        // let instrument_id = if let Some(id) = instrument_cache.get(&key) {
+        //     *id
+        // } else {
+        //     // Try to find in DB
+        //     let mut instr_rows =
+        //         get_instrument_id_stmt.query(params![project_id, &model_str, &serial_str])?;
+        //
+        //     let id = if let Some(row) = instr_rows.next()? {
+        //         row.get::<_, i64>(0)?
+        //     } else {
+        //         // Not found -> insert new instrument
+        //         insert_instrument_stmt.execute(params![&model_str, &serial_str, project_id])?;
+        //         tx.last_insert_rowid()
+        //     };
+        //
+        //     instrument_cache.insert(key, id);
+        //     id
+        // };
+
+        // Insert cycle row with instrument_link
+        insert_cycle_stmt.execute(params![
+            start_vec[i],
+            close_vec[i],
+            open_vec[i],
+            end_vec[i],
+            chamber_vec[i],
+            snow_vec[i],
+            project_id,
+            instrument.id,
+            file_id,
+        ])?;
+
+        inserted += 1;
     }
 
-    drop(insert_stmt);
+    drop(insert_cycle_stmt);
     drop(check_stmt);
 
     tx.commit()?;
@@ -668,6 +722,37 @@ pub fn try_all_formats(
     Err("Could not parse as a cycle file, check that your file is correct.".into())
 }
 
+pub fn get_instrument_by_project_and_id(
+    conn: &Connection,
+    project_link: i64,
+    instrument_id: i64,
+) -> Result<Option<Instrument>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, instrument_model, instrument_serial
+         FROM instruments
+         WHERE project_link = ?1 AND id = ?2",
+    )?;
+
+    let row_result = stmt.query_row(params![project_link, instrument_id], |row| {
+        let id: i64 = row.get(0)?;
+        let model_str: String = row.get(1)?;
+        let serial: String = row.get(2)?;
+
+        // Use your FromStr implementation for InstrumentType
+        let model = model_str.parse::<InstrumentType>().map_err(|e| {
+            rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
+        })?;
+
+        Ok(Instrument { id: Some(id), model, serial })
+    });
+
+    match row_result {
+        Ok(inst) => Ok(Some(inst)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -702,7 +787,7 @@ CH2,1250,0";
         assert!(result.is_ok(), "Expected successful parsing");
         let data = result.unwrap();
         assert_eq!(data.chamber_id.len(), 2);
-        assert_eq!(data.project[0], "Untitled Project");
+        assert_eq!(data.project_id[0], 0);
     }
 
     #[test]

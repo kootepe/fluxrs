@@ -2885,23 +2885,50 @@ pub fn upload_cycle_data_async(
             )));
             continue;
         }
+        let project_id = project.id.unwrap();
+        let file_name = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => {
+                eprintln!("Skipping path with invalid filename: {:?}", path);
+                // Optionally notify UI:
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                    path.to_string_lossy().to_string(),
+                    "Invalid file name (non-UTF8)".to_string(),
+                )));
+                return (); // or `continue` if this is in a loop
+            },
+        };
+
+        let file_id = match get_or_insert_data_file(conn, DataType::Cycle, file_name, project_id) {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
+                // Optionally notify UI
+                let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
+                    "File '{}' skipped: {}",
+                    file_name, e
+                ))));
+                continue; // or return if not inside a loop
+            },
+        };
         match try_all_formats(path, &tz, project, progress_sender.clone()) {
             //   Pass `path` directly
             Ok((res, _)) => {
                 if res.validate_lengths() {
-                    all_times.chamber_id.extend(res.chamber_id);
-                    all_times.start_time.extend(res.start_time);
-                    all_times.close_offset.extend(res.close_offset);
-                    all_times.open_offset.extend(res.open_offset);
-                    all_times.end_offset.extend(res.end_offset);
-                    all_times.snow_depth.extend(res.snow_depth);
-                    all_times.instrument_model.extend(res.instrument_model);
-                    all_times.instrument_serial.extend(res.instrument_serial);
-                    all_times.project.extend(res.project);
-
                     let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
                         path.to_string_lossy().to_string(),
                     )));
+                    match insert_cycles(conn, &res, &project.id.unwrap(), &file_id) {
+                        Ok((row_count, duplicates)) => {
+                            let _ = progress_sender.send(ProcessEvent::Insert(
+                                InsertEvent::OkSkip(row_count, duplicates),
+                            ));
+                        },
+                        Err(e) => {
+                            let _ = progress_sender
+                                .send(ProcessEvent::Insert(InsertEvent::Fail(e.to_string())));
+                        },
+                    }
                 } else {
                     let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::FileFail(
                         path.to_string_lossy().to_string(),
@@ -2919,15 +2946,6 @@ pub fn upload_cycle_data_async(
         }
     }
     let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
-    match insert_cycles(conn, &all_times, &project.name) {
-        Ok((row_count, duplicates)) => {
-            let _ = progress_sender
-                .send(ProcessEvent::Insert(InsertEvent::OkSkip(row_count, duplicates)));
-        },
-        Err(e) => {
-            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(e.to_string())));
-        },
-    }
 }
 
 pub fn upload_meteo_data_async(
