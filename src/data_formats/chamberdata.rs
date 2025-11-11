@@ -143,14 +143,14 @@ impl fmt::Display for ChamberShape {
         }
     }
 }
-pub fn query_chambers(conn: &Connection, project: String) -> Result<HashMap<String, ChamberShape>> {
+pub fn query_chambers(conn: &Connection, project: i64) -> Result<HashMap<String, ChamberShape>> {
     println!("Querying chamber data");
     let mut chamber_map: HashMap<String, ChamberShape> = HashMap::new();
 
     let mut stmt = conn.prepare(
         "SELECT chamber_id, shape, diameter, width, length, height
          FROM chamber_metadata
-         WHERE project_id = ?1",
+         WHERE project_link = ?1",
     )?;
 
     let rows = stmt.query_map(params![project], |row| {
@@ -196,7 +196,7 @@ pub async fn query_chamber_async(
 ) -> Result<HashMap<String, ChamberShape>> {
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
-        query_chambers(&conn, project.name)
+        query_chambers(&conn, project.id.unwrap())
     })
     .await;
     match result {
