@@ -77,25 +77,45 @@ impl Project {
             conn = Connection::open(db_path.unwrap()).ok()?;
         }
 
-        let result: Result<(String, String, String, usize, f64, f64, u8, String), _> = conn.query_row(
-            "SELECT project_id, instrument_serial, instrument_model, main_gas, deadband, min_calc_len, mode, tz FROM projects WHERE project_id = ?",
-            [name],
-            |row| Ok((
-                row.get(0)?, // project_id
-                row.get(1)?, // instrument_serial
-                row.get(2)?, // instrument_model
-                row.get(3)?, // main_gas
-                row.get(4)?, // deadband
-                row.get(5)?, // min_calc_len
-                row.get(6)?, // mode
-                row.get(7)?, // tz
-            )),
-        );
+        let result: Result<(i64, String, String, String, i64, usize, f64, f64, u8, String), _> =
+            conn.query_row(
+                "SELECT
+                    p.id,
+                    p.project_name,
+                    i.instrument_serial,
+                    i.instrument_model,
+                    i.id,
+                    p.main_gas,
+                    p.deadband,
+                    p.min_calc_len,
+                    p.mode,
+                    p.tz
+                FROM projects p
+                LEFT JOIN instruments i on i.id = p.main_instrument_link
+                WHERE p.project_name = ?",
+                [name],
+                |row| {
+                    Ok((
+                        row.get(0)?, // id
+                        row.get(1)?, // project_name
+                        row.get(2)?, // instrument_serial
+                        row.get(3)?, // instrument_model
+                        row.get(4)?, // instrument id
+                        row.get(5)?, // main_gas
+                        row.get(6)?, // deadband
+                        row.get(7)?, // min_calc_len
+                        row.get(8)?, // mode
+                        row.get(9)?, // tz
+                    ))
+                },
+            );
 
         let (
-            project_id,
+            id,
+            project_name,
             instrument_serial,
             instrument_string,
+            instrument_id,
             gas_i,
             deadband,
             min_calc_len,
@@ -111,18 +131,23 @@ impl Project {
         // let instrument =
         //     instrument_string.parse::<InstrumentType>().expect("Invalid instrument type");
 
-        let instrument = match instrument_string.parse::<InstrumentType>() {
+        let instrumenttype = match instrument_string.parse::<InstrumentType>() {
             Ok(val) => val,
             Err(_) => {
                 eprintln!("Unexpected invalid instrument type from DB: '{}'", instrument_string);
                 process::exit(1);
             },
         };
+        let instrument = Instrument {
+            model: instrumenttype,
+            serial: instrument_serial,
+            id: Some(instrument_id),
+        };
 
         Some(Project {
-            name: project_id,
+            id: Some(id),
+            name: project_name,
             instrument,
-            instrument_serial,
             main_gas,
             deadband,
             min_calc_len,
@@ -136,30 +161,57 @@ impl Project {
         project: &Project,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let db_path = db_path.unwrap_or_else(|| "fluxrs.db".to_string());
-        let conn = Connection::open(db_path)?;
+        let mut conn = Connection::open(db_path)?;
+        let tx = conn.transaction()?;
         // Check if project name already exists
-        let mut stmt = conn.prepare("SELECT 1 FROM projects WHERE project_id = ?1")?;
-        let mut rows = stmt.query(params![project.name])?;
 
-        if rows.next()?.is_some() {
+        // Check if project name already exists
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM projects WHERE project_name = ?1)",
+            rusqlite::params![project.name],
+            |row| row.get(0),
+        )?;
+        if exists {
             return Err("Project already exists.".into());
         }
-        conn.execute(
+        tx.execute("UPDATE projects SET current = 0 WHERE current = 1", [])?;
+
+        tx.execute(
             "INSERT OR IGNORE INTO projects (
-                project_id, instrument_model, instrument_serial, main_gas, deadband, min_calc_len, mode, tz, current
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                project_name, main_gas, deadband, min_calc_len, mode, tz, current
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 project.name,
-                project.instrument.to_string(),
-                project.instrument_serial,
                 project.main_gas.unwrap().as_int(),
                 project.deadband,
                 project.min_calc_len,
                 project.mode.as_int(),
                 project.tz.to_string(),
-                0,
+                1,
             ],
         )?;
+
+        let project_rowid = tx.last_insert_rowid(); // i64
+
+        tx.execute(
+            "INSERT INTO instruments (instrument_model, instrument_serial, project_link)
+         VALUES (?1, ?2, ?3)",
+            params![project.instrument.model.to_string(), project.instrument.serial, project_rowid],
+        )?;
+        // DB id of the new instrument
+        let instrument_id = tx.last_insert_rowid();
+        // If your Project has a field for this, set it:
+        // project.instrument_link = Some(instrument_id);
+
+        // Now update the project to point at this instrument
+        tx.execute(
+            "UPDATE projects
+         SET main_instrument_link = ?1
+         WHERE id = ?2",
+            params![instrument_id, project_rowid],
+        )?;
+
+        tx.commit()?;
 
         Ok(())
     }
