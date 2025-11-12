@@ -613,7 +613,7 @@ impl ValidationApp {
                             |ui| {
                                 ui.label("Gas");
                                 ui.label(format!("Flux {}", self.flux_unit));
-                                ui.label("Adj R²");
+                                ui.label("R²");
                                 ui.label("CV");
                                 ui.label("Sigma");
                                 ui.label("RMSE");
@@ -632,7 +632,7 @@ impl ValidationApp {
                                         "N/A".to_string()
                                     };
                                     let r2 = cycle
-                                        .get_adjusted_r2(gas.clone(), *model)
+                                        .get_r2(gas.clone(), *model)
                                         .map_or("N/A".to_string(), |v| format!("{:.6}", v));
                                     let cv = cycle
                                         .get_cv(gas.clone(), *model)

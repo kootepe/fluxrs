@@ -1572,6 +1572,7 @@ impl ValidationApp {
 
         if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
             let drag_delta = plot_ui.pointer_coordinate_drag_delta();
+
             let primary_pressed =
                 plot_ui.ctx().input(|i| i.pointer.button_pressed(PointerButton::Primary));
             let primary_down =
