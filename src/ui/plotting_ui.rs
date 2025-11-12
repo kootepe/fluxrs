@@ -823,6 +823,34 @@ impl ValidationApp {
             0.0
         }
     }
+    pub fn drag_left_to(&mut self, key: &GasKey, new_start: f64) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.drag_left_to(key, new_start)
+        }
+    }
+    pub fn drag_right_to(&mut self, key: &GasKey, new_end: f64) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.drag_right_to(key, new_end)
+        }
+    }
+    pub fn drag_main(&mut self, key: &GasKey, dx_steps: f64) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.drag_main(key, dx_steps)
+        }
+    }
+    pub fn stick_calc_to_range_start(&mut self, key: &GasKey) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.stick_calc_to_range_start(key)
+        }
+    }
+    pub fn bounds_for(&self, key: &GasKey) -> (f64, f64) {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.bounds_for(key)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
     pub fn get_deadband(&self, key: &GasKey) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             *cycle.deadbands.get(key).unwrap_or(&0.0)
@@ -1638,52 +1666,64 @@ impl ValidationApp {
             let can_move = self.calc_area_can_move(key);
             let zoomed_dx = dx * plot_ui.transform().dpos_dvalue_x();
 
-            // Match active drag
             match self.dragging {
                 Adjuster::Left => {
                     if inside_left && can_move && dragged {
                         self.current_delta += dx;
-                        self.handle_drag_polygon(plot_ui, true, key);
+                        let steps = self.current_delta.trunc();
+                        self.current_delta -= steps;
+                        if steps != 0.0 {
+                            let (min_b, max_b) = self.bounds_for(key);
+                            let end = self.get_calc_end(key);
+                            let new_start = self.get_calc_start(key) + steps;
+                            let (s, e) = clamp_resize_left(
+                                (min_b, max_b),
+                                new_start,
+                                end,
+                                self.get_min_calc_area_len(),
+                            );
+                            self.set_calc_start(key, s);
+                            self.set_calc_end(key, e);
+                        }
                     }
                 },
 
                 Adjuster::Right => {
-                    // println!("Dragging right");
                     if inside_right && can_move && dragged {
                         self.current_delta += dx;
-                        self.handle_drag_polygon(plot_ui, false, key);
+                        let steps = self.current_delta.trunc();
+                        self.current_delta -= steps;
+                        if steps != 0.0 {
+                            let (min_b, max_b) = self.bounds_for(key);
+                            let start = self.get_calc_start(key);
+                            let new_end = self.get_calc_end(key) + steps;
+                            let (s, e) = clamp_resize_right(
+                                (min_b, max_b),
+                                start,
+                                new_end,
+                                self.get_min_calc_area_len(),
+                            );
+                            self.set_calc_start(key, s);
+                            self.set_calc_end(key, e);
+                        }
                     }
                 },
 
                 Adjuster::Main => {
                     if inside_main && dragged {
                         self.current_delta += dx;
-                        let full_steps = self.current_delta.trunc();
-                        self.current_delta -= full_steps;
-
-                        if full_steps != 0.0 {
-                            let calc_start = self.get_calc_start(key);
-                            let calc_end = self.get_calc_end(key);
-                            let measurement_start =
-                                self.get_measurement_start() + self.get_deadband(key);
-                            let measurement_end = self.get_measurement_end();
-
-                            let mut clamped = full_steps;
-
-                            if clamped > 0.0 && calc_end + clamped > measurement_end {
-                                clamped = measurement_end - calc_end;
-                            } else if clamped < 0.0 && calc_start + clamped < measurement_start {
-                                clamped = measurement_start - calc_start;
-                            }
-
-                            if clamped.abs() > f64::EPSILON {
-                                self.increment_calc_start(key, clamped);
-                                self.increment_calc_end(key, clamped);
-                            }
+                        let steps = self.current_delta.trunc();
+                        self.current_delta -= steps;
+                        if steps != 0.0 {
+                            let (min_b, max_b) = self.bounds_for(key);
+                            let s0 = self.get_calc_start(key) + steps;
+                            let e0 = self.get_calc_end(key) + steps;
+                            let (s, e) = clamp_translate((min_b, max_b), s0, e0);
+                            self.set_calc_start(key, s);
+                            self.set_calc_end(key, e);
                         }
                     }
                 },
-
                 Adjuster::CloseLag => {
                     if inside_close_lag && dragged {
                         let delta = if self.zoom_to_measurement == 2 {
@@ -1703,6 +1743,10 @@ impl ValidationApp {
 
                         if is_moving && (can_move || can_move_left_after_adjust) {
                             self.increment_close_lag(delta);
+
+                            // Anchor calc window to new start of range (stick-to-beginning)
+                            self.stick_calc_to_range_start(key);
+
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
@@ -1726,12 +1770,17 @@ impl ValidationApp {
 
                         if delta != 0.0 {
                             self.increment_open_lag(delta);
+
+                            // Anchor calc window to new start of range (stick-to-beginning)
+                            self.stick_calc_to_range_start(key);
+
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
                         }
                     }
                 },
+
                 Adjuster::None => {},
             }
 
@@ -1869,74 +1918,6 @@ impl ValidationApp {
             },
         );
     }
-    // pub fn render_legend(&mut self, ui: &mut Ui, _traces: &HashMap<String, Color32>) {
-    //     // let legend_width = 75.0;
-    //     let legend_width = ui.available_width();
-    //     let color_box_size = Vec2::new(16.0, 16.0);
-    //
-    //     let mut sorted_traces: Vec<String> = self.all_traces.iter().cloned().collect();
-    //
-    //     // Sort numerically
-    //     sorted_traces.sort_by(|a, b| {
-    //         let num_a = a.parse::<f64>().ok();
-    //         let num_b = b.parse::<f64>().ok();
-    //         match (num_a, num_b) {
-    //             (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-    //             (Some(_), None) => std::cmp::Ordering::Less,
-    //             (None, Some(_)) => std::cmp::Ordering::Greater,
-    //             (None, None) => a.cmp(b),
-    //         }
-    //     });
-    //
-    //     ui.allocate_ui_with_layout(
-    //         Vec2::new(legend_width, ui.available_height()),
-    //         Layout::top_down(egui::Align::LEFT),
-    //         |ui| {
-    //             ui.add(Label::new("Legend").selectable(false));
-    //
-    //             if self.visible_traces.is_empty() {
-    //                 self.visible_traces =
-    //                     sorted_traces.clone().into_iter().map(|s| (s, true)).collect();
-    //             }
-    //
-    //             for chamber_id in &sorted_traces {
-    //                 let mut visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-    //
-    //                 ui.horizontal(|ui| {
-    //                     let color = *self.chamber_colors.get(chamber_id).unwrap();
-    //
-    //                     let response = ui.checkbox(&mut visible, "");
-    //
-    //                     // **Single Click: Toggle Visibility Normally**
-    //                     if response.clicked() {
-    //                         self.toggle_visibility(chamber_id);
-    //                         self.update_plots();
-    //                     }
-    //
-    //                     // **Double Click: Enable Only This Trace, Disable Others**
-    //                     if response.double_clicked() {
-    //                         self.visible_traces.iter_mut().for_each(|(_, v)| *v = false); // Disable all
-    //                         self.visible_traces.insert(chamber_id.clone(), true);
-    //                         // Enable only this one
-    //                         self.update_plots();
-    //                     }
-    //
-    //                     let (rect, _response) =
-    //                         ui.allocate_at_least(color_box_size, egui::Sense::hover());
-    //                     ui.painter().rect_filled(rect, 2.0, color);
-    //                     ui.label(chamber_id);
-    //                 });
-    //             }
-    //
-    //             if ui.button("Select All").clicked() {
-    //                 for key in &sorted_traces {
-    //                     self.visible_traces.insert(key.clone(), true);
-    //                 }
-    //                 self.update_plots();
-    //             }
-    //         },
-    //     );
-    // }
     pub fn toggle_visibility(&mut self, chamber_id: &String) {
         // Count currently visible traces
         let visible_count = self.visible_traces.values().filter(|&&v| v).count();
@@ -2258,4 +2239,39 @@ pub fn to_round(val: f64) -> f64 {
     } else {
         val.floor()
     }
+}
+// Move both ends together (Main)
+fn clamp_translate((min_b, max_b): (f64, f64), mut s: f64, mut e: f64) -> (f64, f64) {
+    if s < min_b {
+        let d = min_b - s;
+        s += d;
+        e += d;
+    }
+    if e > max_b {
+        let d = e - max_b;
+        s -= d;
+        e -= d;
+    }
+    (s, e)
+}
+
+// Resize left: pin end, clamp start into [min_b, end]
+fn clamp_resize_left((min_b, _): (f64, f64), new_start: f64, end: f64, min_len: f64) -> (f64, f64) {
+    // desired start cannot go below min bound
+    let mut s = new_start.max(min_b);
+    // enforce min length by NOT moving end; s cannot exceed end - min_len
+    s = s.min(end - min_len);
+    (s, end)
+}
+
+// Resize right: pin start, clamp end into [start, max_b]
+fn clamp_resize_right(
+    (_, max_b): (f64, f64),
+    start: f64,
+    new_end: f64,
+    min_len: f64,
+) -> (f64, f64) {
+    let mut e = new_end.min(max_b);
+    e = e.max(start + min_len);
+    (start, e)
 }
