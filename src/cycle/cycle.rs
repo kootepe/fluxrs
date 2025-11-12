@@ -588,58 +588,163 @@ impl Cycle {
         }
     }
     fn adjust_calc_range_all(&mut self) {
-        for key in self.gases.iter().clone() {
-            let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
+        for key in self.gases.iter().cloned() {
+            let range_min =
+                self.get_adjusted_close() + self.deadbands.get(&key).copied().unwrap_or(0.0);
             let range_max = self.get_adjusted_open();
-            let min_range = self.min_calc_len;
-            let mut start = *self.calc_range_start.get(key).unwrap_or(&range_min);
-            let mut end = *self.calc_range_end.get(key).unwrap_or(&range_max);
 
-            let available_range = range_max - range_min;
-            // Clamp to bounds
-            if start < range_min {
-                start = range_min;
-            }
-            if end > range_max {
-                end = range_max;
-            }
+            // Get current calc interval (fall back to full available)
+            let start0 = *self.calc_range_start.get(&key).unwrap_or(&range_min);
+            let end0 = *self.calc_range_end.get(&key).unwrap_or(&range_max);
 
-            // this seems it should also work
-            // if available_range < min_range && range_max == end {
-            //     self.close_lag_s += available_range - min_range
-            // }
-
-            // setting close_lag_s before this loop causes it go over bounds at times, the
-            // available range should never be smaller than the minimum range of the measurement
-            if available_range < min_range {
-                self.close_lag_s += available_range - min_range
-            }
-            // Ensure min range
-            let current_range = end - start;
-            // if available_range > current_range
-            if current_range < min_range {
-                let needed = min_range - current_range;
-                let half = needed / 2.0;
-
-                let new_start = (start - half).max(range_min);
-                let new_end = (end + half).min(range_max);
-
-                if new_end - new_start >= min_range {
-                    start = new_start;
-                    end = new_end;
-                } else {
-                    end = start + min_range;
-                    if end > range_max {
-                        start = range_max - min_range;
-                        end = range_max;
-                    }
-                }
-            }
+            let (start, end) = self.adjust_interval_to_bounds(
+                start0,
+                end0,
+                range_min,
+                range_max,
+                self.min_calc_len,
+            );
 
             self.calc_range_start.insert(key.clone(), start);
-            self.calc_range_end.insert(key.clone(), end);
+            self.calc_range_end.insert(key, end);
         }
     }
+
+    fn adjust_interval_to_bounds(
+        &self,
+        mut start: f64,
+        mut end: f64,
+        range_min: f64,
+        range_max: f64,
+        min_range: f64,
+    ) -> (f64, f64) {
+        // Normalize & basics
+        if end < start {
+            std::mem::swap(&mut start, &mut end);
+        }
+        let mut L = (end - start).max(0.0);
+        let available = (range_max - range_min).max(0.0);
+
+        // Case A: need at least min_range
+        if L < min_range {
+            let target = min_range.min(available);
+            if target <= f64::EPSILON {
+                return (range_min, range_min);
+            }
+
+            // Try to keep center if possible
+            let mut center =
+                if L > f64::EPSILON { 0.5 * (start + end) } else { 0.5 * (range_min + range_max) };
+            let half = 0.5 * target;
+
+            // Clamp center to keep [center - half, center + half] inside bounds
+            center = center.clamp(range_min + half, range_max - half);
+
+            let new_start = center - half;
+            let new_end = center + half;
+            return (new_start, new_end);
+        }
+
+        // Case B: keep length if possible
+        let mut keep_len = L.min(available);
+        if keep_len <= f64::EPSILON {
+            return (range_min, range_min);
+        }
+
+        // First, try to keep the same start/end but clamp into bounds while preserving length.
+        // Shift right if we overlap the new min.
+        if start < range_min {
+            start = range_min;
+            end = start + keep_len;
+        }
+        // Shift left if we overlap the new max.
+        if end > range_max {
+            end = range_max;
+            start = end - keep_len;
+        }
+
+        // If length no longer fits (because available < original L), shrink from the side we just clamped.
+        // Prefer keeping the interval adjacent to its last position:
+        if (end - start) < keep_len - f64::EPSILON {
+            keep_len = available; // must shrink
+                                  // Anchor to whichever side was touching bounds:
+            if start <= range_min + f64::EPSILON {
+                // anchored to left
+                start = range_min;
+                end = start + keep_len;
+            } else if end >= range_max - f64::EPSILON {
+                // anchored to right
+                end = range_max;
+                start = end - keep_len;
+            } else {
+                // otherwise re-center
+                let half = 0.5 * keep_len;
+                let mut center = 0.5 * (start + end);
+                center = center.clamp(range_min + half, range_max - half);
+                start = center - half;
+                end = center + half;
+            }
+        }
+
+        // Final clamps (numerical safety)
+        start = start.clamp(range_min, range_max - keep_len);
+        end = start + keep_len;
+
+        (start, end)
+    }
+    // fn adjust_calc_range_all(&mut self) {
+    //     for key in self.gases.iter().clone() {
+    //         let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
+    //         let range_max = self.get_adjusted_open();
+    //         let min_range = self.min_calc_len;
+    //         let mut start = *self.calc_range_start.get(key).unwrap_or(&range_min);
+    //         let mut end = *self.calc_range_end.get(key).unwrap_or(&range_max);
+    //
+    //         let available_range = range_max - range_min;
+    //         // Clamp to bounds
+    //         if start < range_min {
+    //             start = range_min;
+    //         }
+    //         if end > range_max {
+    //             end = range_max;
+    //         }
+    //
+    //         // this seems it should also work
+    //         // if available_range < min_range && range_max == end {
+    //         //     self.close_lag_s += available_range - min_range
+    //         // }
+    //
+    //         // setting close_lag_s before this loop causes it go over bounds at times, the
+    //         // available range should never be smaller than the minimum range of the measurement
+    //         if available_range < min_range {
+    //             self.close_lag_s += available_range - min_range
+    //         }
+    //         // Ensure min range
+    //         let current_range = end - start;
+    //         // if available_range > current_range
+    //         if current_range < min_range {
+    //             let needed = min_range - current_range;
+    //             let half = needed / 2.0;
+    //
+    //             let new_start = (start - half).max(range_min);
+    //             let new_end = (end + half).min(range_max);
+    //
+    //             if new_end - new_start >= min_range {
+    //                 start = new_start;
+    //                 end = new_end;
+    //             } else {
+    //                 end = start + min_range;
+    //                 if end > range_max {
+    //                     start = range_max - min_range;
+    //                     end = range_max;
+    //                 }
+    //             }
+    //         }
+    //
+    //         self.calc_range_start.insert(key.clone(), start);
+    //         self.calc_range_end.insert(key.clone(), end);
+    //     }
+    // }
     pub fn set_measurement_start(&mut self, value: f64) {
         self.measurement_range_start = value;
     }
