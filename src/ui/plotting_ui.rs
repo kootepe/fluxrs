@@ -42,6 +42,9 @@ impl ValidationApp {
     pub fn is_lin_rmse_enabled(&self, key: &GasKey) -> bool {
         self.enabled_lin_rmse.contains(key)
     }
+    pub fn is_lin_cv_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_lin_cv.contains(key)
+    }
     pub fn is_lin_sigma_enabled(&self, key: &GasKey) -> bool {
         self.enabled_lin_sigma.contains(key)
     }
@@ -54,6 +57,9 @@ impl ValidationApp {
     pub fn is_poly_rmse_enabled(&self, key: &GasKey) -> bool {
         self.enabled_poly_rmse.contains(key)
     }
+    pub fn is_poly_cv_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_poly_cv.contains(key)
+    }
     pub fn is_poly_sigma_enabled(&self, key: &GasKey) -> bool {
         self.enabled_poly_sigma.contains(key)
     }
@@ -65,6 +71,9 @@ impl ValidationApp {
     }
     pub fn is_roblin_rmse_enabled(&self, key: &GasKey) -> bool {
         self.enabled_roblin_rmse.contains(key)
+    }
+    pub fn is_roblin_cv_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_roblin_cv.contains(key)
     }
     pub fn is_roblin_sigma_enabled(&self, key: &GasKey) -> bool {
         self.enabled_roblin_sigma.contains(key)

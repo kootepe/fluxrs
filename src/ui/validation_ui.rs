@@ -255,16 +255,19 @@ pub struct ValidationApp {
     pub enabled_lin_p_val: BTreeSet<GasKey>,
     pub enabled_lin_sigma: BTreeSet<GasKey>,
     pub enabled_lin_rmse: BTreeSet<GasKey>,
+    pub enabled_lin_cv: BTreeSet<GasKey>,
     pub enabled_lin_aic: BTreeSet<GasKey>,
 
     pub enabled_roblin_adj_r2: BTreeSet<GasKey>,
     pub enabled_roblin_sigma: BTreeSet<GasKey>,
     pub enabled_roblin_rmse: BTreeSet<GasKey>,
+    pub enabled_roblin_cv: BTreeSet<GasKey>,
     pub enabled_roblin_aic: BTreeSet<GasKey>,
     //
     pub enabled_poly_sigma: BTreeSet<GasKey>,
     pub enabled_poly_adj_r2: BTreeSet<GasKey>,
     pub enabled_poly_rmse: BTreeSet<GasKey>,
+    pub enabled_poly_cv: BTreeSet<GasKey>,
     pub enabled_poly_aic: BTreeSet<GasKey>,
 
     // pub enabled_aic_diff: BTreeSet<GasKey>,
@@ -364,16 +367,19 @@ impl Default for ValidationApp {
             enabled_lin_adj_r2: BTreeSet::new(),
             enabled_lin_aic: BTreeSet::new(),
             enabled_lin_rmse: BTreeSet::new(),
+            enabled_lin_cv: BTreeSet::new(),
             enabled_roblin_fluxes: BTreeSet::new(),
             enabled_roblin_sigma: BTreeSet::new(),
             enabled_roblin_adj_r2: BTreeSet::new(),
             enabled_roblin_aic: BTreeSet::new(),
             enabled_roblin_rmse: BTreeSet::new(),
+            enabled_roblin_cv: BTreeSet::new(),
             enabled_poly_fluxes: BTreeSet::new(),
             enabled_poly_sigma: BTreeSet::new(),
             enabled_poly_adj_r2: BTreeSet::new(),
             enabled_poly_aic: BTreeSet::new(),
             enabled_poly_rmse: BTreeSet::new(),
+            enabled_poly_cv: BTreeSet::new(),
             // enabled_aic_diff: BTreeSet::new(),
             enabled_measurement_rs: BTreeSet::new(),
             enabled_calc_r: BTreeSet::new(),
@@ -608,7 +614,7 @@ impl ValidationApp {
                                 ui.label("Gas");
                                 ui.label(format!("Flux {}", self.flux_unit));
                                 ui.label("Adj R²");
-                                ui.label("p-value");
+                                ui.label("CV");
                                 ui.label("Sigma");
                                 ui.label("RMSE");
                                 ui.label("AIC");
@@ -628,9 +634,9 @@ impl ValidationApp {
                                     let r2 = cycle
                                         .get_adjusted_r2(gas.clone(), *model)
                                         .map_or("N/A".to_string(), |v| format!("{:.6}", v));
-                                    let p_val = cycle
-                                        .get_p_value(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+                                    let cv = cycle
+                                        .get_cv(gas.clone(), *model)
+                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v * 100.));
                                     let sigma = cycle
                                         .get_sigma(gas.clone(), *model)
                                         .map_or("N/A".to_string(), |v| format!("{:.6}", v));
@@ -644,7 +650,7 @@ impl ValidationApp {
                                     ui.label(format!("{}", gas.gas_type));
                                     ui.label(flux);
                                     ui.label(r2);
-                                    ui.label(p_val);
+                                    ui.label(cv);
                                     ui.label(sigma);
                                     ui.label(rmse);
                                     ui.label(aic);
@@ -1561,6 +1567,36 @@ impl ValidationApp {
                         }
                     });
                 }
+                if !self.enabled_lin_cv.is_empty() {
+                    ui.vertical(|ui| {
+                        for key in &self.enabled_lin_cv.clone() {
+                            let lin_cv_plot = init_attribute_plot(
+                                "Lin cv".to_owned(),
+                                key,
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = lin_cv_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .and_then(|model| model.model.cv())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Linear.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
                 if !self.enabled_poly_adj_r2.is_empty() {
                     ui.vertical(|ui| {
                         for key in &self.enabled_poly_adj_r2.clone() {
@@ -1681,6 +1717,36 @@ impl ValidationApp {
                         }
                     });
                 }
+                if !self.enabled_poly_cv.is_empty() {
+                    ui.vertical(|ui| {
+                        for key in &self.enabled_poly_cv.clone() {
+                            let poly_cv_plot = init_attribute_plot(
+                                "Poly cv".to_owned(),
+                                key,
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = poly_cv_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .and_then(|model| model.model.cv())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Poly.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
                 if !self.enabled_roblin_adj_r2.is_empty() {
                     ui.vertical(|ui| {
                         for key in &self.enabled_roblin_adj_r2.clone() {
@@ -1789,6 +1855,36 @@ impl ValidationApp {
                                             .fluxes
                                             .get(&(key.clone(), FluxKind::RobLin))
                                             .and_then(|model| model.model.rmse())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
+                if !self.enabled_roblin_cv.is_empty() {
+                    ui.vertical(|ui| {
+                        for key in &self.enabled_roblin_cv.clone() {
+                            let roblin_cv_plot = init_attribute_plot(
+                                "RobLin cv".to_owned(),
+                                key,
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = roblin_cv_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .and_then(|model| model.model.cv())
                                             .unwrap_or(0.0)
                                     },
                                     &format!("Flux ({})", FluxKind::RobLin.label()),
@@ -2193,6 +2289,8 @@ impl ValidationApp {
                 gases.iter().map(|gas| (gas.clone(), self.is_lin_sigma_enabled(gas))).collect();
             let mut lin_rmse_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_lin_rmse_enabled(gas))).collect();
+            let mut lin_cv_gases: Vec<(GasKey, bool)> =
+                gases.iter().map(|gas| (gas.clone(), self.is_lin_cv_enabled(gas))).collect();
             let mut lin_aic_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_lin_aic_enabled(gas))).collect();
 
@@ -2328,6 +2426,31 @@ impl ValidationApp {
                 ui.group(|ui| {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
+                        ui.label("CV");
+                        for (gas, mut is_enabled) in &mut lin_cv_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_lin_cv.insert(gas.clone());
+                                } else {
+                                    self.enabled_lin_cv.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+                ui.group(|ui| {
+                    ui.set_min_width(min_width); // Enforce group width here
+                    ui.vertical(|ui| {
                         ui.label("p-value");
                         for (gas, mut is_enabled) in &mut lin_p_val_gases {
                             if ui
@@ -2367,6 +2490,8 @@ impl ValidationApp {
                 gases.iter().map(|gas| (gas.clone(), self.is_roblin_sigma_enabled(gas))).collect();
             let mut roblin_rmse_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_roblin_rmse_enabled(gas))).collect();
+            let mut roblin_cv_gases: Vec<(GasKey, bool)> =
+                gases.iter().map(|gas| (gas.clone(), self.is_roblin_cv_enabled(gas))).collect();
             let mut roblin_aic_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_roblin_aic_enabled(gas))).collect();
 
@@ -2498,6 +2623,31 @@ impl ValidationApp {
                         }
                     });
                 });
+                ui.group(|ui| {
+                    ui.set_min_width(min_width); // Enforce group width here
+                    ui.vertical(|ui| {
+                        ui.label("CV");
+                        for (gas, mut is_enabled) in &mut roblin_cv_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_roblin_cv.insert(gas.clone());
+                                } else {
+                                    self.enabled_roblin_cv.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
             });
         } else {
             ui.label("No cycles.");
@@ -2515,6 +2665,8 @@ impl ValidationApp {
                 gases.iter().map(|gas| (gas.clone(), self.is_poly_sigma_enabled(gas))).collect();
             let mut poly_rmse_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_poly_rmse_enabled(gas))).collect();
+            let mut poly_cv_gases: Vec<(GasKey, bool)> =
+                gases.iter().map(|gas| (gas.clone(), self.is_poly_cv_enabled(gas))).collect();
             let mut poly_aic_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|gas| (gas.clone(), self.is_poly_aic_enabled(gas))).collect();
 
@@ -2641,6 +2793,31 @@ impl ValidationApp {
                                     self.enabled_poly_rmse.insert(gas.clone());
                                 } else {
                                     self.enabled_poly_rmse.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+                ui.group(|ui| {
+                    ui.set_min_width(min_width); // Enforce group width here
+                    ui.vertical(|ui| {
+                        ui.label("CV");
+                        for (gas, mut is_enabled) in &mut poly_cv_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_poly_cv.insert(gas.clone());
+                                } else {
+                                    self.enabled_poly_cv.remove(gas);
                                 }
                             }
                         }

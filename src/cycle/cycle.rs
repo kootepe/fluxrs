@@ -264,6 +264,9 @@ impl Cycle {
     pub fn get_rmse(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
         self.fluxes.get(&(key, kind)).and_then(|m| m.model.rmse())
     }
+    pub fn get_cv(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(key, kind)).and_then(|m| m.model.cv())
+    }
 
     pub fn get_model(&self, key: GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
         self.fluxes.get(&(key, kind)).map(|b| b.model.as_ref())
