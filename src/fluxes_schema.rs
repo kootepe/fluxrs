@@ -355,7 +355,7 @@ pub fn create_flux_table() -> String {
             roblin_sigma			FLOAT,
             roblin_aic				FLOAT,
             roblin_rmse				FLOAT,
-            roblin_cv                FLOAT,
+            roblin_cv               FLOAT,
             roblin_range_start		FLOAT,
             roblin_range_end		FLOAT,
 
