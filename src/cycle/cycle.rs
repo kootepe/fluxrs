@@ -43,6 +43,17 @@ pub const WINDOW_INCREMENT: usize = 1;
 
 // type InstrumentSerial = String;
 
+struct CalcRange {
+    start: f64,
+    end: f64,
+}
+
+impl CalcRange {
+    fn len(&self) -> f64 {
+        (self.end - self.start).max(0.0)
+    }
+}
+
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 struct CycleKey {
     start_time: i64,
@@ -590,6 +601,80 @@ impl Cycle {
             self.calc_range_end.insert(key.clone(), end);
         }
     }
+
+    fn clamp_range(
+        (min_b, max_b): (f64, f64),
+        mut start: f64,
+        mut end: f64,
+        min_len: f64,
+    ) -> (f64, f64) {
+        if end < start {
+            std::mem::swap(&mut start, &mut end);
+        }
+        if end - start < min_len {
+            end = (start + min_len).min(max_b);
+            start = (end - min_len).max(min_b);
+        }
+        if start < min_b {
+            let d = min_b - start;
+            start += d;
+            end += d;
+        }
+        if end > max_b {
+            let d = end - max_b;
+            start -= d;
+            end -= d;
+        }
+        (start, end)
+    }
+
+    fn set_calc_length_sticky_start(&mut self, key: &GasKey, new_len: f64) {
+        let (min_b, max_b) = self.bounds_for(key);
+        let (s, e) = Self::clamp_range((min_b, max_b), min_b, min_b + new_len, self.min_calc_len);
+        self.calc_range_start.insert(key.clone(), s);
+        self.calc_range_end.insert(key.clone(), e);
+    }
+
+    pub fn stick_calc_to_range_start(&mut self, key: &GasKey) {
+        let (min_b, max_b) = self.bounds_for(key);
+        let cur_len = (self.get_calc_end(key) - self.get_calc_start(key)).max(self.min_calc_len);
+        let (s, e) = Self::clamp_range((min_b, max_b), min_b, min_b + cur_len, self.min_calc_len);
+        self.calc_range_start.insert(key.clone(), s);
+        self.calc_range_end.insert(key.clone(), e);
+    }
+
+    pub fn drag_main(&mut self, key: &GasKey, dx_steps: f64) {
+        let (min_b, max_b) = self.bounds_for(key);
+        let s0 = self.get_calc_start(key);
+        let e0 = self.get_calc_end(key);
+        let (s, e) =
+            Self::clamp_range((min_b, max_b), s0 + dx_steps, e0 + dx_steps, self.min_calc_len);
+        self.calc_range_start.insert(key.clone(), s);
+        self.calc_range_end.insert(key.clone(), e);
+    }
+
+    pub fn drag_left_to(&mut self, key: &GasKey, new_start: f64) {
+        let (min_b, max_b) = self.bounds_for(key);
+        let e0 = self.get_calc_end(key);
+        let (s, e) = Self::clamp_range((min_b, max_b), new_start, e0, self.min_calc_len);
+        self.calc_range_start.insert(key.clone(), s);
+        self.calc_range_end.insert(key.clone(), e);
+    }
+
+    pub fn drag_right_to(&mut self, key: &GasKey, new_end: f64) {
+        let (min_b, max_b) = self.bounds_for(key);
+        let s0 = self.get_calc_start(key);
+        let (s, e) = Self::clamp_range((min_b, max_b), s0, new_end, self.min_calc_len);
+        self.calc_range_start.insert(key.clone(), s);
+        self.calc_range_end.insert(key.clone(), e);
+    }
+
+    pub fn bounds_for(&self, key: &GasKey) -> (f64, f64) {
+        let min_b = self.get_measurement_start() + self.get_deadband(key);
+        let max_b = self.get_measurement_end();
+        (min_b, max_b)
+    }
+
     fn adjust_calc_range_all(&mut self) {
         for key in self.gases.iter().cloned() {
             let range_min =
