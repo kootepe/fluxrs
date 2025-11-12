@@ -1421,45 +1421,18 @@ impl Cycle {
     }
 
     pub fn calculate_lin_flux(&mut self, key: GasKey) {
-        // println!("{:?}", key);
-        // let x = self.get_calc_dt2(&key);
-        // let y = self.get_calc_gas_v2(&key);
         let (x, y) = self.get_calc_data2(&key);
-        // println!("diff {}", x.first().unwrap() - self.get_start());
-        // println!("y1 {}", self.get_calc_start_i(&key));
-        // println!("y2 {}", self.get_calc_end_i(&key));
-        // println!("diff {}", x.first().unwrap() - self.get_measurement_start());
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
 
         let ss = self.get_calc_start(&key);
         let ee = self.get_calc_end(&key);
-        // if &ss != s {
-        //     println!("bad! s: {} ss: {}", s, ss)
-        // } else {
-        //     println!("pass s: {} ss: {}", s, ss)
-        // }
-        // if &ee != e {
-        //     println!("bad! e: {} ee: {}", e, ee)
-        // } else {
-        //     println!("pass s: {} ss: {}", s, ss)
-        // }
-        // println!("xl: {}", x.len());
-        // println!("yl: {}", y.len());
-        // let pt_count = 300;
-        //
-        // let x = self.get_measurement_dt_v()[..pt_count].to_vec();
-        // let y = self.get_measurement_gas_v(key)[..pt_count].to_vec();
-        // let s = x.first().unwrap_or(&0.);
-        // let e = x.last().unwrap_or(&0.);
 
         if x.len() < 2 || y.len() < 2 || x.len() != y.len() {
             // Optionally: log or emit warning here
             return; // Not enough data to fit
         }
 
-        // println!("channel {:?}", self.gas_channels);
-        // println!("key {}", &key);
         let channel = self.gas_channels.get(&key).unwrap().clone();
         if let Some(data) = LinearFlux::from_data(
             "lin",
@@ -1484,19 +1457,9 @@ impl Cycle {
         }
     }
     pub fn calculate_poly_flux(&mut self, key: GasKey) {
-        // let x = self.get_measurement_dt_v().to_vec();
-        // let y = self.get_measurement_gas_v(key).to_vec();
-        // let x = self.get_calc_dt2(&key).to_vec();
-        // let y = self.get_calc_gas_v2(&key).to_vec();
         let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
-        // let pt_count = 300;
-        //
-        // let x = self.get_measurement_dt_v()[..pt_count].to_vec();
-        // let y = self.get_measurement_gas_v(key)[..pt_count].to_vec();
-        // let s = x.first().unwrap_or(&0.);
-        // let e = x.last().unwrap_or(&0.);
 
         // Ensure valid input
         if x.len() < 3 || y.len() < 3 || x.len() != y.len() {
@@ -1521,9 +1484,8 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber.clone(),
+            self.chamber,
         ) {
-            // println!("{}", data);
             self.fluxes.insert(
                 (key, FluxKind::Poly),
                 FluxRecord { model: Box::new(data), is_valid: true },
@@ -1533,20 +1495,11 @@ impl Cycle {
         }
     }
     pub fn calculate_roblin_flux(&mut self, key: GasKey) {
-        // let x = self.get_calc_dt2(&key).to_vec();
-        // let y = self.get_calc_gas_v2(&key).to_vec();
         let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
-        // let pt_count = 300;
-        //
-        // let x = self.get_measurement_dt_v()[..pt_count].to_vec();
-        // let y = self.get_measurement_gas_v(key)[..pt_count].to_vec();
-        // let s = x.first().unwrap_or(&0.);
-        // let e = x.last().unwrap_or(&0.);
 
         if x.len() < 2 || y.len() < 2 || x.len() != y.len() {
-            // Optionally: log or emit warning here
             return; // Not enough data to fit
         }
 
@@ -1560,9 +1513,8 @@ impl Cycle {
             *e,
             self.air_temperature,
             self.air_pressure,
-            self.chamber.clone(),
+            self.chamber,
         ) {
-            // println!("{}", data);
             self.fluxes.insert(
                 (key, FluxKind::RobLin),
                 FluxRecord { model: Box::new(data), is_valid: true },
