@@ -1,5 +1,6 @@
 use crate::concentrationunit::ConcentrationUnit;
 use crate::gastype::GasType;
+use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct GasChannel {
@@ -17,6 +18,12 @@ impl GasChannel {
     /// slope_raw_per_s is "what the regression saw", in the instrument's native units per second
     pub fn slope_ppm_per_s(&self, slope_raw_per_s: f64) -> f64 {
         slope_raw_per_s * self.unit.to_ppm_factor()
+    }
+}
+
+impl fmt::Display for GasChannel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "gas: {}, unit: {}, id: {}", self.gas, self.unit, self.instrument_id)
     }
 }
 
