@@ -1959,9 +1959,9 @@ impl ValidationApp {
     }
 
     pub fn plot_model_fit(&self, plot_ui: &mut egui_plot::PlotUi, key: &GasKey, kind: FluxKind) {
-        let x_min = self.get_measurement_start();
+        let x_min = self.get_calc_start(key);
         let x_max = self.get_measurement_end();
-        let num_points = 200;
+        let num_points = 50;
 
         let label = format!("{}{}{}", key.gas_type, key.id, kind.as_str());
         if let Some(model) = self.get_model(key, kind) {
