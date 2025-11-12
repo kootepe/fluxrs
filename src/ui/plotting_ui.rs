@@ -1461,7 +1461,7 @@ impl ValidationApp {
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
-                        if self.mode_after_deadband() {
+                        if self.mode_after_deadband() && steps < 0. {
                             // self.increment_open_lag(steps);
                             // BUG: calc area doesnt stick to close time
                             self.increment_calc_starts(steps);
@@ -1611,23 +1611,23 @@ impl ValidationApp {
             // Reset drag state when not dragging
 
             if !dragged {
-                self.dragging = None;
+                self.dragging = Adjuster::default();
                 self.current_delta = 0.0;
                 self.current_z_delta = 0.0;
             }
 
             // Determine which element is being dragged
-            if self.dragging.is_none() {
+            if !self.dragging.is_dragged() {
                 if dragging_left {
-                    self.dragging = Some(Adjuster::Left);
+                    self.dragging = Adjuster::Left;
                 } else if dragging_right {
-                    self.dragging = Some(Adjuster::Right);
+                    self.dragging = Adjuster::Right;
                 } else if dragging_main {
-                    self.dragging = Some(Adjuster::Main);
+                    self.dragging = Adjuster::Main;
                 } else if dragging_open_lag {
-                    self.dragging = Some(Adjuster::OpenLag);
+                    self.dragging = Adjuster::OpenLag;
                 } else if dragging_close_lag {
-                    self.dragging = Some(Adjuster::CloseLag);
+                    self.dragging = Adjuster::CloseLag;
                 }
             }
 
@@ -1636,7 +1636,7 @@ impl ValidationApp {
 
             // Match active drag
             match self.dragging {
-                Some(Adjuster::Left) => {
+                Adjuster::Left => {
                     // println!("Dragging left");
                     if inside_left && can_move && dragged {
                         self.current_delta += dx;
@@ -1644,7 +1644,7 @@ impl ValidationApp {
                     }
                 },
 
-                Some(Adjuster::Right) => {
+                Adjuster::Right => {
                     // println!("Dragging right");
                     if inside_right && can_move && dragged {
                         self.current_delta += dx;
@@ -1652,7 +1652,7 @@ impl ValidationApp {
                     }
                 },
 
-                Some(Adjuster::Main) => {
+                Adjuster::Main => {
                     // println!("Dragging main");
                     if inside_main && dragged {
                         self.current_delta += dx;
@@ -1682,7 +1682,7 @@ impl ValidationApp {
                     }
                 },
 
-                Some(Adjuster::CloseLag) => {
+                Adjuster::CloseLag => {
                     // println!("Dragging close");
                     // BUG: calc area only sticks to close time for the plot thats being dragged
                     if inside_close_lag && dragged {
@@ -1717,7 +1717,7 @@ impl ValidationApp {
                     }
                 },
 
-                Some(Adjuster::OpenLag) => {
+                Adjuster::OpenLag => {
                     // println!("Dragging open");
                     if inside_open_lag && dragged {
                         let delta = if self.zoom_to_measurement == 1 {
@@ -1746,8 +1746,7 @@ impl ValidationApp {
                         }
                     }
                 },
-
-                None => {},
+                Adjuster::None => {},
             }
 
             // --- Then: mutate the cycle safely ---
