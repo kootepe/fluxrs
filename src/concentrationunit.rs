@@ -1,3 +1,5 @@
+use std::fmt;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConcentrationUnit {
     Ppm, // parts per million
@@ -19,6 +21,15 @@ impl ConcentrationUnit {
         match self {
             ConcentrationUnit::Ppm => "ppm",
             ConcentrationUnit::Ppb => "ppb",
+        }
+    }
+}
+
+impl fmt::Display for ConcentrationUnit {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ConcentrationUnit::Ppb => write!(f, "ppm"),
+            ConcentrationUnit::Ppm => write!(f, "ppb"),
         }
     }
 }
