@@ -43,13 +43,13 @@ impl ValidationApp {
         }
 
         // Main UI layout
-        let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
-        let sender_clone = self.prog_sender.clone();
+        let sender = self.prog_sender.clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 self.date_picker(ui);
                 // Date navigation buttons
 
+                let sender_clone = sender.clone();
                 let start_after_end = self.start_date < self.end_date;
                 // Trigger processing with selected date range
                 if ui
@@ -125,7 +125,8 @@ impl ValidationApp {
                                 Ok(height_data),
                                 Ok(chamber_data),
                             ) => {
-                                let _ = progress_sender
+                                let _ = sender_clone
+                                    .clone()
                                     .send(ProcessEvent::Query(QueryEvent::QueryComplete));
                                 if !times.start_time.is_empty() && !gas_data.is_empty() {
                                     let processor = Processor::new(
@@ -136,14 +137,14 @@ impl ValidationApp {
                                             height: height_data,
                                             chambers: chamber_data,
                                         },
-                                        Infra { conn: arc_conn, progress: progress_sender },
+                                        Infra { conn: arc_conn, progress: sender_clone.clone() },
                                     );
                                     processor.run_processing_dynamic(times).await;
                                 } else {
                                     // let _ = progress_sender.send(ProcessEvent::Query(
                                     //     QueryEvent::NoGasData("No data available".into()),
                                     // ));
-                                    let _ = progress_sender.send(ProcessEvent::Done(Err(
+                                    let _ = sender_clone.clone().send(ProcessEvent::Done(Err(
                                         "No data available.".to_owned(),
                                     )));
                                 }
@@ -165,7 +166,7 @@ impl ValidationApp {
                 self.start_date.to_utc(),
                 self.end_date.to_utc(),
                 self.get_project().clone(),
-                sender_clone,
+                sender.clone(),
             );
         });
 
