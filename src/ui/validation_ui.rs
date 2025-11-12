@@ -986,7 +986,6 @@ impl ValidationApp {
                             _ => {},
                         }
 
-                        // >>> NEW: stick calc windows to deadbanded start after lag change
                         self.stick_calc_to_range_start_for_all();
 
                         if self.mode_pearsons() {
