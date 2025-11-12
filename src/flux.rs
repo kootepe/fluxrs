@@ -709,8 +709,8 @@ impl RobustFlux {
         let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
 
         let n = y.len();
-        let k = 1;
-        let cv = rmse_val / n as f64;
+        let y_mean = y.iter().copied().sum::<f64>() / n as f64;
+        let cv = rmse_val / y_mean;
 
         let adjusted_r2 = adjusted_r2(r2, n, 2);
         let rss: f64 = y.iter().zip(&y_hat).map(|(&yi, &yhi)| (yi - yhi).powi(2)).sum();
