@@ -1572,6 +1572,12 @@ impl ValidationApp {
 
         if let Some(pointer_pos) = plot_ui.pointer_coordinate() {
             let drag_delta = plot_ui.pointer_coordinate_drag_delta();
+            let primary_pressed =
+                plot_ui.ctx().input(|i| i.pointer.button_pressed(PointerButton::Primary));
+            let primary_down =
+                plot_ui.ctx().input(|i| i.pointer.button_down(PointerButton::Primary));
+            let primary_released =
+                plot_ui.ctx().input(|i| i.pointer.button_released(PointerButton::Primary));
 
             let calc_start = self.get_calc_start(key);
             let calc_end = self.get_calc_end(key);
@@ -1605,48 +1611,35 @@ impl ValidationApp {
             let dragged = plot_ui.response().dragged_by(PointerButton::Primary);
             let is_valid = self.get_is_valid();
 
-            // Decide what dragging action is happening
-            let dragging_left = inside_left && dragged && is_valid;
-            let dragging_right = inside_right && dragged && is_valid;
-            let dragging_main = inside_main && dragged && is_valid;
-            let dragging_open_lag = inside_open_lag && dragged && !inside_right;
-            let dragging_close_lag = inside_close_lag && dragged && !inside_left;
-
-            let dragging_polygon = dragging_left || dragging_right || dragging_main;
-            let dragging_lag = dragging_open_lag || dragging_close_lag;
-
-            let dx = drag_delta.x as f64;
-            let can_move = self.calc_area_can_move(key);
-            // Reset drag state when not dragging
-
-            if !dragged {
-                self.dragging = Adjuster::default();
+            if primary_released {
+                self.dragging = Adjuster::None;
                 self.current_delta = 0.0;
                 self.current_z_delta = 0.0;
             }
 
-            // Determine which element is being dragged
-            if !self.dragging.is_dragged() {
-                if dragging_left {
+            if !self.dragging.is_dragged() && primary_pressed {
+                // choose exactly one target on mouse-down
+                if is_valid && inside_left {
                     self.dragging = Adjuster::Left;
-                } else if dragging_right {
+                } else if is_valid && inside_right {
                     self.dragging = Adjuster::Right;
-                } else if dragging_main {
+                } else if is_valid && inside_main {
                     self.dragging = Adjuster::Main;
-                } else if dragging_open_lag {
+                } else if inside_open_lag && !inside_right {
                     self.dragging = Adjuster::OpenLag;
-                } else if dragging_close_lag {
+                } else if inside_close_lag && !inside_left {
                     self.dragging = Adjuster::CloseLag;
+                } else {
+                    self.dragging = Adjuster::None;
                 }
             }
-
-            // Apply zoom transform only if needed
+            let dx = drag_delta.x as f64;
+            let can_move = self.calc_area_can_move(key);
             let zoomed_dx = dx * plot_ui.transform().dpos_dvalue_x();
 
             // Match active drag
             match self.dragging {
                 Adjuster::Left => {
-                    // println!("Dragging left");
                     if inside_left && can_move && dragged {
                         self.current_delta += dx;
                         self.handle_drag_polygon(plot_ui, true, key);
@@ -1662,7 +1655,6 @@ impl ValidationApp {
                 },
 
                 Adjuster::Main => {
-                    // println!("Dragging main");
                     if inside_main && dragged {
                         self.current_delta += dx;
                         let full_steps = self.current_delta.trunc();
@@ -1692,8 +1684,6 @@ impl ValidationApp {
                 },
 
                 Adjuster::CloseLag => {
-                    // println!("Dragging close");
-                    // BUG: calc area only sticks to close time for the plot thats being dragged
                     if inside_close_lag && dragged {
                         let delta = if self.zoom_to_measurement == 2 {
                             self.current_z_delta += zoomed_dx;
@@ -1711,23 +1701,15 @@ impl ValidationApp {
                         let can_move_left_after_adjust = !can_move && delta < 0.0;
 
                         if is_moving && (can_move || can_move_left_after_adjust) {
-                            // if delta != 0.0 && (can_move || (!can_move && delta < 0.0)) {
                             self.increment_close_lag(delta);
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
-                            }
-                            if self.mode_after_deadband() && delta < 0.0 {
-                                // self.increment_calc_start(key, delta);
-                                // self.increment_calc_end(key, delta);
-                                self.increment_calc_starts(delta);
-                                self.increment_calc_ends(delta);
                             }
                         }
                     }
                 },
 
                 Adjuster::OpenLag => {
-                    // println!("Dragging open");
                     if inside_open_lag && dragged {
                         let delta = if self.zoom_to_measurement == 1 {
                             self.current_z_delta += zoomed_dx;
@@ -1746,17 +1728,18 @@ impl ValidationApp {
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
-                            if self.mode_after_deadband() && delta < 0.0 {
-                                // self.increment_calc_start(key, delta);
-                                // self.increment_calc_end(key, delta);
-                                self.increment_calc_starts(delta);
-                                self.increment_calc_ends(delta);
-                            }
                         }
                     }
                 },
                 Adjuster::None => {},
             }
+
+            // Mark dirty / update once something is being dragged
+            let dragging_polygon =
+                matches!(self.dragging, Adjuster::Left | Adjuster::Right | Adjuster::Main)
+                    && primary_down;
+            let dragging_lag =
+                matches!(self.dragging, Adjuster::OpenLag | Adjuster::CloseLag) && primary_down;
 
             // --- Then: mutate the cycle safely ---
             if dragging_polygon {
