@@ -28,8 +28,8 @@ impl ConcentrationUnit {
 impl fmt::Display for ConcentrationUnit {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ConcentrationUnit::Ppb => write!(f, "ppm"),
-            ConcentrationUnit::Ppm => write!(f, "ppb"),
+            ConcentrationUnit::Ppb => write!(f, "ppb"),
+            ConcentrationUnit::Ppm => write!(f, "ppm"),
         }
     }
 }
