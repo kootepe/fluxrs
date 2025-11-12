@@ -943,68 +943,51 @@ impl ValidationApp {
                     }
                     if keybind_triggered(event, &self.keybinds, Action::DecrementLag, modifiers) {
                         self.mark_dirty();
-                        let delta = -1.;
+                        let delta = -1.0;
+
                         match self.zoom_to_measurement {
                             0 => {
                                 if self.mode_after_deadband() {
-                                    self.increment_open_lag(delta);
-                                    self.increment_calc_starts(delta);
-                                    self.increment_calc_ends(delta);
-                                } else if self.mode_pearsons() {
                                     self.increment_open_lag(delta);
                                 }
                             },
                             1 => {
                                 self.increment_open_lag(delta);
-                                if self.mode_after_deadband() {
-                                    self.increment_calc_starts(delta);
-                                    self.increment_calc_ends(delta);
-                                }
                             },
                             2 => {
                                 self.increment_close_lag(delta);
-                                if self.mode_after_deadband() {
-                                    self.increment_calc_starts(delta);
-                                    self.increment_calc_ends(delta);
-                                }
                             },
                             _ => {},
                         }
+
+                        self.stick_calc_to_range_start_for_all();
+
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
                         self.update_plots();
                     }
+
                     // BUG: calc area doesnt stick to deadband when incrementing
                     if keybind_triggered(event, &self.keybinds, Action::IncrementLag, modifiers) {
                         self.mark_dirty();
-                        let delta = 1.;
+                        let delta = 1.0;
+
                         match self.zoom_to_measurement {
                             1 => {
                                 self.increment_open_lag(delta);
-                                if self.mode_after_deadband() {
-                                    self.increment_calc_starts(delta);
-                                    self.increment_calc_ends(delta);
-                                }
                             },
                             2 => {
                                 self.increment_close_lag(delta);
-                                if self.mode_after_deadband() {
-                                    self.increment_calc_starts(delta);
-                                    self.increment_calc_ends(delta);
-                                }
                             },
                             0 => {
-                                if self.mode_after_deadband() {
-                                    self.increment_open_lag(delta);
-                                    self.increment_calc_starts(delta);
-                                    self.increment_calc_ends(delta);
-                                } else if self.mode_pearsons() {
-                                    self.increment_open_lag(delta);
-                                }
+                                self.increment_open_lag(delta);
                             },
                             _ => {},
                         }
+
+                        // >>> NEW: stick calc windows to deadbanded start after lag change
+                        self.stick_calc_to_range_start_for_all();
 
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
