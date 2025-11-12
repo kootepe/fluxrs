@@ -843,6 +843,11 @@ impl ValidationApp {
             cycle.stick_calc_to_range_start(key)
         }
     }
+    pub fn stick_calc_to_range_start_for_all(&mut self) {
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.stick_calc_to_range_start_for_all()
+        }
+    }
     pub fn bounds_for(&self, key: &GasKey) -> (f64, f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             cycle.bounds_for(key)
