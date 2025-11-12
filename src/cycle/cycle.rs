@@ -642,6 +642,11 @@ impl Cycle {
         self.calc_range_start.insert(key.clone(), s);
         self.calc_range_end.insert(key.clone(), e);
     }
+    pub fn stick_calc_to_range_start_for_all(&mut self) {
+        for key in self.gases.clone() {
+            self.stick_calc_to_range_start(&key);
+        }
+    }
 
     pub fn drag_main(&mut self, key: &GasKey, dx_steps: f64) {
         let (min_b, max_b) = self.bounds_for(key);
