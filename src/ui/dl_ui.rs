@@ -141,6 +141,7 @@ impl DownloadApp {
             "lin_p_value",
             "lin_aic",
             "lin_rmse",
+            "lin_cv",
         ];
 
         let roblin_drops = [
@@ -153,6 +154,7 @@ impl DownloadApp {
             "roblin_p_value",
             "roblin_aic",
             "roblin_rmse",
+            "roblin_cv",
         ];
 
         let poly_drops = [
@@ -165,6 +167,7 @@ impl DownloadApp {
             "poly_p_value",
             "poly_aic",
             "poly_rmse",
+            "poly_cv",
             "poly_a0",
             "poly_a1",
             "poly_a2",
