@@ -96,11 +96,36 @@ impl DataType {
 }
 // logs which item on the plot is being dragged
 pub enum Adjuster {
+    None,
     Left,
     Main,
     Right,
     OpenLag,
     CloseLag,
+}
+
+impl Adjuster {
+    pub fn is_dragged(&self) -> bool {
+        !matches! {self, Adjuster::None}
+    }
+}
+impl fmt::Display for Adjuster {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Adjuster::None => write!(f, "none"),
+            Adjuster::Left => write!(f, "left"),
+            Adjuster::Main => write!(f, "main"),
+            Adjuster::Right => write!(f, "right"),
+            Adjuster::OpenLag => write!(f, "open lag"),
+            Adjuster::CloseLag => write!(f, "close lag"),
+        }
+    }
+}
+
+impl Default for Adjuster {
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 #[derive(Debug)]
@@ -303,7 +328,7 @@ pub struct ValidationApp {
     pub show_legend: bool,
     pub show_plot_widths: bool,
     pub toggled_gas: Option<GasKey>,
-    pub dragging: Option<Adjuster>,
+    pub dragging: Adjuster,
     pub mode: Mode,
     pub current_delta: f64,
     pub current_z_delta: f64,
@@ -410,7 +435,7 @@ impl Default for ValidationApp {
             show_cycle_details: true,
             show_plot_widths: true,
             toggled_gas: None,
-            dragging: None,
+            dragging: Adjuster::default(),
             mode: Mode::default(),
             current_delta: 0.,
             current_z_delta: 0.,
@@ -1121,6 +1146,8 @@ impl ValidationApp {
         }
 
         if prev_clicked {
+            self.zoom_to_measurement = 0;
+            self.should_reset_bounds = true;
             self.commit_current_cycle();
             self.cycle_nav.step_back(); // Step to previous visible cycle
             if let Some(_index) = self.cycle_nav.current_index() {
@@ -1129,6 +1156,8 @@ impl ValidationApp {
         }
 
         if next_clicked {
+            self.zoom_to_measurement = 0;
+            self.should_reset_bounds = true;
             self.commit_current_cycle();
             self.cycle_nav.step_forward(); // Step to next visible cycle
             if let Some(_index) = self.cycle_nav.current_index() {
@@ -2816,7 +2845,8 @@ pub fn is_inside_polygon(
     min_y: f64,
     max_y: f64,
 ) -> bool {
-    point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
+    point.x >= start_x && point.x <= end_x
+    // point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
 }
 
 #[allow(clippy::too_many_arguments)]
