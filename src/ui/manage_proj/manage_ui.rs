@@ -118,7 +118,7 @@ impl DeleteMeasurementApp {
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                             .unwrap_or_else(|| "-".to_string());
                         ui.label(uploaded);
-
+                        ui.label(format!("{}", file.project_link));
                         ui.end_row();
                     }
                 });
