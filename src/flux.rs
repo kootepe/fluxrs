@@ -176,6 +176,7 @@ pub trait FluxModel: Sync + Send + DynClone {
     fn p_value(&self) -> Option<f64>;
     fn sigma(&self) -> Option<f64>;
     fn rmse(&self) -> Option<f64>;
+    fn cv(&self) -> Option<f64>;
     fn aic(&self) -> Option<f64>;
     fn predict(&self, x: f64) -> Option<f64>;
     fn set_range_start(&mut self, value: f64);
@@ -254,6 +255,7 @@ pub struct LinearFlux {
     pub sigma: f64,
     pub aic: f64,
     pub rmse: f64,
+    pub cv: f64,
     // pub intercept: f64,
     // pub slope: f64,
     pub range_start: f64,
@@ -317,6 +319,9 @@ impl FluxModel for LinearFlux {
     fn rmse(&self) -> Option<f64> {
         Some(self.rmse)
     }
+    fn cv(&self) -> Option<f64> {
+        Some(self.cv)
+    }
 }
 
 impl LinearFlux {
@@ -349,6 +354,8 @@ impl LinearFlux {
 
         let sigma = (rss / (n - 2.0)).sqrt();
         let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
+        let y_mean = x_norm.iter().copied().sum::<f64>() / n;
+        let cv = rmse_val / y_mean;
 
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
         let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
@@ -376,6 +383,7 @@ impl LinearFlux {
             sigma,
             aic,
             rmse: rmse_val,
+            cv,
             range_start: start,
             range_end: end,
         })
@@ -393,6 +401,7 @@ impl LinearFlux {
         p_value: f64,
         aic: f64,
         rmse: f64,
+        cv: f64,
     ) -> Option<Self> {
         Some(Self {
             fit_id: fit_id.to_string(),
@@ -407,6 +416,7 @@ impl LinearFlux {
             p_value,
             aic,
             rmse,
+            cv,
         })
     }
     pub fn flux_from_vec(
@@ -444,6 +454,7 @@ pub struct PolyFlux {
     pub sigma: f64,
     pub aic: f64,
     pub rmse: f64,
+    pub cv: f64,
     pub range_start: f64,
     pub range_end: f64,
 }
@@ -515,6 +526,10 @@ impl FluxModel for PolyFlux {
     fn rmse(&self) -> Option<f64> {
         Some(self.rmse)
     }
+
+    fn cv(&self) -> Option<f64> {
+        Some(self.cv)
+    }
 }
 
 impl PolyFlux {
@@ -535,12 +550,15 @@ impl PolyFlux {
 
         let x0 = x[0]; // normalize to start
         let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
+        let n = y.len() as f64;
 
         let model = PolyReg::train(&x_norm, y)?;
 
         let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
+        let y_mean = x_norm.iter().copied().sum::<f64>() / n;
         let rmse = rmse(&y, &y_hat).unwrap_or(0.0);
+        let cv = rmse / y_mean;
 
         let n = y.len();
         let k = 2; // predictors: x and x² (intercept is implicit)
@@ -569,6 +587,7 @@ impl PolyFlux {
             aic,
             sigma,
             rmse,
+            cv,
         })
     }
 }
@@ -584,6 +603,7 @@ pub struct RobustFlux {
     pub sigma: f64,
     pub aic: f64,
     pub rmse: f64,
+    pub cv: f64,
     pub range_start: f64,
     pub range_end: f64,
 }
@@ -658,6 +678,9 @@ impl FluxModel for RobustFlux {
     fn rmse(&self) -> Option<f64> {
         Some(self.rmse)
     }
+    fn cv(&self) -> Option<f64> {
+        Some(self.cv)
+    }
 }
 
 impl RobustFlux {
@@ -687,6 +710,7 @@ impl RobustFlux {
 
         let n = y.len();
         let k = 1;
+        let cv = rmse_val / n as f64;
 
         let adjusted_r2 = adjusted_r2(r2, n, k);
         let rss: f64 = y.iter().zip(&y_hat).map(|(&yi, &yhi)| (yi - yhi).powi(2)).sum();
@@ -708,6 +732,7 @@ impl RobustFlux {
             sigma,
             aic,
             rmse: rmse_val,
+            cv,
             range_start: start,
             range_end: end,
         })

@@ -2139,6 +2139,7 @@ fn execute_history_insert(
             lin.and_then(|m| m.p_value()).unwrap_or(1.0),
             lin.and_then(|m| m.aic()).unwrap_or(0.0),
             lin.and_then(|m| m.rmse()).unwrap_or(0.0),
+            lin.and_then(|m| m.cv()).unwrap_or(0.0),
             lin.and_then(|m| m.range_start()).unwrap_or(0.0),
             lin.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Polynomial fields
@@ -2148,6 +2149,7 @@ fn execute_history_insert(
             poly.and_then(|m| m.sigma()).unwrap_or(0.0),
             poly.and_then(|m| m.aic()).unwrap_or(0.0),
             poly.and_then(|m| m.rmse()).unwrap_or(0.0),
+            poly.and_then(|m| m.cv()).unwrap_or(0.0),
             // Store coefficients if needed (assumes casting to PolyFlux)
             poly.and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
                 .map(|m| m.model.a0)
@@ -2169,6 +2171,7 @@ fn execute_history_insert(
             roblin.and_then(|m| m.sigma()).unwrap_or(0.0),
             roblin.and_then(|m| m.aic()).unwrap_or(0.0),
             roblin.and_then(|m| m.rmse()).unwrap_or(0.0),
+            roblin.and_then(|m| m.cv()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
@@ -2246,6 +2249,7 @@ fn execute_insert(
             lin.and_then(|m| m.p_value()).unwrap_or(1.0),
             lin.and_then(|m| m.aic()).unwrap_or(0.0),
             lin.and_then(|m| m.rmse()).unwrap_or(0.0),
+            lin.and_then(|m| m.cv()).unwrap_or(0.0),
             lin.and_then(|m| m.range_start()).unwrap_or(0.0),
             lin.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Polynomial fields
@@ -2255,6 +2259,7 @@ fn execute_insert(
             poly.and_then(|m| m.sigma()).unwrap_or(0.0),
             poly.and_then(|m| m.aic()).unwrap_or(0.0),
             poly.and_then(|m| m.rmse()).unwrap_or(0.0),
+            poly.and_then(|m| m.cv()).unwrap_or(0.0),
             // Store coefficients if needed (assumes casting to PolyFlux)
             poly.and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
                 .map(|m| m.model.a0)
@@ -2276,6 +2281,7 @@ fn execute_insert(
             roblin.and_then(|m| m.sigma()).unwrap_or(0.0),
             roblin.and_then(|m| m.aic()).unwrap_or(0.0),
             roblin.and_then(|m| m.rmse()).unwrap_or(0.0),
+            roblin.and_then(|m| m.cv()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
@@ -2347,6 +2353,7 @@ fn execute_update(
             lin.and_then(|m| m.p_value()).unwrap_or(1.0),
             lin.and_then(|m| m.aic()).unwrap_or(0.0),
             lin.and_then(|m| m.rmse()).unwrap_or(0.0),
+            lin.and_then(|m| m.cv()).unwrap_or(0.0),
             lin.and_then(|m| m.range_start()).unwrap_or(0.0),
             lin.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Polynomial fields
@@ -2356,6 +2363,7 @@ fn execute_update(
             poly.and_then(|m| m.sigma()).unwrap_or(0.0),
             poly.and_then(|m| m.aic()).unwrap_or(0.0),
             poly.and_then(|m| m.rmse()).unwrap_or(0.0),
+            poly.and_then(|m| m.cv()).unwrap_or(0.0),
             // Store coefficients if needed (assumes casting to PolyFlux)
             poly.and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
                 .map(|m| m.model.a0)
@@ -2377,6 +2385,7 @@ fn execute_update(
             roblin.and_then(|m| m.sigma()).unwrap_or(0.0),
             roblin.and_then(|m| m.aic()).unwrap_or(0.0),
             roblin.and_then(|m| m.rmse()).unwrap_or(0.0),
+            roblin.and_then(|m| m.cv()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
@@ -2725,6 +2734,7 @@ pub fn load_cycles_sync(
                 Ok(p_value),
                 Ok(aic),
                 Ok(rmse),
+                Ok(cv),
                 Ok(calc_start),
                 Ok(calc_end),
                 Ok(gas_i),
@@ -2739,6 +2749,7 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("lin_p_value").unwrap()),
                 row.get(*column_index.get("lin_aic").unwrap()),
                 row.get(*column_index.get("lin_rmse").unwrap()),
+                row.get(*column_index.get("lin_cv").unwrap()),
                 row.get(*column_index.get("lin_range_start").unwrap()),
                 row.get(*column_index.get("lin_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
@@ -2760,6 +2771,7 @@ pub fn load_cycles_sync(
                     p_value,
                     aic,
                     rmse,
+                    cv,
                     range_start: calc_start,
                     range_end: calc_end,
                 };
@@ -2778,6 +2790,7 @@ pub fn load_cycles_sync(
                 Ok(sigma),
                 Ok(aic),
                 Ok(rmse),
+                Ok(cv),
                 Ok(calc_start),
                 Ok(calc_end),
                 Ok(gas_i),
@@ -2791,6 +2804,7 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("roblin_sigma").unwrap()),
                 row.get(*column_index.get("roblin_aic").unwrap()),
                 row.get(*column_index.get("roblin_rmse").unwrap()),
+                row.get(*column_index.get("roblin_cv").unwrap()),
                 row.get(*column_index.get("roblin_range_start").unwrap()),
                 row.get(*column_index.get("roblin_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
@@ -2814,6 +2828,7 @@ pub fn load_cycles_sync(
                     sigma,
                     aic,
                     rmse,
+                    cv,
                     range_start: calc_start,
                     range_end: calc_end,
                 };
@@ -2830,6 +2845,7 @@ pub fn load_cycles_sync(
                 Ok(sigma),
                 Ok(aic),
                 Ok(rmse),
+                Ok(cv),
                 Ok(a0),
                 Ok(a1),
                 Ok(a2),
@@ -2844,6 +2860,7 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("poly_sigma").unwrap()),
                 row.get(*column_index.get("poly_aic").unwrap()),
                 row.get(*column_index.get("poly_rmse").unwrap()),
+                row.get(*column_index.get("poly_cv").unwrap()),
                 row.get(*column_index.get("poly_a0").unwrap()),
                 row.get(*column_index.get("poly_a1").unwrap()),
                 row.get(*column_index.get("poly_a2").unwrap()),
@@ -2870,6 +2887,7 @@ pub fn load_cycles_sync(
                     sigma,
                     aic,
                     rmse,
+                    cv,
                     range_start: calc_start,
                     range_end: calc_end,
                     x_offset: calc_start,
@@ -3433,6 +3451,9 @@ mod tests {
         }
 
         fn rmse(&self) -> Option<f64> {
+            None
+        }
+        fn cv(&self) -> Option<f64> {
             None
         }
 
