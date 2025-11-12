@@ -13,7 +13,13 @@ pub struct TableApp {
 
 impl TableApp {
     fn fetch_table_names(&mut self, conn: &Connection) {
-        let mut stmt = match conn.prepare("SELECT name FROM sqlite_master WHERE type='table'") {
+        let mut stmt = match conn.prepare(
+            "SELECT name
+                    FROM sqlite_master
+                    WHERE type='table'
+                    AND name NOT LIKE 'sqlite_%'
+                    ORDER BY name",
+        ) {
             Ok(stmt) => stmt,
             Err(err) => {
                 eprintln!("Error preparing statement: {}", err);
