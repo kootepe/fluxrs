@@ -1,5 +1,6 @@
 use crate::ui::manage_proj::datepickerstate::DateRangePickerState;
 use crate::ui::manage_proj::project::Project;
+use crate::ui::manage_proj::project_ui::input_block_overlay;
 use crate::ui::recalc::RecalculateApp;
 use crate::ui::validation_ui::DataType;
 use chrono::NaiveDateTime;
@@ -91,7 +92,45 @@ impl DeleteMeasurementApp {
                                     self.project.clone(),
                                     progress_sender.clone(),
                                 );
-                            },
+ if recalc.calc_in_progress || !recalc.calc_enabled || recalc.query_in_progress {
+                input_block_overlay(ctx, "blocker");
+
+                Window::new("Manage project")
+                    .title_bar(false)
+                    .collapsible(false)
+                    .resizable(false)
+                    .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
+                    .frame(
+                        Frame::window(&ctx.style())
+                            .fill(Color32::from_rgb(30, 30, 30))
+                            .corner_radius(8)
+                            .inner_margin(egui::Margin::symmetric(16, 12)),
+                    )
+                    .show(ctx, |ui| {
+
+                        ui.add(egui::Spinner::new());
+
+                        if recalc.query_in_progress {
+                            ui.label("Querying data, this can take a while for large time ranges.");
+                        } else if recalc.calc_in_progress {
+                            ui.label("Recalculating fluxes");
+
+                        }
+
+                        if let Some((_, total)) = recalc.cycles_state {
+
+                            let total = total.max(1); // avoid division by zero
+                            let fraction = (recalc.cycles_progress as f32 / total as f32).clamp(0.0, 1.0);
+                            let pb =
+                                egui::widgets::ProgressBar::new(fraction)
+                                    .desired_width(200.)
+                                    .corner_radius(1)
+                                    .show_percentage()
+                                    .text(format!("{}/{}", recalc.cycles_progress, total));
+                            ui.add(pb);
+                        }
+                });
+            }                           },
                             _ => {
                                 // No recalculation for Gas or Cycle deletions
                             },
