@@ -181,7 +181,12 @@ impl MainApp {
                 self.dl_panel.dl_ui(ui, ctx, project);
             },
             Panel::ProjInit => {
-                self.proj_panel.proj_ui(ui, ctx);
+                self.proj_panel.proj_ui(
+                    ui,
+                    ctx,
+                    &self.validation_panel.runtime,
+                    self.validation_panel.prog_sender.clone(),
+                );
             },
             Panel::Empty => {
                 self.empty_panel.ui(ui);

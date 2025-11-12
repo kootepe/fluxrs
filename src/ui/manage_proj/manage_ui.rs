@@ -1,11 +1,19 @@
 use crate::ui::manage_proj::datepickerstate::DateRangePickerState;
 use crate::ui::manage_proj::project::Project;
+use crate::ui::recalc::RecalculateApp;
 use crate::ui::validation_ui::DataType;
 use chrono::NaiveDateTime;
 use egui::{Align2, Color32, Context, Frame, Ui, Window};
 use egui::{RichText, ScrollArea, WidgetInfo, WidgetType};
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
+
+use crate::cycle::cycle::{load_cycles, Cycle};
+use crate::data_formats::chamberdata::read_chamber_metadata;
+use crate::data_formats::heightdata::query_height;
+use crate::processevent::ProcessEvent;
+use crate::ui::recalcer::{Datasets, Infra, Recalcer};
+use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug, Clone)]
 struct DataFileRow {
@@ -41,7 +49,16 @@ impl DeleteMeasurementApp {
         app
     }
 
-    fn ui(&mut self, ui: &mut Ui, ctx: &Context, project: Project, datatype: DataType) {
+    fn ui(
+        &mut self,
+        ui: &mut Ui,
+        ctx: &Context,
+        project: Project,
+        datatype: DataType,
+        recalc: &RecalculateApp,
+        runtime: &tokio::runtime::Runtime,
+        progress_sender: UnboundedSender<ProcessEvent>,
+    ) {
         self.project = project;
 
         if self.datatype != datatype {
@@ -64,9 +81,27 @@ impl DeleteMeasurementApp {
             if ui.button("Refresh").clicked() {
                 self.reload_requested = true;
             }
-
             if ui.button("Delete selected").clicked() && !self.selected_ids.is_empty() {
-                self.delete_selected();
+                match self.delete_selected() {
+                    Ok(n) if n > 0 => {
+                        match self.datatype {
+                            DataType::Meteo | DataType::Height | DataType::Chamber => {
+                                recalc.calculate_all(
+                                    runtime,
+                                    self.project.clone(),
+                                    progress_sender.clone(),
+                                );
+                            },
+                            _ => {
+                                // No recalculation for Gas or Cycle deletions
+                            },
+                        }
+                    },
+                    Ok(_) => { /* nothing deleted */ },
+                    Err(err) => {
+                        self.last_error = Some(err);
+                    },
+                }
             }
 
             ui.label(format!("Total files: {}", self.files.len()));
@@ -173,34 +208,29 @@ impl DeleteMeasurementApp {
             },
         }
     }
-
-    fn delete_selected(&mut self) {
+    fn delete_selected(&mut self) -> Result<usize, String> {
         self.last_error = None;
 
-        let mut conn = Connection::open("fluxrs.db").expect("Failed to open database");
-        let tx = match conn.transaction() {
-            Ok(tx) => tx,
-            Err(e) => {
-                self.last_error = Some(format!("Could not start transaction: {e}"));
-                return;
-            },
-        };
+        let mut conn =
+            Connection::open("fluxrs.db").map_err(|e| format!("Failed to open database: {e}"))?;
+        let tx = conn.transaction().map_err(|e| format!("Could not start transaction: {e}"))?;
 
-        for id in &self.selected_ids {
+        // Avoid borrowing `self` across the loop by copying IDs out first
+        let ids: Vec<i64> = self.selected_ids.iter().copied().collect();
+
+        let mut deleted = 0usize;
+        for id in ids {
             if let Err(e) = tx.execute("DELETE FROM data_files WHERE id = ?", params![id]) {
-                self.last_error = Some(format!("Failed to delete id {id}: {e}"));
-                let _ = tx.rollback(); // explicitly rollback
-                return;
+                let _ = tx.rollback(); // best-effort cleanup
+                return Err(format!("Failed to delete id {id}: {e}"));
             }
+            deleted += 1;
         }
 
-        if let Err(e) = tx.commit() {
-            self.last_error = Some(format!("Failed to commit deletion: {e}"));
-            return;
-        }
+        tx.commit().map_err(|e| format!("Failed to commit deletion: {e}"))?;
 
-        // Refresh list after deletion
         self.reload_files();
+        Ok(deleted)
     }
 }
 
@@ -228,6 +258,7 @@ pub struct ManageApp {
     del_meteo: DeleteMeasurementApp,
     del_height: DeleteMeasurementApp,
     del_meta: DeleteMeasurementApp,
+    recalc_app: RecalculateApp,
 }
 
 impl Default for ManageApp {
@@ -246,6 +277,7 @@ impl ManageApp {
             del_meteo: DeleteMeasurementApp::new(Project::default(), DataType::Meteo),
             del_height: DeleteMeasurementApp::new(Project::default(), DataType::Height),
             del_meta: DeleteMeasurementApp::new(Project::default(), DataType::Chamber),
+            recalc_app: RecalculateApp::default(),
         }
     }
 }
@@ -255,7 +287,13 @@ impl ManageApp {
         self.open = false;
         self.live_panel = ManagePanel::default();
     }
-    pub fn show_manage_proj_data(&mut self, ctx: &egui::Context, project: Project) {
+    pub fn show_manage_proj_data(
+        &mut self,
+        ctx: &egui::Context,
+        project: Project,
+        runtime: &tokio::runtime::Runtime,
+        progress_sender: UnboundedSender<ProcessEvent>,
+    ) {
         self.project = project;
 
         if !self.open {
@@ -330,19 +368,59 @@ impl ManageApp {
                 let project_clone = self.project.clone();
                 match self.live_panel {
                     ManagePanel::DeleteMeasurement => {
-                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Gas);
+                        self.del_measurement.ui(
+                            ui,
+                            ctx,
+                            project_clone,
+                            DataType::Gas,
+                            &self.recalc_app,
+                            runtime,
+                            progress_sender.clone(),
+                        );
                     },
                     ManagePanel::DeleteCycle => {
-                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Cycle);
+                        self.del_measurement.ui(
+                            ui,
+                            ctx,
+                            project_clone,
+                            DataType::Cycle,
+                            &self.recalc_app,
+                            runtime,
+                            progress_sender.clone(),
+                        );
                     },
                     ManagePanel::DeleteMeteo => {
-                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Meteo);
+                        self.del_measurement.ui(
+                            ui,
+                            ctx,
+                            project_clone,
+                            DataType::Meteo,
+                            &self.recalc_app,
+                            runtime,
+                            progress_sender.clone(),
+                        );
                     },
                     ManagePanel::DeleteHeight => {
-                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Height);
+                        self.del_measurement.ui(
+                            ui,
+                            ctx,
+                            project_clone,
+                            DataType::Height,
+                            &self.recalc_app,
+                            runtime,
+                            progress_sender.clone(),
+                        );
                     },
                     ManagePanel::DeleteChamber => {
-                        self.del_measurement.ui(ui, ctx, project_clone, DataType::Chamber);
+                        self.del_measurement.ui(
+                            ui,
+                            ctx,
+                            project_clone,
+                            DataType::Chamber,
+                            &self.recalc_app,
+                            runtime,
+                            progress_sender.clone(),
+                        );
                     },
                     ManagePanel::Empty => {},
                     ManagePanel::DeleteFlux => {},

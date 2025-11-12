@@ -5,7 +5,7 @@ use crate::ui::main_app::AppEvent;
 use crate::ui::manage_proj::manage_ui::ManageApp;
 use crate::ui::manage_proj::project::ProjectExistsError;
 use crate::ui::tz_picker::TimezonePickerState;
-use crate::ui::validation_ui::Mode;
+use crate::ui::validation_ui::{Mode, ProgSender};
 use crate::Project;
 use chrono_tz::Tz;
 use egui::Color32;
@@ -91,7 +91,13 @@ impl Default for ProjectApp {
     }
 }
 impl ProjectApp {
-    pub fn proj_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
+    pub fn proj_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &Context,
+        runtime: &tokio::runtime::Runtime,
+        progress_sender: ProgSender,
+    ) {
         ui.heading("Project Management");
         ui.add_space(5.0);
         ui.horizontal(|ui| {
@@ -162,7 +168,12 @@ impl ProjectApp {
         if any_prompt_open {
             input_block_overlay(ctx, "blocker222");
         }
-        self.manage.show_manage_proj_data(ctx, self.project.clone().unwrap());
+        self.manage.show_manage_proj_data(
+            ctx,
+            self.project.clone().unwrap(),
+            &runtime,
+            progress_sender,
+        );
         self.show_proj_create_prompt(ctx);
         self.show_proj_delete_prompt(ctx);
         self.show_verify_delete(ctx);

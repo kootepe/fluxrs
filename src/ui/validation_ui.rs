@@ -198,7 +198,7 @@ impl std::fmt::Debug for Mode {
 }
 type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
 type ProgReceiver = UnboundedReceiver<ProcessEvent>;
-type ProgSender = UnboundedSender<ProcessEvent>;
+pub type ProgSender = UnboundedSender<ProcessEvent>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GasKey {
