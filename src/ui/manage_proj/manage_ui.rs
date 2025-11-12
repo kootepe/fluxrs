@@ -113,7 +113,7 @@ impl DeleteMeasurementApp {
 
         ui.separator();
 
-        let cols = ["", "ID", "File name", "Type", "Upload date", "Project"];
+        let cols = ["", "ID", "File name", "Type", "Upload date"];
         ScrollArea::vertical().show(ui, |ui| {
             egui::Grid::new("data_table")
                 .striped(true)
@@ -144,7 +144,7 @@ impl DeleteMeasurementApp {
                         // 3) File name
                         ui.label(&file.file_name);
 
-                        // 4) Type
+                        // 4) Typd
                         ui.label(&file.data_type);
 
                         // 5) Upload date
@@ -153,7 +153,6 @@ impl DeleteMeasurementApp {
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                             .unwrap_or_else(|| "-".to_string());
                         ui.label(uploaded);
-                        ui.label(format!("{}", file.project_link));
                         ui.end_row();
                     }
                 });
