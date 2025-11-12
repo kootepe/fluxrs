@@ -3,7 +3,7 @@ use crate::ui::manage_proj::project::Project;
 use crate::ui::validation_ui::DataType;
 use chrono::NaiveDateTime;
 use egui::{Align2, Color32, Context, Frame, Ui, Window};
-use egui::{ScrollArea, WidgetInfo, WidgetType};
+use egui::{RichText, ScrollArea, WidgetInfo, WidgetType};
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
 
@@ -53,11 +53,11 @@ impl DeleteMeasurementApp {
             self.reload_files();
             self.reload_requested = false;
         }
-        ui.vertical_centered(|ui| {
-            ui.heading("Delete fluxes");
-            ui.separator();
-        });
-        self.date_range.date_picker(ui, ctx);
+        // ui.vertical_centered(|ui| {
+        //     ui.heading("Delete fluxes");
+        //     ui.separator();
+        // });
+        // self.date_range.date_picker(ui, ctx);
         ui.heading("Data Files");
 
         ui.horizontal(|ui| {
@@ -78,27 +78,22 @@ impl DeleteMeasurementApp {
 
         ui.separator();
 
-        // Table header
-        ui.horizontal(|ui| {
-            ui.label(""); // checkbox column
-            ui.label("ID");
-            ui.label("File name");
-            ui.label("Type");
-            ui.label("Uploaded at");
-            ui.label("Project");
-        });
-
-        ui.separator();
-
-        let cols = ["ID", "File name", "Type", "Upload date", "Project"];
+        let cols = ["", "ID", "File name", "Type", "Upload date", "Project"];
         ScrollArea::vertical().show(ui, |ui| {
-            egui::Grid::new("data_table").striped(true).show(ui, |ui| {
-                for col in cols {
-                    ui.label(col); // show headers as-is
-                }
-                ui.end_row();
-                for file in &self.files {
-                    ui.horizontal(|ui| {
+            egui::Grid::new("data_table")
+                .striped(true)
+                .num_columns(cols.len())
+                .spacing([16.0, 8.0])
+                .show(ui, |ui| {
+                    // Header row
+                    for col in cols {
+                        ui.label(RichText::new(col).strong());
+                    }
+                    ui.end_row();
+
+                    // Data rows
+                    for file in &self.files {
+                        // 1) checkbox column
                         let mut checked = self.selected_ids.contains(&file.id);
                         if ui.checkbox(&mut checked, "").changed() {
                             if checked {
@@ -108,21 +103,25 @@ impl DeleteMeasurementApp {
                             }
                         }
 
+                        // 2) ID
                         ui.label(file.id.to_string());
+
+                        // 3) File name
                         ui.label(&file.file_name);
+
+                        // 4) Type
                         ui.label(&file.data_type);
 
+                        // 5) Upload date
                         let uploaded = file
                             .uploaded_at
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
                             .unwrap_or_else(|| "-".to_string());
                         ui.label(uploaded);
 
-                        ui.label(file.project_link.to_string());
-                    });
-                    ui.end_row();
-                }
-            });
+                        ui.end_row();
+                    }
+                });
         });
     }
 
