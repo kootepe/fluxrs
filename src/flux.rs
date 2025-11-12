@@ -556,7 +556,7 @@ impl PolyFlux {
 
         let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
-        let y_mean = x_norm.iter().copied().sum::<f64>() / n;
+        let y_mean = y.iter().copied().sum::<f64>() / n;
         let rmse = rmse(&y, &y_hat).unwrap_or(0.0);
         let cv = rmse / y_mean;
 
@@ -569,10 +569,12 @@ impl PolyFlux {
         let sigma = (rss / (n as f64 - k as f64 - 1.0)).sqrt();
 
         // Evaluate slope at midpoint of the fit range (normalized)
-        let x_mid = ((start - x0) + (end - x0)) / 2.0;
-        let slope_at_mid = model.a1 + 2.0 * model.a2 * x_mid;
+        // let x_mid = ((start - x0) + (end - x0)) / 2.0;
+        // let slope_at_mid = model.a1 + 2.0 * model.a2 * x_mid;
+        let x_start = start - x0; // with your normalization, often 0.0
+        let slope = model.a1 + 2.0 * model.a2 * x_start;
 
-        let flux = flux_umol_m2_s(&channel, slope_at_mid, air_temperature, air_pressure, &chamber);
+        let flux = flux_umol_m2_s(&channel, slope, air_temperature, air_pressure, &chamber);
 
         Some(Self {
             fit_id: fit_id.to_string(),
