@@ -354,7 +354,7 @@ impl LinearFlux {
 
         let sigma = (rss / (n - 2.0)).sqrt();
         let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
-        let y_mean = x_norm.iter().copied().sum::<f64>() / n;
+        let y_mean = y.iter().copied().sum::<f64>() / n;
         let cv = rmse_val / y_mean;
 
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
