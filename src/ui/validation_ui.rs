@@ -1827,7 +1827,7 @@ impl ValidationApp {
                     let response2 = flux_plot.show(ui, |plot_ui| {
                         self.render_best_flux_plot(plot_ui, &gas_type, |cycle, gas| {
                             let umol_m2_s = cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN);
-                            flux_unit.from_umol_m2_s(umol_m2_s, gas_type.gas_type)
+                            flux_unit.from_umol_m2_s(umol_m2_s, gas.gas_type)
                         });
                     });
                     if response.response.hovered() {
