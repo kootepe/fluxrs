@@ -712,7 +712,7 @@ impl RobustFlux {
         let k = 1;
         let cv = rmse_val / n as f64;
 
-        let adjusted_r2 = adjusted_r2(r2, n, k);
+        let adjusted_r2 = adjusted_r2(r2, n, 2);
         let rss: f64 = y.iter().zip(&y_hat).map(|(&yi, &yhi)| (yi - yhi).powi(2)).sum();
         let sigma = (rss / (n as f64 - 2.0)).sqrt();
         let aic = aic_from_rss(rss, n, 2);
