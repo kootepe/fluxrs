@@ -890,6 +890,12 @@ impl ValidationApp {
             cycle.set_calc_start(key, x);
         }
     }
+    pub fn set_calc_start_all(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_calc_start_all(x);
+        }
+    }
     // pub fn print_first_dt(&mut self) {
     //     if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
     //         println!("first: {}", cycle.dt_v.first().unwrap());
@@ -963,6 +969,12 @@ impl ValidationApp {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.set_calc_end(key, x);
+        }
+    }
+    pub fn set_calc_end_all(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.set_calc_end_all(x);
         }
     }
 
@@ -1499,16 +1511,12 @@ impl ValidationApp {
                 // Set lag on currently selected cycle
                 if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                     if cycle.start_time.timestamp() as f64 == dragged[0] {
-                        cycle.set_open_lag(new_y);
+                        cycle.increment_open_lag(steps);
+                        // cycle.set_open_lag(new_y);
                         if self.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
-                        if self.mode_after_deadband() && steps < 0. {
-                            // self.increment_open_lag(steps);
-                            // BUG: calc area doesnt stick to close time
-                            self.increment_calc_starts(steps);
-                            self.increment_calc_ends(steps);
-                        }
+                        self.stick_calc_to_range_start_for_all();
                     }
                 }
             }
@@ -1687,8 +1695,8 @@ impl ValidationApp {
                                 end,
                                 self.get_min_calc_area_len(),
                             );
-                            self.set_calc_start(key, s);
-                            self.set_calc_end(key, e);
+                            self.set_calc_start_all(s);
+                            self.set_calc_end_all(e);
                         }
                     }
                 },
@@ -1708,8 +1716,8 @@ impl ValidationApp {
                                 new_end,
                                 self.get_min_calc_area_len(),
                             );
-                            self.set_calc_start(key, s);
-                            self.set_calc_end(key, e);
+                            self.set_calc_start_all(s);
+                            self.set_calc_end_all(e);
                         }
                     }
                 },
@@ -1724,8 +1732,8 @@ impl ValidationApp {
                             let s0 = self.get_calc_start(key) + steps;
                             let e0 = self.get_calc_end(key) + steps;
                             let (s, e) = clamp_translate((min_b, max_b), s0, e0);
-                            self.set_calc_start(key, s);
-                            self.set_calc_end(key, e);
+                            self.set_calc_start_all(s);
+                            self.set_calc_end_all(e);
                         }
                     }
                 },

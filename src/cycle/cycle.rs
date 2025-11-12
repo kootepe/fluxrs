@@ -330,6 +330,17 @@ impl Cycle {
             self.calc_range_start.insert(key.clone(), value);
         }
     }
+    pub fn set_calc_start_all(&mut self, value: f64) {
+        for key in self.gases.iter() {
+            let range_min = self.get_adjusted_close() + self.deadbands.get(&key).unwrap_or(&0.0);
+            // the calc area cant go beyond the measurement area
+            if range_min > value {
+                self.calc_range_start.insert(key.clone(), range_min);
+            } else {
+                self.calc_range_start.insert(key.clone(), value);
+            }
+        }
+    }
     pub fn set_calc_end(&mut self, key: &GasKey, value: f64) {
         let range_max = self.get_adjusted_open();
         // the calc area cant go beyond the measurement area
@@ -339,6 +350,17 @@ impl Cycle {
             self.calc_range_end.insert(key.clone(), value);
         }
         self.adjust_calc_range_all();
+    }
+    pub fn set_calc_end_all(&mut self, value: f64) {
+        for key in self.gases.iter() {
+            let range_min = self.get_adjusted_close() + self.deadbands.get(&key).unwrap_or(&0.0);
+            // the calc area cant go beyond the measurement area
+            if range_min > value {
+                self.calc_range_end.insert(key.clone(), range_min);
+            } else {
+                self.calc_range_end.insert(key.clone(), value);
+            }
+        }
     }
 
     pub fn set_start_lag_s(&mut self, new_lag: f64) {
