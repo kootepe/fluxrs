@@ -2611,50 +2611,19 @@ pub fn load_cycles_sync(
         for (_, instrument) in instruments.clone() {
             let instrument_id = instrument.id.unwrap();
             let cfg = instrument.model.get_config();
-            for ch in &cfg.channels {
-                let gas_key = GasKey::from((&ch.gas, &instrument_id));
-                match ch.gas {
-                    GasType::CH4 => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    GasType::CO2 => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    GasType::H2O => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    GasType::N2O => {
-                        gas_channels.insert(
-                            gas_key.clone(),
-                            GasChannel {
-                                gas: ch.gas,
-                                unit: ch.unit,
-                                instrument_id: ch.instrument_id.clone(),
-                            },
-                        );
-                    },
-                    _ => {},
+            let gases = instrument.model.available_gases();
+
+            for gas in &gases {
+                let gas_key = GasKey::from((gas, &instrument_id));
+                for ch in &cfg.channels {
+                    if gas == &ch.gas {
+                        let chan = GasChannel {
+                            gas: *gas,
+                            unit: ch.unit,
+                            instrument_id: ch.instrument_id.clone(),
+                        };
+                        gas_channels.insert(gas_key.clone(), chan);
+                    }
                 }
             }
         }
@@ -3237,6 +3206,7 @@ where
                     cycle.instrument = item.clone();
                 }
             }
+
             let tx = Connection::open("fluxrs.db").expect("Failed to open database");
             let instrument_id = get_instrument_id_by_project_and_serial(
                 &tx,
@@ -3246,6 +3216,10 @@ where
             .expect("Failure");
 
             cycle.instrument.id = instrument_id;
+            // let cfg = cycle.instrument.model.get_config();
+            // for ch in cfg.channels {
+            //     for ins in cur_data.instruments {}
+            // }
 
             // Gas values for this serial only
             for (key, gas_values) in &cur_data.gas {
@@ -3262,50 +3236,17 @@ where
                 {
                     let instrument = cur_data.model_key.get(&key.id).unwrap();
                     let cfg = instrument.get_config();
-                    let key_gas = key.gas_type;
                     for ch in &cfg.channels {
-                        match ch.gas {
-                            GasType::CH4 => {
-                                cycle.gas_channels.insert(
-                                    key.clone(),
-                                    GasChannel {
-                                        gas: ch.gas,
-                                        unit: ch.unit,
-                                        instrument_id: ch.instrument_id.clone(),
-                                    },
-                                );
-                            },
-                            GasType::CO2 => {
-                                cycle.gas_channels.insert(
-                                    key.clone(),
-                                    GasChannel {
-                                        gas: ch.gas,
-                                        unit: ch.unit,
-                                        instrument_id: ch.instrument_id.clone(),
-                                    },
-                                );
-                            },
-                            GasType::H2O => {
-                                cycle.gas_channels.insert(
-                                    key.clone(),
-                                    GasChannel {
-                                        gas: ch.gas,
-                                        unit: ch.unit,
-                                        instrument_id: ch.instrument_id.clone(),
-                                    },
-                                );
-                            },
-                            GasType::N2O => {
-                                cycle.gas_channels.insert(
-                                    key.clone(),
-                                    GasChannel {
-                                        gas: ch.gas,
-                                        unit: ch.unit,
-                                        instrument_id: ch.instrument_id.clone(),
-                                    },
-                                );
-                            },
-                            _ => {},
+                        if ch.gas == key.gas_type {
+                            cycle.gas_channels.insert(
+                                key.clone(), // this key is correct because gas matches
+                                GasChannel {
+                                    gas: ch.gas,
+                                    unit: ch.unit,
+                                    instrument_id: ch.instrument_id.clone(),
+                                },
+                            );
+                            break; // we found the matching channel; stop to avoid accidental overwrites
                         }
                     }
 
