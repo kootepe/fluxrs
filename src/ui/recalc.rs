@@ -7,7 +7,7 @@ use crate::ui::manage_proj::project_ui::input_block_overlay;
 use crate::Project;
 
 use crate::ui::recalcer::{Datasets, Infra, Recalcer};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use eframe::egui::{Align2, Color32, Context, Frame, Ui, Window};
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
@@ -166,5 +166,16 @@ impl RecalculateApp {
                 });
             }
     });
+    }
+    pub fn calculate_all(
+        &self,
+        runtime: &tokio::runtime::Runtime,
+        project: Project,
+        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    ) {
+        // 1970-01-01 to 2100-01-01 in UTC (wide and safe)
+        let start = Utc.timestamp_opt(0, 0).unwrap();
+        let end = Utc.timestamp_opt(4_102_444_800, 0).unwrap();
+        self.calculate(runtime, start, end, project, progress_sender);
     }
 }
