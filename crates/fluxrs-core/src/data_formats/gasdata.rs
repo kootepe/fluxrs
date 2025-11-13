@@ -1,6 +1,5 @@
 use crate::constants::ERROR_INT;
 use crate::cycle::gaskey::GasKey;
-use crate::gastype::GasType;
 use crate::instruments::instruments::get_or_insert_instrument;
 use crate::instruments::instruments::{Instrument, InstrumentMeasurement};
 use crate::project::Project;

@@ -1,33 +1,17 @@
-use crate::cycle::cycle::{
-    insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
-    update_fluxes, Cycle,
-};
-use crate::data_formats::chamberdata::{
-    insert_chamber_metadata, read_chamber_metadata, ChamberShape,
-};
-use crate::data_formats::gasdata::{insert_measurements, GasData};
-use crate::data_formats::heightdata::{
-    insert_height_data, query_height, read_height_csv, HeightData,
-};
-use crate::data_formats::meteodata::{insert_meteo_data, read_meteo_csv, MeteoData};
-use crate::data_formats::timedata::{insert_cycles, try_all_formats, TimeData};
-use crate::processevent::{
-    self, InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
-};
+use crate::cycle::cycle::{update_fluxes, Cycle};
+use crate::data_formats::chamberdata::ChamberShape;
+use crate::data_formats::heightdata::HeightData;
+use crate::data_formats::meteodata::MeteoData;
+use crate::processevent::{ProcessEvent, ProgressEvent};
 use crate::project::Project;
 
-use std::collections::VecDeque;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 
-const MAX_CONCURRENT_TASKS: usize = 10;
-type GasDataSet = HashMap<String, Arc<GasData>>;
 type HeightDataSet = HeightData;
 type ChamberDataSet = HashMap<String, ChamberShape>;
 type MeteoDataSet = MeteoData;
-type TimeDataSet = TimeData;
-type CycleDataSet = Vec<Cycle>;
 
 pub struct Datasets {
     pub meteo: MeteoDataSet,
