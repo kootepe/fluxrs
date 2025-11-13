@@ -99,8 +99,8 @@ pub fn insert_meteo_data(
     {
         // BUG: BAD SQL
         let mut stmt = tx.prepare(
-            "INSERT INTO meteo (project_link, datetime, temperature, pressure)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO meteo (project_link, datetime, temperature, pressure, file_link)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(datetime, project_link)
              DO UPDATE SET temperature = excluded.temperature, pressure = excluded.pressure",
         )?;
@@ -111,7 +111,7 @@ pub fn insert_meteo_data(
             let pressure = meteo_data.pressure[i];
             inserted += 1;
 
-            stmt.execute(params![project_id, datetime, temperature, pressure])?;
+            stmt.execute(params![project_id, datetime, temperature, pressure, file_id])?;
         }
     }
     Ok(inserted)
