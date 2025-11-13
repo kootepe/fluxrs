@@ -1,5 +1,6 @@
 pub mod dl_ui;
 pub mod file_ui;
+pub mod gasmetrics;
 pub mod init_ui;
 pub mod load_ui;
 pub mod main_app;
