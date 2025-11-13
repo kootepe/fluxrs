@@ -60,8 +60,8 @@ pub fn insert_height_data(
     {
         // BUG: BAD SQL
         let mut stmt = tx.prepare(
-            "INSERT INTO height (chamber_id, project_link, datetime, height)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO height (chamber_id, project_link, datetime, height, file_link)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(chamber_id, project_link, datetime)
              DO UPDATE SET height = excluded.height",
         )?;
@@ -71,7 +71,8 @@ pub fn insert_height_data(
                 &height_data.chamber_id[i],
                 project_id,
                 height_data.datetime[i],
-                height_data.height[i]
+                height_data.height[i],
+                file_id,
             ])?;
             // inserted += 1;
             inserted += tx.changes();
