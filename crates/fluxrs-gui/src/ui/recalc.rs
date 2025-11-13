@@ -3,10 +3,14 @@ use fluxrs_core::cycle_recalcer::{Datasets, Infra, Recalcer};
 use fluxrs_core::data_formats::chamberdata::query_chamber_async;
 use fluxrs_core::data_formats::heightdata::query_height_async;
 use fluxrs_core::data_formats::meteodata::query_meteo_async;
-use fluxrs_core::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
+use fluxrs_core::processevent::{
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+};
 use fluxrs_core::project::Project;
+use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::ui::manage_proj::project_ui::input_block_overlay;
+use crate::utils::{bad_message, good_message, warn_message};
 
 use chrono::{DateTime, TimeZone, Utc};
 use eframe::egui::{Align2, Color32, Context, Frame, Ui, Window};
@@ -169,7 +173,7 @@ impl RecalculateApp {
     });
     }
     pub fn calculate_all(
-        &self,
+        &mut self,
         runtime: &tokio::runtime::Runtime,
         project: Project,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
@@ -178,5 +182,185 @@ impl RecalculateApp {
         let start = Utc.timestamp_opt(0, 0).unwrap();
         let end = Utc.timestamp_opt(4_102_444_800, 0).unwrap();
         self.calculate(runtime, start, end, project, progress_sender);
+    }
+}
+impl ProcessEventSink for RecalculateApp {
+    fn on_query_event(&mut self, ev: &QueryEvent) {
+        match ev {
+            QueryEvent::InitStarted => {
+                self.calc_in_progress = true;
+            },
+            QueryEvent::InitEnded => {
+                self.calc_in_progress = false;
+            },
+            QueryEvent::QueryComplete => {
+                // self.query_in_progress = false;
+                // self.log_messages.push_front(good_message("Finished queries."));
+                self.query_in_progress = false;
+            },
+            QueryEvent::HeightFail(msg) => {
+                // self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::CyclesFail(msg) => {
+                // self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::DbFail(msg) => {
+                // self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::NoGasData(start_time) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "No gas data found for cycle at {}",
+                //     start_time
+                // )));
+            },
+            QueryEvent::NoGasDataDay(day) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "No gas data found for cycles at day {}",
+                //     day
+                // )));
+            },
+        }
+    }
+
+    fn on_progress_event(&mut self, ev: &ProgressEvent) {
+        match ev {
+            ProgressEvent::Rows(current, total) => {
+                self.cycles_state = Some((*current, *total));
+                self.cycles_progress += current;
+                println!("Processed {} out of {} cycles", current, total);
+            },
+            ProgressEvent::Recalced(current, total) => {
+                self.cycles_state = Some((*current, *total));
+                self.cycles_progress += current;
+                // println!("Processed {} out of {} cycles", current, total);
+            },
+            ProgressEvent::CalculationStarted => {
+                self.calc_enabled = false;
+                self.calc_in_progress = true;
+            },
+            ProgressEvent::Day(date) => {
+                // self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
+            },
+            ProgressEvent::NoGas(msg) => {
+                // self.log_messages.push_front(bad_message(&format!("Gas missing: {}", msg)));
+            },
+            ProgressEvent::Generic(msg) => {
+                // self.log_messages.push_front(good_message(msg));
+            },
+        }
+    }
+
+    fn on_read_event(&mut self, ev: &ReadEvent) {
+        match ev {
+            ReadEvent::File(filename) => {
+                // self.log_messages.push_front(good_message(&format!("Read file: {}", filename)));
+            },
+            ReadEvent::FileDetail(filename, detail) => {
+                // self.log_messages
+                //     .push_front(good_message(&format!("Read file: {} {}", filename, detail)));
+            },
+            ReadEvent::MeteoFail(filename, msg) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "Could not parse as meteo file: {}, {}",
+                //     filename, msg,
+                // )));
+            },
+            ReadEvent::HeightFail(filename, msg) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "Could not parse as height file: {}, {}",
+                //     filename, msg
+                // )));
+            },
+            ReadEvent::CycleFail(filename, msg) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "Could not parse as cycle file: {}, {}",
+                //     filename, msg
+                // )));
+            },
+            ReadEvent::GasFail(filename, msg) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "Could not parse as gas file: {}, {}",
+                //     filename, msg
+                // )));
+            },
+            ReadEvent::MetadataFail(filename, msg) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "Could not parse as chamber metadata file: {}, {}",
+                //     filename, msg
+                // )));
+            },
+            ReadEvent::FileRows(filename, rows) => {
+                // self.log_messages.push_front(good_message(&format!(
+                //     "Read file: {} with {} rows",
+                //     filename, rows
+                // )));
+            },
+            ReadEvent::RowFail(msg) => {
+                // self.log_messages.push_front(bad_message(&msg.to_owned()));
+            },
+            ReadEvent::FileFail(filename, e) => {
+                // self.log_messages.push_front(bad_message(&format!(
+                //     "Failed to read file {}, error: {}",
+                //     filename, e
+                // )));
+            },
+        }
+    }
+
+    fn on_insert_event(&mut self, ev: &InsertEvent) {
+        match ev {
+            InsertEvent::Ok(msg, rows) => {
+                // self.log_messages.push_front(good_message(&format!("{}{}", rows, msg)));
+            },
+            InsertEvent::OkSkip(rows, duplicates) => {
+                // if *duplicates == 0 {
+                //     self.log_messages.push_front(good_message(&format!(
+                //         "Inserted {} rows, skipped {} duplicates.",
+                //         rows, duplicates
+                //     )));
+                // } else {
+                //     self.log_messages.push_front(warn_message(&format!(
+                //         "Inserted {} rows, skipped {} duplicates.",
+                //         rows, duplicates
+                //     )));
+                // }
+            },
+            InsertEvent::CycleOkSkip(rows, skips) => {
+                // if skips == &0 {
+                //     self.log_messages
+                //         .push_front(good_message(&format!("Inserted {} cycles.", rows,)));
+                // } else {
+                //     self.log_messages.push_front(warn_message(&format!(
+                //         "Inserted {} cycles, skipped {} entries. Either something went wrong with the calculation or the cycles already exist in the db.",
+                //         rows, skips
+                //     )));
+                // }
+            },
+            InsertEvent::Fail(e) => {
+                // self.log_messages.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
+            },
+        }
+    }
+
+    fn on_done(&mut self, res: &Result<(), String>) {
+        match res {
+            Ok(()) => {
+                // self.log_messages.push_front(good_message("All processing finished."));
+            },
+            Err(e) => {
+                // self.log_messages
+                //     .push_front(bad_message(&format!("Processing finished with error: {}", e)));
+            },
+        }
+
+        self.cycles_progress = 0;
+        // self.init_in_progress = false;
+        // self.init_enabled = true;
+        self.query_in_progress = false;
+        self.calc_enabled = true;
+        self.calc_in_progress = false;
+        self.query_in_progress = false;
+        self.cycles_progress = 0;
+        self.cycles_state = None;
     }
 }
