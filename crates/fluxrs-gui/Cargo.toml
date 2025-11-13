@@ -1,0 +1,27 @@
+[package]
+name = "fluxrs-gui"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+serde = {workspace = true}
+serde_json = {workspace = true}
+chrono = {workspace = true}
+chrono-tz = {workspace = true}
+rustc-hash = {workspace = true}
+fxhash = {workspace = true}
+tokio = {workspace = true}
+csv = { workspace = true }
+rusqlite = {workspace = true}
+clap = {workspace = true}
+
+egui = {version = "0.31.0", features = ["serde"]}
+ecolor = "0.31.0"
+eframe = "0.31.0"
+egui_plot = "0.32.1"
+egui_file = "0.22"
+egui_extras = { version = "*", default-features = false, features = ["datepicker"] }
+image = "0.25.0"
+windows = { version = "0.58", features = ["Win32_System_Console", "Win32_Foundation"] }
+
+fluxrs-core = { path = "../fluxrs-core"  }
