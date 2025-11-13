@@ -5,16 +5,15 @@ use chrono::NaiveDateTime;
 use egui::{Align2, Color32, Context, Frame, Ui, Window};
 use egui::{RichText, ScrollArea, WidgetInfo, WidgetType};
 use fluxrs_core::datatype::DataType;
+use fluxrs_core::processevent::{
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+};
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
+use tokio::sync::mpsc::error::TryRecvError;
 
-use fluxrs_core::cycle::cycle::{load_cycles, Cycle};
-use fluxrs_core::cycle_recalcer::{Datasets, Infra, Recalcer};
-use fluxrs_core::data_formats::chamberdata::read_chamber_metadata;
-use fluxrs_core::data_formats::heightdata::query_height;
-use fluxrs_core::processevent::ProcessEvent;
 use fluxrs_core::project::Project;
-use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug, Clone)]
 struct DataFileRow {
@@ -22,7 +21,7 @@ struct DataFileRow {
     file_name: String,
     data_type: String,
     uploaded_at: Option<NaiveDateTime>,
-    project_link: i64,
+    _project_link: i64,
 }
 
 pub struct DeleteMeasurementApp {
@@ -56,9 +55,10 @@ impl DeleteMeasurementApp {
         ctx: &Context,
         project: Project,
         datatype: DataType,
-        recalc: &RecalculateApp,
+        recalc: &mut RecalculateApp,
         runtime: &tokio::runtime::Runtime,
         progress_sender: UnboundedSender<ProcessEvent>,
+        progress_receiver: &mut Option<UnboundedReceiver<ProcessEvent>>,
     ) {
         self.project = project;
 
@@ -71,13 +71,45 @@ impl DeleteMeasurementApp {
             self.reload_files();
             self.reload_requested = false;
         }
-        // ui.vertical_centered(|ui| {
-        //     ui.heading("Delete fluxes");
-        //     ui.separator();
-        // });
-        // self.date_range.date_picker(ui, ctx);
+
         ui.heading("Data Files");
 
+        if recalc.calc_in_progress || !recalc.calc_enabled || recalc.query_in_progress {
+            input_block_overlay(ctx, "blocker22");
+
+            Window::new("tester")
+                .title_bar(false)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
+                .frame(
+                    Frame::window(&ctx.style())
+                        .fill(Color32::from_rgb(30, 30, 30))
+                        .corner_radius(8)
+                        .inner_margin(egui::Margin::symmetric(16, 12)),
+                )
+                .show(ctx, |ui| {
+                    ui.add(egui::Spinner::new());
+
+                    if recalc.query_in_progress {
+                        ui.label("Querying data, this can take a while for large time ranges.");
+                    } else if recalc.calc_in_progress {
+                        ui.label("Recalculating fluxes");
+                    }
+
+                    if let Some((_, total)) = recalc.cycles_state {
+                        let total = total.max(1); // avoid division by zero
+                        let fraction =
+                            (recalc.cycles_progress as f32 / total as f32).clamp(0.0, 1.0);
+                        let pb = egui::widgets::ProgressBar::new(fraction)
+                            .desired_width(200.)
+                            .corner_radius(1)
+                            .show_percentage()
+                            .text(format!("{}/{}", recalc.cycles_progress, total));
+                        ui.add(pb);
+                    }
+                });
+        }
         ui.horizontal(|ui| {
             if ui.button("Refresh").clicked() {
                 self.reload_requested = true;
@@ -87,50 +119,14 @@ impl DeleteMeasurementApp {
                     Ok(n) if n > 0 => {
                         match self.datatype {
                             DataType::Meteo | DataType::Height | DataType::Chamber => {
+                                recalc.calc_enabled = false;
+                                recalc.query_in_progress = true;
                                 recalc.calculate_all(
                                     runtime,
                                     self.project.clone(),
                                     progress_sender.clone(),
                                 );
- if recalc.calc_in_progress || !recalc.calc_enabled || recalc.query_in_progress {
-                input_block_overlay(ctx, "blocker");
-
-                Window::new("Manage project")
-                    .title_bar(false)
-                    .collapsible(false)
-                    .resizable(false)
-                    .anchor(Align2::CENTER_TOP, egui::vec2(0.0, 100.0))
-                    .frame(
-                        Frame::window(&ctx.style())
-                            .fill(Color32::from_rgb(30, 30, 30))
-                            .corner_radius(8)
-                            .inner_margin(egui::Margin::symmetric(16, 12)),
-                    )
-                    .show(ctx, |ui| {
-
-                        ui.add(egui::Spinner::new());
-
-                        if recalc.query_in_progress {
-                            ui.label("Querying data, this can take a while for large time ranges.");
-                        } else if recalc.calc_in_progress {
-                            ui.label("Recalculating fluxes");
-
-                        }
-
-                        if let Some((_, total)) = recalc.cycles_state {
-
-                            let total = total.max(1); // avoid division by zero
-                            let fraction = (recalc.cycles_progress as f32 / total as f32).clamp(0.0, 1.0);
-                            let pb =
-                                egui::widgets::ProgressBar::new(fraction)
-                                    .desired_width(200.)
-                                    .corner_radius(1)
-                                    .show_percentage()
-                                    .text(format!("{}/{}", recalc.cycles_progress, total));
-                            ui.add(pb);
-                        }
-                });
-            }                           },
+                            },
                             _ => {
                                 // No recalculation for Gas or Cycle deletions
                             },
@@ -225,7 +221,7 @@ impl DeleteMeasurementApp {
                 file_name: row.get(1)?,
                 data_type: row.get(2)?,
                 uploaded_at: row.get(3).ok(), // TIMESTAMP -> Option<NaiveDateTime>
-                project_link: row.get(4)?,
+                _project_link: row.get(4)?,
             })
         });
 
@@ -290,6 +286,7 @@ impl Default for ManagePanel {
 
 pub struct ManageApp {
     pub open: bool,
+    can_close: bool,
     project: Project,
     live_panel: ManagePanel,
     del_measurement: DeleteMeasurementApp,
@@ -309,6 +306,7 @@ impl ManageApp {
     pub fn new() -> Self {
         Self {
             open: false,
+            can_close: true,
             live_panel: ManagePanel::default(),
             project: Project::default(),
             del_measurement: DeleteMeasurementApp::new(Project::default(), DataType::Gas),
@@ -331,6 +329,7 @@ impl ManageApp {
         project: Project,
         runtime: &tokio::runtime::Runtime,
         progress_sender: UnboundedSender<ProcessEvent>,
+        progress_receiver: &mut Option<UnboundedReceiver<ProcessEvent>>,
     ) {
         self.project = project;
 
@@ -341,6 +340,7 @@ impl ManageApp {
             self.close_manage_proj();
             return;
         }
+        self.can_close = self.recalc_app.calc_enabled;
 
         let mut open = self.open;
         Window::new("Manage project")
@@ -357,16 +357,27 @@ impl ManageApp {
             )
             .show(ctx, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    if ui.button("Close").clicked() {
+                    //     .add_enabled(
+                    //         self.init_enabled && !self.init_in_progress && start_after_end,
+                    //         egui::Button::new("Initiate measurements").fill(Color32::DARK_GREEN),
+                    //     )
+                    //     .clicked()
+                    // {
+
+                    if ui.add_enabled(self.can_close, egui::Button::new("Close")).clicked() {
                         self.close_manage_proj();
-                    };
+                    }
+                    // if ui.button("Close").clicked() {
+                    // };
                 });
                 ui.horizontal_wrapped(|ui| {
                     let container_response = ui.response();
                     container_response.widget_info(|| {
                         WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel")
                     });
-
+                    if let Some(receiver) = progress_receiver.as_mut() {
+                        drain_progress_messages(&mut self.recalc_app, receiver);
+                    }
                     // let panel_switching_allowed = !self.validation_panel.init_in_progress;
                     let panel_switching_allowed = true;
                     ui.ctx().clone().with_accessibility_parent(container_response.id, || {
@@ -411,9 +422,10 @@ impl ManageApp {
                             ctx,
                             project_clone,
                             DataType::Gas,
-                            &self.recalc_app,
+                            &mut self.recalc_app,
                             runtime,
                             progress_sender.clone(),
+                            progress_receiver,
                         );
                     },
                     ManagePanel::DeleteCycle => {
@@ -422,9 +434,10 @@ impl ManageApp {
                             ctx,
                             project_clone,
                             DataType::Cycle,
-                            &self.recalc_app,
+                            &mut self.recalc_app,
                             runtime,
                             progress_sender.clone(),
+                            progress_receiver,
                         );
                     },
                     ManagePanel::DeleteMeteo => {
@@ -433,9 +446,10 @@ impl ManageApp {
                             ctx,
                             project_clone,
                             DataType::Meteo,
-                            &self.recalc_app,
+                            &mut self.recalc_app,
                             runtime,
                             progress_sender.clone(),
+                            progress_receiver,
                         );
                     },
                     ManagePanel::DeleteHeight => {
@@ -444,9 +458,10 @@ impl ManageApp {
                             ctx,
                             project_clone,
                             DataType::Height,
-                            &self.recalc_app,
+                            &mut self.recalc_app,
                             runtime,
                             progress_sender.clone(),
+                            progress_receiver,
                         );
                     },
                     ManagePanel::DeleteChamber => {
@@ -455,14 +470,41 @@ impl ManageApp {
                             ctx,
                             project_clone,
                             DataType::Chamber,
-                            &self.recalc_app,
+                            &mut self.recalc_app,
                             runtime,
                             progress_sender.clone(),
+                            progress_receiver,
                         );
                     },
                     ManagePanel::Empty => {},
                     ManagePanel::DeleteFlux => {},
                 }
             });
+    }
+}
+pub fn drain_progress_messages<T: ProcessEventSink>(
+    sink: &mut T,
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>,
+) {
+    loop {
+        match receiver.try_recv() {
+            Ok(msg) => match msg {
+                ProcessEvent::Query(ev) => sink.on_query_event(&ev),
+                ProcessEvent::Progress(ev) => sink.on_progress_event(&ev),
+                ProcessEvent::Read(ev) => sink.on_read_event(&ev),
+                ProcessEvent::Insert(ev) => sink.on_insert_event(&ev),
+                ProcessEvent::Done(res) => sink.on_done(&res),
+            },
+
+            Err(TryRecvError::Empty) => {
+                // nothing waiting right now -> we're done draining for this tick
+                break;
+            },
+
+            Err(TryRecvError::Disconnected) => {
+                // channel is closed, also done. you *could* choose to store a flag here.
+                break;
+            },
+        }
     }
 }

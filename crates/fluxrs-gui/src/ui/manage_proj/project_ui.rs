@@ -1,7 +1,7 @@
 use crate::ui::main_app::AppEvent;
 use crate::ui::manage_proj::manage_ui::ManageApp;
 use crate::ui::tz_picker::TimezonePickerState;
-use crate::ui::validation_ui::ProgSender;
+use crate::ui::validation_ui::{ProgReceiver, ProgSender};
 use chrono_tz::Tz;
 use egui::Color32;
 use egui::{Area, Button, Context, Id};
@@ -98,6 +98,7 @@ impl ProjectApp {
         ctx: &Context,
         runtime: &tokio::runtime::Runtime,
         progress_sender: ProgSender,
+        progress_receiver: &mut Option<ProgReceiver>,
     ) {
         ui.heading("Project Management");
         ui.add_space(5.0);
@@ -172,8 +173,9 @@ impl ProjectApp {
         self.manage.show_manage_proj_data(
             ctx,
             self.project.clone().unwrap(),
-            &runtime,
+            runtime,
             progress_sender,
+            progress_receiver,
         );
         self.show_proj_create_prompt(ctx);
         self.show_proj_delete_prompt(ctx);

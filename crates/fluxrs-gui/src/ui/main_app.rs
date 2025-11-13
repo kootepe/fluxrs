@@ -187,6 +187,7 @@ impl MainApp {
                     ctx,
                     &self.validation_panel.runtime,
                     self.validation_panel.prog_sender.clone(),
+                    &mut self.validation_panel.prog_receiver,
                 );
             },
             Panel::Empty => {

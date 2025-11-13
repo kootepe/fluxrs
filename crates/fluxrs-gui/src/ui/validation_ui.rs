@@ -1,4 +1,5 @@
 use crate::appview::AppState;
+use crate::ui::gasmetrics;
 use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
@@ -6,8 +7,6 @@ use crate::ui::plotting_ui::{
 use crate::ui::recalc::RecalculateApp;
 use crate::ui::tz_picker::TimezonePickerState;
 use crate::utils::{bad_message, good_message, warn_message};
-use fluxrs_core::instruments::instruments::get_or_insert_instrument;
-use fluxrs_core::utils::ensure_utf8;
 
 use crate::keybinds::{Action, KeyBindings};
 use fluxrs_core::cycle::cycle::Cycle;
@@ -19,39 +18,28 @@ use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::gastype::GasType;
 use fluxrs_core::mode::Mode;
 use fluxrs_core::processevent::{
-    self, InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
 use fluxrs_core::project::Project;
 
 use std::path::PathBuf;
 
-use fluxrs_core::traits::EqualLen;
-use std::str::FromStr;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
-use eframe::egui::{Color32, Context, Label, RichText, Stroke, TextWrapMode, Ui};
+use eframe::egui::{Color32, Context, Label, RichText, Stroke, TextWrapMode};
 use egui_file::FileDialog;
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone};
 use chrono_tz::{Tz, UTC};
-use rusqlite::{params, Connection, Result};
-use std::collections::BTreeMap;
+use rusqlite::Result;
 use std::collections::VecDeque;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-
-pub type InstrumentSerial = String;
-pub type InstrumentId = i64;
-// times: TimeData,
-// gas_data:
-// meteo_data: MeteoData,
-// height_data: HeightData,
-// chamber_data: HashMap<String, ChamberShape>,
 
 // logs which item on the plot is being dragged
 pub enum Adjuster {
@@ -88,7 +76,7 @@ impl Default for Adjuster {
 }
 
 type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
-type ProgReceiver = UnboundedReceiver<ProcessEvent>;
+pub type ProgReceiver = UnboundedReceiver<ProcessEvent>;
 pub type ProgSender = UnboundedSender<ProcessEvent>;
 
 pub struct ValidationApp {
@@ -104,6 +92,7 @@ pub struct ValidationApp {
     pub load_result: LoadResult,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
+
     pub enabled_gases: BTreeSet<GasKey>,
     pub enabled_calc_r: BTreeSet<GasKey>,
 
@@ -123,14 +112,13 @@ pub struct ValidationApp {
     pub enabled_roblin_rmse: BTreeSet<GasKey>,
     pub enabled_roblin_cv: BTreeSet<GasKey>,
     pub enabled_roblin_aic: BTreeSet<GasKey>,
-    //
+
     pub enabled_poly_sigma: BTreeSet<GasKey>,
     pub enabled_poly_adj_r2: BTreeSet<GasKey>,
     pub enabled_poly_rmse: BTreeSet<GasKey>,
     pub enabled_poly_cv: BTreeSet<GasKey>,
     pub enabled_poly_aic: BTreeSet<GasKey>,
 
-    // pub enabled_aic_diff: BTreeSet<GasKey>,
     pub enabled_measurement_rs: BTreeSet<GasKey>,
     pub enabled_conc_t0: BTreeSet<GasKey>,
 
@@ -156,7 +144,6 @@ pub struct ValidationApp {
     pub dirty_cycles: HashSet<usize>,
     pub zoom_to_measurement: u8,
     pub should_reset_bounds: bool,
-    pub drag_panel_width: f64,
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
@@ -173,8 +160,6 @@ pub struct ValidationApp {
     pub show_invalids: bool,
     pub show_bad: bool,
     pub keep_calc_constant_deadband: bool,
-    pub projects: Vec<Project>,
-    pub initiated: bool,
     pub selected_project: Option<Project>,
     pub show_linfit: bool,
     pub show_polyfit: bool,
@@ -192,7 +177,6 @@ pub struct ValidationApp {
     pub show_plot_widths: bool,
     pub toggled_gas: Option<GasKey>,
     pub dragging: Adjuster,
-    pub mode: Mode,
     pub current_delta: f64,
     pub current_z_delta: f64,
     pub current_ydelta: f64,
@@ -240,7 +224,6 @@ impl Default for ValidationApp {
             enabled_poly_aic: BTreeSet::new(),
             enabled_poly_rmse: BTreeSet::new(),
             enabled_poly_cv: BTreeSet::new(),
-            // enabled_aic_diff: BTreeSet::new(),
             enabled_measurement_rs: BTreeSet::new(),
             enabled_calc_r: BTreeSet::new(),
             enabled_conc_t0: BTreeSet::new(),
@@ -266,7 +249,6 @@ impl Default for ValidationApp {
             measurement_r_plot_h: 350.,
             zoom_to_measurement: 0,
             should_reset_bounds: false,
-            drag_panel_width: 40.0, // Default width for UI panel
             selected_point: None,
             dragged_point: None,
             chamber_colors: HashMap::new(),
@@ -282,8 +264,6 @@ impl Default for ValidationApp {
             show_invalids: true,
             show_valids: true,
             show_bad: false,
-            projects: Vec::new(),
-            initiated: false,
             selected_project: None,
             show_linfit: true,
             show_polyfit: true,
@@ -302,7 +282,6 @@ impl Default for ValidationApp {
             show_plot_widths: true,
             toggled_gas: None,
             dragging: Adjuster::default(),
-            mode: Mode::default(),
             current_delta: 0.,
             current_z_delta: 0.,
             current_ydelta: 0.,
@@ -1889,11 +1868,9 @@ impl ValidationApp {
         });
 
         let start_before_end = self.start_date < self.end_date;
-        let mut delta = TimeDelta::zero();
-        let mut duration_str = String::new();
 
         if start_before_end {
-            delta = self.end_date - self.start_date;
+            let delta = self.end_date - self.start_date;
 
             if let Ok(duration) = delta.to_std() {
                 let total_secs = duration.as_secs();
@@ -1903,7 +1880,7 @@ impl ValidationApp {
                 let minutes = (total_secs % 3_600) / 60;
                 let seconds = total_secs % 60;
 
-                duration_str = if days > 0 {
+                let duration_str = if days > 0 {
                     format!("{}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
                 } else if hours > 0 {
                     format!("{:02}h {:02}m {:02}s", hours, minutes, seconds)
@@ -2738,7 +2715,7 @@ impl ProcessEventSink for ValidationApp {
                 self.log_messages.push_front(bad_message(&format!("Gas missing: {}", msg)));
             },
             ProgressEvent::Generic(msg) => {
-                self.log_messages.push_front(good_message(&format!("{}", msg)));
+                self.log_messages.push_front(good_message(msg));
             },
         }
     }
@@ -2838,7 +2815,7 @@ impl ProcessEventSink for ValidationApp {
     fn on_done(&mut self, res: &Result<(), String>) {
         match res {
             Ok(()) => {
-                self.log_messages.push_front(good_message(&"All processing finished."));
+                self.log_messages.push_front(good_message("All processing finished."));
             },
             Err(e) => {
                 self.log_messages
@@ -2861,8 +2838,8 @@ pub fn is_inside_polygon(
     point: egui_plot::PlotPoint,
     start_x: f64,
     end_x: f64,
-    min_y: f64,
-    max_y: f64,
+    _min_y: f64,
+    _max_y: f64,
 ) -> bool {
     point.x >= start_x && point.x <= end_x
     // point.x >= start_x && point.x <= end_x && point.y >= min_y && point.y <= max_y
