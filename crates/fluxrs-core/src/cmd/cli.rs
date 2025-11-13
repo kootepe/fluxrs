@@ -219,12 +219,12 @@ impl Cli {
 
             Commands::Upload { kind } => {
                 let (project, file_type, inputs, use_newest, tz) = match kind {
-                    UploadKind::Gas(u) => (u.project, DataType::Gas, u.inputs, u.use_newest, None),
+                    UploadKind::Gas(u) => (u.project, DataType::Gas, u.inputs, u.use_newest, u.tz),
                     UploadKind::Height(u) => {
-                        (u.project, DataType::Height, u.inputs, u.use_newest, None)
+                        (u.project, DataType::Height, u.inputs, u.use_newest, u.tz)
                     },
                     UploadKind::Meteo(u) => {
-                        (u.project, DataType::Meteo, u.inputs, u.use_newest, None)
+                        (u.project, DataType::Meteo, u.inputs, u.use_newest, u.tz)
                     },
                     UploadKind::Cycle(u) => {
                         (u.project, DataType::Cycle, u.inputs, u.use_newest, u.tz)
