@@ -1,5 +1,5 @@
 [package]
-name = "fluxrs-gui"
+name = "fluxrs"
 version = "0.3.0"
 edition = "2021"
 
