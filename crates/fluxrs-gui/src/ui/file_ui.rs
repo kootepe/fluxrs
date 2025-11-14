@@ -84,16 +84,10 @@ impl ValidationApp {
             .response
         });
 
-        // Handle file selection (may set self.opened_files)
         self.handle_file_selection(ctx);
 
-        // Decide whether to:
-        //  - start processing immediately (has_tz instruments), or
-        //  - open the TZ prompt, or
-        //  - start after the user picked a TZ.
         self.start_processing_if_ready(ctx);
 
-        // Draw timezone prompt if tz_prompt_open is true
         self.show_timezone_prompt(ctx);
 
         self.log_display(ui);
@@ -239,6 +233,9 @@ impl ValidationApp {
         });
     }
 
+    // convoluted function. Check that current datatype is gas and then check if the current
+    // instrument has has_tz as true. If both are true, returns true and tz_prompt will not prompt.
+    // So prevents prompting for timezone on instruments that define tz in the datafile
     fn current_gas_instrument_has_tz(&self) -> bool {
         let is_gas = self.selected_data_type == Some(DataType::Gas);
         if !is_gas {
