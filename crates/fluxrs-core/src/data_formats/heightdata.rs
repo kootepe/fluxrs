@@ -46,9 +46,9 @@ impl HeightData {
 
 pub fn insert_height_data(
     tx: &Connection,
+    height_data: &HeightData,
     file_id: &i64,
     project_id: &i64,
-    height_data: &HeightData,
 ) -> Result<u64> {
     let mut inserted: u64 = 0;
     if height_data.datetime.len() != height_data.chamber_id.len()
@@ -212,7 +212,7 @@ pub fn upload_height_data_async(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
-                return (); // or `continue` if this is in a loop
+                continue;
             },
         };
         let tx = match conn.transaction() {
@@ -235,11 +235,11 @@ pub fn upload_height_data_async(
                     "File '{}' skipped: {}",
                     file_name, e
                 ))));
-                continue; // or return if not inside a loop
+                continue;
             },
         };
         match read_height_csv(path, tz) {
-            Ok(res) => match insert_height_data(&tx, &file_id, &project.id.unwrap(), &res) {
+            Ok(res) => match insert_height_data(&tx, &res, &file_id, &project.id.unwrap()) {
                 Ok(row_count) => {
                     let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
                         " of height data inserted.".to_owned(),
