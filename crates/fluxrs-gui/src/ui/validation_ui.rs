@@ -9,7 +9,7 @@ use crate::ui::tz_picker::TimezonePickerState;
 use crate::utils::{bad_message, good_message, warn_message};
 
 use crate::keybinds::{Action, KeyBindings};
-use fluxrs_core::cycle::cycle::Cycle;
+use fluxrs_core::cycle::cycle::{AppError, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;
 use fluxrs_core::cycle_navigator::CycleNavigator;
 use fluxrs_core::datatype::DataType;
@@ -75,7 +75,7 @@ impl Default for Adjuster {
     }
 }
 
-type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, rusqlite::Error>>>>;
+type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, AppError>>>>;
 pub type ProgReceiver = UnboundedReceiver<ProcessEvent>;
 pub type ProgSender = UnboundedSender<ProcessEvent>;
 

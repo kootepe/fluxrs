@@ -2,10 +2,9 @@ use crate::ui::validation_ui::ValidationApp;
 use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
 use egui::Color32;
-use fluxrs_core::cycle::cycle::load_cycles_sync;
+use fluxrs_core::cycle::cycle::{load_cycles_sync, AppError, Cycle};
 use fluxrs_core::processevent::ProcessEvent;
 use rusqlite::Connection;
-use tokio::sync::mpsc;
 
 impl ValidationApp {
     pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
@@ -62,8 +61,9 @@ impl ValidationApp {
                 self.init_enabled = false;
                 self.init_in_progress = true;
 
+                // TODO: Use AppError for clearer error messages.
                 self.runtime.spawn(async move {
-                    let result = match Connection::open("fluxrs.db") {
+                    let result: Result<Vec<Cycle>, AppError> = match Connection::open("fluxrs.db") {
                         Ok(conn) => load_cycles_sync(
                             &conn,
                             &project,
@@ -71,11 +71,27 @@ impl ValidationApp {
                             end_date.to_utc(),
                             progress_sender.clone(),
                         ),
+
                         Err(e) => {
+                            // db open failed
                             let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
-                            Err(e)
+                            Err(AppError::from(e)) // <-- convert to AppError
                         },
                     };
+
+                    // Optional: send a nicer message for specific errors
+                    if let Err(ref err) = result {
+                        match err {
+                            AppError::NoRows(msg) => {
+                                // tailor message for the UI
+                                let _ = progress_sender.send(ProcessEvent::Done(Err(msg.clone())));
+                            },
+                            _ => {
+                                let _ =
+                                    progress_sender.send(ProcessEvent::Done(Err(err.to_string())));
+                            },
+                        }
+                    }
                     if let Ok(mut slot) = result_slot.lock() {
                         *slot = Some(result);
                     }
