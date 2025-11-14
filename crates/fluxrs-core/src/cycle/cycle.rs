@@ -29,6 +29,7 @@ use rayon::prelude::*;
 use rusqlite::{params, Connection, Error, Result};
 use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
+use std::error::Error as StdError;
 use std::fmt;
 use std::hash::Hash;
 use std::process;
@@ -2621,7 +2622,7 @@ pub async fn load_cycles(
     end: DateTime<Utc>,
     project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) -> rusqlite::Result<Vec<Cycle>> {
+) -> rusqlite::Result<Vec<Cycle>, AppError> {
     let result = task::spawn_blocking(move || {
         // This closure is sync and runs on a blocking thread
         let conn_guard = conn.lock().expect("DB mutex poisoned");
@@ -2633,7 +2634,7 @@ pub async fn load_cycles(
         Ok(inner) => inner, // inner: rusqlite::Result<Vec<Cycle>>
         Err(join_err) => {
             eprintln!("spawn_blocking panicked or was cancelled: {join_err}");
-            Err(rusqlite::Error::ExecuteReturnedResults)
+            Err(AppError::Sqlite(Error::ExecuteReturnedResults))
         },
     }
 }
@@ -2643,12 +2644,12 @@ pub fn load_cycles_sync(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-) -> Result<Vec<Cycle>> {
+) -> Result<Vec<Cycle>, AppError> {
     println!("loading cycles");
     let mut date: Option<String> = None;
-    let start = start.timestamp();
-    let end = end.timestamp();
-    let gas_data = query_gas2(conn, start, end, project.to_owned())?;
+    let start_ts = start.timestamp();
+    let end_ts = end.timestamp();
+    let gas_data = query_gas2(conn, start_ts, end_ts, project.to_owned())?;
     let chamber_metadata = query_chambers(conn, project.id.unwrap())?;
     let instruments = get_instruments_by_project_map(conn, project.id.unwrap())?;
     let mut stmt = conn.prepare(
@@ -2679,8 +2680,13 @@ pub fn load_cycles_sync(
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
     let mut serials: HashSet<String> = HashSet::new();
 
-    eprintln!("Running query for project_id={}, start={}, end={}", project.id.unwrap(), start, end);
-    let mut rows = stmt.query(params![project.id.unwrap(), start, end])?;
+    println!(
+        "Running query for project_id={}, start={}, end={}",
+        project.id.unwrap(),
+        start.with_timezone(&project.tz),
+        end.with_timezone(&project.tz),
+    );
+    let mut rows = stmt.query(params![project.id.unwrap(), start_ts, end_ts])?;
 
     while let Some(row) = rows.next()? {
         let deadband = row.get(*column_index.get("deadband").unwrap())?;
@@ -3124,13 +3130,18 @@ pub fn load_cycles_sync(
     }
     let mut cycles: Vec<Cycle> = cycle_map.into_values().collect();
     cycles.sort_by_key(|c| c.start_time);
-    // cycles.iter().for_each(|c| println!("{:?}", c.gas_v.keys()));
     if cycles.is_empty() {
-        return Err(rusqlite::Error::QueryReturnedNoRows);
+        let msg = format!(
+            "No cycles found between {} and {}",
+            start.with_timezone(&project.tz),
+            end.with_timezone(&project.tz)
+        );
+        return Err(AppError::NoRows(msg));
     }
 
     Ok(cycles)
 }
+
 fn filter_data_in_range(
     datetimes: &[DateTime<Tz>],
     values: &[Option<f64>],
@@ -3611,6 +3622,77 @@ pub fn get_instruments_by_project_map(
 
     Ok(instruments)
 }
+
+#[derive(Debug)]
+pub enum AppError {
+    Sqlite(rusqlite::Error),
+    NoRows(String),
+    Msg(String),
+    Other(Box<dyn StdError + Send + Sync>),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AppError::Sqlite(e) => write!(f, "Database error: {}", e),
+            AppError::NoRows(msg) => write!(f, "No rows found: {}", msg),
+            AppError::Msg(msg) => write!(f, "{}", msg),
+            AppError::Other(e) => write!(f, "{}", e),
+        }
+    }
+}
+impl StdError for AppError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            AppError::Sqlite(e) => Some(e),
+            AppError::Other(e) => Some(e.as_ref()),
+            _ => None,
+        }
+    }
+}
+
+// --- Specific conversions you care about ---
+impl From<rusqlite::Error> for AppError {
+    fn from(e: rusqlite::Error) -> Self {
+        match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                AppError::NoRows("Query returned no rows".into())
+            },
+            other => AppError::Sqlite(other),
+        }
+    }
+}
+impl From<std::io::Error> for AppError {
+    fn from(e: std::io::Error) -> Self {
+        AppError::Other(Box::new(e))
+    }
+}
+impl From<tokio::task::JoinError> for AppError {
+    fn from(e: tokio::task::JoinError) -> Self {
+        AppError::Other(Box::new(e))
+    }
+}
+impl From<String> for AppError {
+    fn from(s: String) -> Self {
+        AppError::Msg(s)
+    }
+}
+impl From<&str> for AppError {
+    fn from(s: &str) -> Self {
+        AppError::Msg(s.to_owned())
+    }
+}
+
+// --- Helper for ad-hoc boxing (replaces the blanket From<E>) ---
+impl AppError {
+    pub fn other<E>(e: E) -> Self
+    where
+        E: StdError + Send + Sync + 'static,
+    {
+        AppError::Other(Box::new(e))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
