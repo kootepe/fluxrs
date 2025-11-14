@@ -269,7 +269,7 @@ pub fn upload_meteo_data_async(
             Ok(res) => match insert_meteo_data(&tx, &file_id, &project.id.unwrap(), &res) {
                 Ok(row_count) => {
                     let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
-                        " of meteo data inserted.".to_owned(),
+                        " rows of meteo data inserted.".to_owned(),
                         row_count as u64,
                     )));
                     if let Err(e) = tx.commit() {
