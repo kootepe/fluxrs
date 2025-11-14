@@ -1,6 +1,6 @@
 App for calculating static chamber fluxes.
 
-[*Manual here*](https://kootepe.github.io/fluxrs/)
+[**Manual here**](https://kootepe.github.io/fluxrs/)
 
 ## Building
 Requirements:
