@@ -79,7 +79,7 @@ pub struct Run {
 /* =================== Error type (no process::exit) =================== */
 
 #[derive(thiserror::Error, Debug)]
-pub enum AppError {
+pub enum CmdError {
     #[error("database error: {0}")]
     Db(#[from] rusqlite::Error),
     #[error("io error: {0}")]
@@ -91,7 +91,7 @@ pub enum AppError {
 /* =================== Entry point =================== */
 
 impl Config {
-    pub fn run(&mut self) -> Result<(), AppError> {
+    pub fn run(&mut self) -> Result<(), CmdError> {
         match &self.action.clone() {
             Action::ProjectCreate(p) => self.run_project_create(p),
             Action::Upload(u) => self.run_upload(u),
@@ -103,7 +103,7 @@ impl Config {
 /* =================== Actions =================== */
 
 impl Config {
-    fn run_project_create(&self, p: &ProjectCreate) -> Result<(), AppError> {
+    fn run_project_create(&self, p: &ProjectCreate) -> Result<(), CmdError> {
         let instrument =
             Instrument { model: p.instrument, serial: p.instrument_serial.clone(), id: None };
         let project = Project {
@@ -126,18 +126,18 @@ impl Config {
                 Ok(())
             },
             Err(e) => {
-                Err(AppError::Msg(format!("Failed to create project '{}': {}", project.name, e)))
+                Err(CmdError::Msg(format!("Failed to create project '{}': {}", project.name, e)))
             },
         }
     }
 
-    fn run_upload(&mut self, u: &Upload) -> Result<(), AppError> {
+    fn run_upload(&mut self, u: &Upload) -> Result<(), CmdError> {
         self.handle_progress_messages();
         let dbp_str = self.db_path.display().to_string();
         let mut conn = Connection::open(&self.db_path)?;
 
         let project = Project::load(Some(dbp_str.clone()), &u.project).ok_or_else(|| {
-            AppError::Msg(format!("No project found in {} with name: {}", dbp_str, u.project))
+            CmdError::Msg(format!("No project found in {} with name: {}", dbp_str, u.project))
         })?;
 
         // prefer CLI tz, then project tz, then UTC
@@ -194,11 +194,11 @@ impl Config {
         Ok(())
     }
 
-    fn run_process(&mut self, r: &Run) -> Result<(), AppError> {
+    fn run_process(&mut self, r: &Run) -> Result<(), CmdError> {
         self.handle_progress_messages();
         let dbp_str = self.db_path.display().to_string();
         let project = Project::load(Some(dbp_str.clone()), &r.project)
-            .ok_or_else(|| AppError::Msg(format!("No project found with name: {}", r.project)))?;
+            .ok_or_else(|| CmdError::Msg(format!("No project found with name: {}", r.project)))?;
 
         let conn = Connection::open(&self.db_path)?;
 
@@ -209,7 +209,7 @@ impl Config {
 
         let end_date = r.end.unwrap_or_else(Utc::now);
         if start_date > end_date {
-            return Err(AppError::Msg("Start time can't be after end time.".to_string()));
+            return Err(CmdError::Msg("Start time can't be after end time.".to_string()));
         }
         println!("Initiating from {} to {}", start_date, end_date);
 
