@@ -313,197 +313,7 @@ impl ValidationApp {
         }
 
         if self.show_cycle_details {
-            egui::Window::new("Current Cycle details").show(ctx, |ui| {
-                if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-                    let errors = ErrorCode::from_mask(cycle.error_code.0);
-                    let error_messages: Vec<String> =
-                        errors.iter().map(|error| error.to_string()).collect();
-
-                    let main_gas = if let Some(gas) = self.get_project().main_gas {
-                        gas
-                    } else {
-                        eprintln!("No main gas selected!");
-                        return;
-                    };
-
-                    ui.style_mut().text_styles.insert(
-                        egui::TextStyle::Button,
-                        egui::FontId::new(18.0, eframe::epaint::FontFamily::Monospace),
-                    );
-
-                    ui.add_space(5.0);
-
-                    ui.collapsing("Cycle details", |ui| {
-                        egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
-                            ui.label("Model:");
-                            ui.label(format!("{}", cycle.instrument.model));
-                            ui.end_row();
-                            ui.label("Serial:");
-                            ui.label(&cycle.instrument.serial);
-                            ui.end_row();
-                            ui.label("Chamber:");
-                            ui.label(cycle.chamber_id.to_string());
-                            ui.end_row();
-                            ui.label("Chamber height:");
-                            ui.label(format!("{}", cycle.chamber_height));
-                            ui.end_row();
-                            ui.label("Chamber dimensions:");
-                            ui.label(format!("{}", cycle.chamber));
-                            ui.end_row();
-                            ui.label("Start Time:");
-                            ui.label(cycle.start_time.to_string());
-                            ui.end_row();
-                            ui.label("Epoch:");
-                            ui.label(cycle.start_time.timestamp().to_string());
-                            ui.end_row();
-                            ui.label("Epoch End:");
-                            ui.label((cycle.start_time.timestamp() + cycle.end_offset).to_string());
-                            ui.end_row();
-                            ui.label("First TS:");
-                            if let Some(first_val) = cycle
-                                .dt_v
-                                .get(
-                                    &self.selected_project.as_ref().unwrap().instrument.id.unwrap(),
-                                )
-                                .unwrap_or(&vec![])
-                                .first()
-                            {
-                                ui.label(format!("{}", first_val.to_owned()));
-                            } else {
-                                ui.label("None");
-                            }
-                            ui.end_row();
-                            ui.label("Last TS:");
-                            if let Some(last_val) = cycle
-                                .dt_v
-                                .get(
-                                    &self.selected_project.as_ref().unwrap().instrument.id.unwrap(),
-                                )
-                                .unwrap_or(&vec![])
-                                .last()
-                            {
-                                ui.label(format!("{}", last_val.to_owned()));
-                            } else {
-                                ui.label("None");
-                            }
-                            ui.end_row();
-                            ui.label("Close Offset:");
-                            ui.label(cycle.close_offset.to_string());
-                            ui.end_row();
-                            ui.label("Close lag:");
-                            ui.label(cycle.close_lag_s.to_string());
-                            ui.end_row();
-                            ui.label("Open Offset:");
-                            ui.label(cycle.open_offset.to_string());
-                            ui.end_row();
-                            ui.label("Open lag:");
-                            ui.label(cycle.open_lag_s.to_string());
-                            ui.end_row();
-                            ui.label("End Offset:");
-                            ui.label(cycle.end_offset.to_string());
-                            ui.end_row();
-                            ui.label("Current Index:");
-                            ui.label(self.cycle_nav.current_index().unwrap().to_string());
-                            ui.end_row();
-                            ui.label("Is Valid:");
-                            ui.label(cycle.is_valid.to_string());
-                            ui.end_row();
-                            ui.label("Manual Valid:");
-                            ui.label(format!("{:?}", cycle.manual_valid));
-                            ui.end_row();
-                            ui.label("Override:");
-                            ui.label(format!("{:?}", cycle.override_valid));
-                            ui.end_row();
-                            ui.label("Error Code:");
-                            ui.label(format!("{:?}", cycle.error_code.0));
-                            ui.end_row();
-                            ui.label("Visible Cycles:");
-                            ui.label(format!(
-                                "{}/{}",
-                                self.cycle_nav.visible_count(),
-                                self.cycles.len()
-                            ));
-                            ui.end_row();
-                            ui.label("Measurement R²:");
-                            ui.label(
-                                match cycle.measurement_r2.get(
-                                    &(GasKey::from((&main_gas, &cycle.instrument.id.unwrap()))),
-                                ) {
-                                    Some(r) => format!("{:.6}", r),
-                                    None => "N/A".to_string(),
-                                },
-                            );
-                            ui.end_row();
-
-                            if !error_messages.is_empty() {
-                                ui.label("Errors:");
-                                ui.label(error_messages.join("\n"));
-                                ui.end_row();
-                            }
-                        });
-                    });
-                    ui.separator();
-
-                    for model in &[FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin] {
-                        ui.heading(model.label()); // Or .to_string() if you don’t have label()
-
-                        egui::Grid::new(format!("gas_values_grid_{:?}", model)).striped(true).show(
-                            ui,
-                            |ui| {
-                                ui.label("Gas");
-                                ui.label(format!("Flux {}", self.flux_unit));
-                                ui.label("R²");
-                                ui.label("CV");
-                                ui.label("Sigma");
-                                ui.label("RMSE");
-                                ui.label("AIC");
-                                ui.end_row();
-
-                                for gas in &self.enabled_gases {
-                                    let flux = if let Some(raw_flux) =
-                                        cycle.get_flux(gas.clone(), *model)
-                                    {
-                                        let converted_flux =
-                                            self.flux_unit.from_umol_m2_s(raw_flux, gas.gas_type);
-
-                                        format!("{:.6}", converted_flux)
-                                    } else {
-                                        "N/A".to_string()
-                                    };
-                                    let r2 = cycle
-                                        .get_r2(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v));
-                                    let cv = cycle
-                                        .get_cv(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v * 100.));
-                                    let sigma = cycle
-                                        .get_sigma(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v));
-                                    let rmse = cycle
-                                        .get_rmse(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v));
-                                    let aic = cycle
-                                        .get_aic(gas.clone(), *model)
-                                        .map_or("N/A".to_string(), |v| format!("{:.6}", v));
-
-                                    ui.label(format!("{}", gas.gas_type));
-                                    ui.label(flux);
-                                    ui.label(r2);
-                                    ui.label(cv);
-                                    ui.label(sigma);
-                                    ui.label(rmse);
-                                    ui.label(aic);
-                                    ui.end_row();
-                                }
-                            },
-                        );
-
-                        ui.separator();
-                    }
-                } else {
-                    ui.label("No cycle selected.");
-                }
-            });
+            self.show_cycle_details(ctx)
         }
         if self.show_plot_widths {
             egui::Window::new("Adjust plot widths").show(ctx, |ui| {
@@ -2590,6 +2400,195 @@ impl ValidationApp {
     }
     pub fn to_app_state(&self) -> AppState {
         AppState { start_date: self.start_date.to_utc(), end_date: self.end_date.to_utc() }
+    }
+    pub fn show_cycle_details(&self, ctx: &Context) {
+        egui::Window::new("Current Cycle details").show(ctx, |ui| {
+            if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+                let errors = ErrorCode::from_mask(cycle.error_code.0);
+                let error_messages: Vec<String> =
+                    errors.iter().map(|error| error.to_string()).collect();
+
+                let main_gas = if let Some(gas) = self.get_project().main_gas {
+                    gas
+                } else {
+                    eprintln!("No main gas selected!");
+                    return;
+                };
+
+                ui.style_mut().text_styles.insert(
+                    egui::TextStyle::Button,
+                    egui::FontId::new(18.0, eframe::epaint::FontFamily::Monospace),
+                );
+
+                ui.add_space(5.0);
+
+                ui.collapsing("Cycle details", |ui| {
+                    egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
+                        ui.label("Model:");
+                        ui.label(format!("{}", cycle.instrument.model));
+                        ui.end_row();
+                        ui.label("Serial:");
+                        ui.label(&cycle.instrument.serial);
+                        ui.end_row();
+                        ui.label("Chamber:");
+                        ui.label(cycle.chamber_id.to_string());
+                        ui.end_row();
+                        ui.label("Chamber height:");
+                        ui.label(format!("{}", cycle.chamber_height));
+                        ui.end_row();
+                        ui.label("Chamber dimensions:");
+                        ui.label(format!("{}", cycle.chamber));
+                        ui.end_row();
+                        ui.label("Start Time:");
+                        ui.label(cycle.start_time.to_string());
+                        ui.end_row();
+                        ui.label("Epoch:");
+                        ui.label(cycle.start_time.timestamp().to_string());
+                        ui.end_row();
+                        ui.label("Epoch End:");
+                        ui.label((cycle.start_time.timestamp() + cycle.end_offset).to_string());
+                        ui.end_row();
+                        ui.label("First TS:");
+                        if let Some(first_val) = cycle
+                            .dt_v
+                            .get(&self.selected_project.as_ref().unwrap().instrument.id.unwrap())
+                            .unwrap_or(&vec![])
+                            .first()
+                        {
+                            ui.label(format!("{}", first_val.to_owned()));
+                        } else {
+                            ui.label("None");
+                        }
+                        ui.end_row();
+                        ui.label("Last TS:");
+                        if let Some(last_val) = cycle
+                            .dt_v
+                            .get(&self.selected_project.as_ref().unwrap().instrument.id.unwrap())
+                            .unwrap_or(&vec![])
+                            .last()
+                        {
+                            ui.label(format!("{}", last_val.to_owned()));
+                        } else {
+                            ui.label("None");
+                        }
+                        ui.end_row();
+                        ui.label("Close Offset:");
+                        ui.label(cycle.close_offset.to_string());
+                        ui.end_row();
+                        ui.label("Close lag:");
+                        ui.label(cycle.close_lag_s.to_string());
+                        ui.end_row();
+                        ui.label("Open Offset:");
+                        ui.label(cycle.open_offset.to_string());
+                        ui.end_row();
+                        ui.label("Open lag:");
+                        ui.label(cycle.open_lag_s.to_string());
+                        ui.end_row();
+                        ui.label("End Offset:");
+                        ui.label(cycle.end_offset.to_string());
+                        ui.end_row();
+                        ui.label("Current Index:");
+                        ui.label(self.cycle_nav.current_index().unwrap().to_string());
+                        ui.end_row();
+                        ui.label("Is Valid:");
+                        ui.label(cycle.is_valid.to_string());
+                        ui.end_row();
+                        ui.label("Manual Valid:");
+                        ui.label(format!("{:?}", cycle.manual_valid));
+                        ui.end_row();
+                        ui.label("Override:");
+                        ui.label(format!("{:?}", cycle.override_valid));
+                        ui.end_row();
+                        ui.label("Error Code:");
+                        ui.label(format!("{:?}", cycle.error_code.0));
+                        ui.end_row();
+                        ui.label("Visible Cycles:");
+                        ui.label(format!(
+                            "{}/{}",
+                            self.cycle_nav.visible_count(),
+                            self.cycles.len()
+                        ));
+                        ui.end_row();
+                        ui.label("Measurement R²:");
+                        ui.label(
+                            match cycle
+                                .measurement_r2
+                                .get(&(GasKey::from((&main_gas, &cycle.instrument.id.unwrap()))))
+                            {
+                                Some(r) => format!("{:.6}", r),
+                                None => "N/A".to_string(),
+                            },
+                        );
+                        ui.end_row();
+
+                        if !error_messages.is_empty() {
+                            ui.label("Errors:");
+                            ui.label(error_messages.join("\n"));
+                            ui.end_row();
+                        }
+                    });
+                });
+                ui.separator();
+
+                for model in &[FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin] {
+                    ui.heading(model.label()); // Or .to_string() if you don’t have label()
+
+                    egui::Grid::new(format!("gas_values_grid_{:?}", model)).striped(true).show(
+                        ui,
+                        |ui| {
+                            ui.label("Gas");
+                            ui.label(format!("Flux {}", self.flux_unit));
+                            ui.label("R²");
+                            ui.label("CV");
+                            ui.label("Sigma");
+                            ui.label("RMSE");
+                            ui.label("AIC");
+                            ui.end_row();
+
+                            for gas in &self.enabled_gases {
+                                let flux =
+                                    if let Some(raw_flux) = cycle.get_flux(gas.clone(), *model) {
+                                        let converted_flux =
+                                            self.flux_unit.from_umol_m2_s(raw_flux, gas.gas_type);
+
+                                        format!("{:.6}", converted_flux)
+                                    } else {
+                                        "N/A".to_string()
+                                    };
+                                let r2 = cycle
+                                    .get_r2(gas.clone(), *model)
+                                    .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+                                let cv = cycle
+                                    .get_cv(gas.clone(), *model)
+                                    .map_or("N/A".to_string(), |v| format!("{:.6}", v * 100.));
+                                let sigma = cycle
+                                    .get_sigma(gas.clone(), *model)
+                                    .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+                                let rmse = cycle
+                                    .get_rmse(gas.clone(), *model)
+                                    .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+                                let aic = cycle
+                                    .get_aic(gas.clone(), *model)
+                                    .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+
+                                ui.label(format!("{}", gas.gas_type));
+                                ui.label(flux);
+                                ui.label(r2);
+                                ui.label(cv);
+                                ui.label(sigma);
+                                ui.label(rmse);
+                                ui.label(aic);
+                                ui.end_row();
+                            }
+                        },
+                    );
+
+                    ui.separator();
+                }
+            } else {
+                ui.label("No cycle selected.");
+            }
+        });
     }
 }
 
