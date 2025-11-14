@@ -7,6 +7,11 @@ to starting processing.
 ## Creating a new project
 - __Project name__:
   - Give the project a name
+- Timezone
+  - Select a timezone for your project
+  - data will be displayed in this timezone
+  - Will also be the default timezone for all timezone prompts when uploading
+  files
 - __Select instrument__:
   - Select the model of the instrument you are using
 - __Instrument serial__:
@@ -28,6 +33,9 @@ to starting processing.
     - If your minimum calculation data length is very short (< 1 minute) and your
     measurements are long (> 10 minutes), this will cause data initiation to take quite
     long as it checks every measurement second by second.
+  - Deadband
+    - Calculates the flux straight after deadband with the minimum calclulation
+      data length
 
 # Upload files to db tab
 Here you can upload different data files into the DB. Only files that are
@@ -58,7 +66,8 @@ You might experience crashing if you try to load a lot of (several months of
 all of your measurements at once.
 
 ## Recalculate
-Hitting recalculate will recalculate all of your fluxes that have new height/volume data. Meaning that you can process all of your fluxes without having any height/volume data, and then add that data later.
+Hitting recalculate will recalculate all of your fluxes that have new height/meteo and chamber data. Meaning that you can process all of your fluxes without having any height/meteo or chamber data, and then add that data later.
+
 # Load measurements
 This just loads measurements into memory for processing. My PC can handle 5000~
 15 minute measurements pretty well. If the program feels laggy, load less data
