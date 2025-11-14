@@ -651,242 +651,183 @@ impl ValidationApp {
 
         if !ui.ctx().wants_keyboard_input() {
             ui.input(|i| {
-                let modifiers = i.modifiers;
-                for event in &i.raw.events {
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::ToggleShowInvalids,
-                        modifiers,
-                    ) {
-                        self.show_invalids = !self.show_invalids;
-                        show_invalids_clicked = true;
+                if self.keybinds.action_triggered(Action::ToggleShowInvalids, i) {
+                    self.show_invalids = !self.show_invalids;
+                    show_invalids_clicked = true;
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowValids, i) {
+                    self.show_valids = !self.show_valids;
+                    show_valids_clicked = true;
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowBad, i) {
+                    self.show_bad = !self.show_bad;
+                    show_bad = true;
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowLegend, i) {
+                    self.show_legend = !self.show_legend;
+                }
+                if self.keybinds.action_triggered(Action::ToggleValidity, i) {
+                    toggle_valid = true;
+                }
+                if self.keybinds.action_triggered(Action::NextCycle, i) {
+                    next_clicked = true;
+                }
+                if self.keybinds.action_triggered(Action::PreviousCycle, i) {
+                    prev_clicked = true;
+                }
+                if self.keybinds.action_triggered(Action::ToggleBad, i) {
+                    mark_bad = true;
+                }
+                if self.keybinds.action_triggered(Action::TogglePlotWidthsWindow, i) {
+                    self.show_plot_widths = !self.show_plot_widths;
+                }
+                if self.keybinds.action_triggered(Action::ZoomToMeasurement, i) {
+                    if self.zoom_to_measurement == 2 {
+                        self.zoom_to_measurement = 0
+                    } else {
+                        self.zoom_to_measurement += 1;
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowValids, modifiers)
-                    {
-                        self.show_valids = !self.show_valids;
-                        show_valids_clicked = true;
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowBad, modifiers) {
-                        self.show_bad = !self.show_bad;
-                        show_bad = true;
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleShowLegend, modifiers)
-                    {
-                        self.show_legend = !self.show_legend;
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleValidity, modifiers) {
-                        toggle_valid = true;
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::NextCycle, modifiers) {
-                        next_clicked = true;
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::PreviousCycle, modifiers) {
-                        prev_clicked = true;
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::ToggleBad, modifiers) {
-                        mark_bad = true;
-                    }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::TogglePlotWidthsWindow,
-                        modifiers,
-                    ) {
-                        self.show_plot_widths = !self.show_plot_widths;
-                    }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::ZoomToMeasurement,
-                        modifiers,
-                    ) {
-                        if self.zoom_to_measurement == 2 {
-                            self.zoom_to_measurement = 0
-                        } else {
-                            self.zoom_to_measurement += 1;
-                        }
-                    }
-                    if keybind_triggered(event, &self.keybinds, Action::ResetCycle, modifiers) {
-                        reset_cycle = true;
-                    }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::ToggleShowDetails,
-                        modifiers,
-                    ) {
-                        self.show_cycle_details = !self.show_cycle_details
-                    }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::ToggleShowResiduals,
-                        modifiers,
-                    ) {
-                        self.show_residuals = !self.show_residuals
-                    }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::ToggleShowStandResiduals,
-                        modifiers,
-                    ) {
-                        self.show_standardized_residuals = !self.show_standardized_residuals
-                    }
+                }
+                if self.keybinds.action_triggered(Action::ResetCycle, i) {
+                    reset_cycle = true;
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowDetails, i) {
+                    self.show_cycle_details = !self.show_cycle_details
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowResiduals, i) {
+                    self.show_residuals = !self.show_residuals
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowStandResiduals, i) {
+                    self.show_standardized_residuals = !self.show_standardized_residuals
+                }
 
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::ToggleCH4Validity,
-                        modifiers,
-                    ) {
-                        if let Some(current_cycle) =
-                            self.cycle_nav.current_cycle_mut(&mut self.cycles)
-                        {
-                            for ((g, _), record) in current_cycle.fluxes.iter_mut() {
-                                if g.gas_type == GasType::CH4 {
-                                    record.is_valid = !record.is_valid;
-                                }
+                if self.keybinds.action_triggered(Action::ToggleCH4Validity, i) {
+                    if let Some(current_cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles)
+                    {
+                        for ((g, _), record) in current_cycle.fluxes.iter_mut() {
+                            if g.gas_type == GasType::CH4 {
+                                record.is_valid = !record.is_valid;
                             }
-                            self.mark_dirty();
                         }
-                    }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::IncrementDeadband,
-                        modifiers,
-                    ) {
                         self.mark_dirty();
-                        if self.keep_calc_constant_deadband {
-                            self.increment_deadband_constant_calc(1.);
-                        } else {
-                            self.increment_deadband(1.);
-                        }
-                        self.update_plots();
                     }
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::DecrementDeadband,
-                        modifiers,
-                    ) {
-                        self.mark_dirty();
-                        if self.keep_calc_constant_deadband {
-                            self.increment_deadband_constant_calc(-1.);
-                        } else {
-                            self.increment_deadband(-1.);
-                        }
-                        self.update_plots();
+                }
+                if self.keybinds.action_triggered(Action::IncrementDeadband, i) {
+                    self.mark_dirty();
+                    if self.keep_calc_constant_deadband {
+                        self.increment_deadband_constant_calc(1.);
+                    } else {
+                        self.increment_deadband(1.);
                     }
-                    if keybind_triggered(event, &self.keybinds, Action::DecrementLag, modifiers) {
-                        self.mark_dirty();
-                        let delta = -1.0;
+                    self.update_plots();
+                }
+                if self.keybinds.action_triggered(Action::DecrementDeadband, i) {
+                    self.mark_dirty();
+                    if self.keep_calc_constant_deadband {
+                        self.increment_deadband_constant_calc(-1.);
+                    } else {
+                        self.increment_deadband(-1.);
+                    }
+                    self.update_plots();
+                }
+                if self.keybinds.action_triggered(Action::DecrementLag, i) {
+                    self.mark_dirty();
+                    let delta = -1.0;
 
-                        match self.zoom_to_measurement {
-                            0 => {
-                                if self.mode_after_deadband() {
-                                    self.increment_open_lag(delta);
-                                }
-                            },
-                            1 => {
+                    match self.zoom_to_measurement {
+                        0 => {
+                            if self.mode_after_deadband() {
                                 self.increment_open_lag(delta);
-                            },
-                            2 => {
-                                self.increment_close_lag(delta);
-                            },
-                            _ => {},
-                        }
+                            }
+                        },
+                        1 => {
+                            self.increment_open_lag(delta);
+                        },
+                        2 => {
+                            self.increment_close_lag(delta);
+                        },
+                        _ => {},
+                    }
 
-                        self.stick_calc_to_range_start_for_all();
+                    self.stick_calc_to_range_start_for_all();
 
-                        if self.mode_pearsons() {
-                            self.set_all_calc_range_to_best_r();
-                        }
+                    if self.mode_pearsons() {
+                        self.set_all_calc_range_to_best_r();
+                    }
+                    self.update_plots();
+                }
+
+                // BUG: calc area doesnt stick to deadband when incrementing
+                if self.keybinds.action_triggered(Action::IncrementLag, i) {
+                    self.mark_dirty();
+                    let delta = 1.0;
+
+                    match self.zoom_to_measurement {
+                        1 => {
+                            self.increment_open_lag(delta);
+                        },
+                        2 => {
+                            self.increment_close_lag(delta);
+                        },
+                        0 => {
+                            self.increment_open_lag(delta);
+                        },
+                        _ => {},
+                    }
+
+                    self.stick_calc_to_range_start_for_all();
+
+                    if self.mode_pearsons() {
+                        self.set_all_calc_range_to_best_r();
+                    }
+                    self.update_plots();
+                }
+
+                if self.keybinds.action_triggered(Action::SearchLag, i) {
+                    self.mark_dirty();
+                    if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+                        cycle.search_new_open_lag(GasKey::from((
+                            &cycle.main_gas,
+                            &cycle.instrument.id.unwrap(),
+                        )));
                         self.update_plots();
                     }
+                }
 
-                    // BUG: calc area doesnt stick to deadband when incrementing
-                    if keybind_triggered(event, &self.keybinds, Action::IncrementLag, modifiers) {
-                        self.mark_dirty();
-                        let delta = 1.0;
+                if self.keybinds.action_triggered(Action::SearchLagPrevious, i) {
+                    if let Some(current_visible_idx) = self.cycle_nav.current_index() {
+                        if current_visible_idx > 0 {
+                            let chamber_id = self.cycles[current_visible_idx].chamber_id.clone();
+                            let (before, after) = self.cycles.split_at_mut(current_visible_idx);
+                            let current_cycle = &mut after[0];
 
-                        match self.zoom_to_measurement {
-                            1 => {
-                                self.increment_open_lag(delta);
-                            },
-                            2 => {
-                                self.increment_close_lag(delta);
-                            },
-                            0 => {
-                                self.increment_open_lag(delta);
-                            },
-                            _ => {},
-                        }
+                            // find previous cycle which is valid and has the same chamber id
+                            if let Some(previous_cycle) = before
+                                .iter()
+                                .rev()
+                                .find(|cycle| cycle.chamber_id == chamber_id && cycle.is_valid)
+                            {
+                                let target = current_cycle.start_time
+                                    + chrono::TimeDelta::seconds(current_cycle.open_offset)
+                                    + chrono::TimeDelta::seconds(previous_cycle.open_lag_s as i64);
 
-                        self.stick_calc_to_range_start_for_all();
+                                let Some(main_gas) =
+                                    self.selected_project.as_ref().unwrap().main_gas
+                                else {
+                                    eprintln!("No main gas selected!");
+                                    return;
+                                };
 
-                        if self.mode_pearsons() {
-                            self.set_all_calc_range_to_best_r();
-                        }
-                        self.update_plots();
-                    }
+                                current_cycle.get_peak_near_timestamp(
+                                    &GasKey::from((
+                                        &main_gas,
+                                        &current_cycle.instrument.id.unwrap(),
+                                    )),
+                                    target.timestamp(),
+                                );
 
-                    if keybind_triggered(event, &self.keybinds, Action::SearchLag, modifiers) {
-                        self.mark_dirty();
-                        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                            cycle.search_new_open_lag(GasKey::from((
-                                &cycle.main_gas,
-                                &cycle.instrument.id.unwrap(),
-                            )));
-                            self.update_plots();
-                        }
-                    }
-
-                    if keybind_triggered(
-                        event,
-                        &self.keybinds,
-                        Action::SearchLagPrevious,
-                        modifiers,
-                    ) {
-                        if let Some(current_visible_idx) = self.cycle_nav.current_index() {
-                            if current_visible_idx > 0 {
-                                let chamber_id =
-                                    self.cycles[current_visible_idx].chamber_id.clone();
-                                let (before, after) = self.cycles.split_at_mut(current_visible_idx);
-                                let current_cycle = &mut after[0];
-
-                                // find previous cycle which is valid and has the same chamber id
-                                if let Some(previous_cycle) = before
-                                    .iter()
-                                    .rev()
-                                    .find(|cycle| cycle.chamber_id == chamber_id && cycle.is_valid)
-                                {
-                                    let target = current_cycle.start_time
-                                        + chrono::TimeDelta::seconds(current_cycle.open_offset)
-                                        + chrono::TimeDelta::seconds(
-                                            previous_cycle.open_lag_s as i64,
-                                        );
-
-                                    let Some(main_gas) =
-                                        self.selected_project.as_ref().unwrap().main_gas
-                                    else {
-                                        eprintln!("No main gas selected!");
-                                        return;
-                                    };
-
-                                    current_cycle.get_peak_near_timestamp(
-                                        &GasKey::from((
-                                            &main_gas,
-                                            &current_cycle.instrument.id.unwrap(),
-                                        )),
-                                        target.timestamp(),
-                                    );
-
-                                    self.mark_dirty();
-                                    self.update_plots();
-                                }
+                                self.mark_dirty();
+                                self.update_plots();
                             }
                         }
                     }

@@ -29,16 +29,13 @@ impl eframe::App for MyApp {
                 ui.add_space(16.0);
 
                 ui.input(|i| {
-                    for event in &i.raw.events {
-                        let modifiers = i.modifiers;
-                        if keybind_triggered(
-                            event,
-                            &self.main_app.validation_panel.keybinds,
-                            Action::ToggleShowSettings,
-                            modifiers,
-                        ) {
-                            self.show_settings = !self.show_settings;
-                        }
+                    if self
+                        .main_app
+                        .validation_panel
+                        .keybinds
+                        .action_triggered(Action::ToggleShowSettings, i)
+                    {
+                        self.show_settings = !self.show_settings;
                     }
                 });
                 if self.show_settings {
