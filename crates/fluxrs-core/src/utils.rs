@@ -3,6 +3,7 @@ use chrono::{LocalResult, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
 use std::error::Error;
+use std::fmt;
 use std::fs;
 use std::path::Path;
 use std::str;
@@ -45,28 +46,65 @@ pub fn parse_datetime(s: &str, tz: Tz) -> Result<i64, Box<dyn Error>> {
     }
     Err(format!("Unrecognized datetime format: {}", s).into())
 }
+
+pub fn get_file_id(
+    conn: &Connection,
+    datatype: DataType,
+    file_name: &str,
+    project_id: i64,
+) -> Option<i64> {
+    conn.query_row(
+        "SELECT id FROM data_files
+         WHERE file_name = ?1 AND data_type = ?2 AND project_link = ?3",
+        params![file_name, datatype.type_str(), project_id],
+        |row| row.get::<_, i64>(0),
+    )
+    .ok()
+}
+pub fn insert_data_file(
+    conn: &Connection,
+    datatype: DataType,
+    file_name: &str,
+    project_id: i64,
+) -> Result<i64, DataFileError> {
+    conn.execute(
+        "INSERT INTO data_files (file_name, data_type, project_link)
+         VALUES (?1, ?2, ?3)",
+        params![file_name, datatype.type_str(), project_id],
+    )?;
+
+    Ok(conn.last_insert_rowid())
+}
+
 pub fn get_or_insert_data_file(
     conn: &Connection,
     datatype: DataType,
     file_name: &str,
     project_id: i64,
-) -> Result<i64> {
-    // First, check if the file already exists for this project
-    if let Ok(existing_id) = conn.query_row(
-        "SELECT id FROM data_files WHERE file_name = ?1 AND project_link = ?2",
-        params![file_name, project_id],
-        |row| row.get::<_, i64>(0),
-    ) {
-        // Found existing entry
-        return Ok(existing_id);
+) -> Result<i64, DataFileError> {
+    if get_file_id(conn, datatype, file_name, project_id).is_some() {
+        return Err(DataFileError::FileAlreadyExists);
     }
 
-    // If not found, insert it
-    conn.execute(
-        "INSERT INTO data_files (file_name, data_type, project_link) VALUES (?1, ?2, ?3)",
-        params![file_name, datatype.type_str(), project_id],
-    )?;
+    insert_data_file(conn, datatype, file_name, project_id)
+}
+#[derive(Debug)]
+pub enum DataFileError {
+    FileAlreadyExists,
+    Sql(rusqlite::Error),
+}
 
-    // Return the new ID
-    Ok(conn.last_insert_rowid())
+impl From<rusqlite::Error> for DataFileError {
+    fn from(err: rusqlite::Error) -> Self {
+        DataFileError::Sql(err)
+    }
+}
+
+impl fmt::Display for DataFileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DataFileError::FileAlreadyExists => write!(f, "File already exists"),
+            DataFileError::Sql(err) => write!(f, "Database error: {}", err),
+        }
+    }
 }
