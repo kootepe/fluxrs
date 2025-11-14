@@ -220,6 +220,7 @@ pub fn insert_chamber_metadata(
     tx: &Connection,
     chambers: &HashMap<String, ChamberShape>,
     project_id: &i64,
+    file_id: &i64,
 ) -> Result<()> {
     for (chamber_id, shape) in chambers {
         let (shape_str, diameter, width, length, height) = match shape {
@@ -233,9 +234,9 @@ pub fn insert_chamber_metadata(
 
         tx.execute(
             "INSERT OR IGNORE INTO chamber_metadata (
-                chamber_id, shape, diameter, width, length, height, project_link
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![chamber_id, shape_str, diameter, width, length, height, project_id],
+                chamber_id, shape, diameter, width, length, height, project_link, file_link
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![chamber_id, shape_str, diameter, width, length, height, project_id, file_id],
         )?;
     }
 
@@ -326,11 +327,11 @@ pub fn upload_chamber_metadata_async(
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
                 // Optionally notify UI:
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MetadataFail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
-                return (); // or `continue` if this is in a loop
+                continue;
             },
         };
         let tx = match conn.transaction() {
@@ -346,32 +347,34 @@ pub fn upload_chamber_metadata_async(
         };
         let file_id = match get_or_insert_data_file(&tx, DataType::Chamber, file_name, project_id) {
             Ok(id) => id,
+
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
-                // Optionally notify UI
                 let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
                     "File '{}' skipped: {}",
                     file_name, e
                 ))));
-                continue; // or return if not inside a loop
+                continue;
             },
         };
         match read_chamber_metadata(path) {
-            Ok(chambers) => match insert_chamber_metadata(&tx, &chambers, &project.id.unwrap()) {
-                Ok(_) => {
-                    if let Err(e) = tx.commit() {
-                        eprintln!("Failed to commit transaction for '{}': {}", file_name, e);
-                        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
-                            format!("Commit failed for file '{}': {}", file_name, e),
-                        )));
+            Ok(chambers) => {
+                match insert_chamber_metadata(&tx, &chambers, &project.id.unwrap(), &file_id) {
+                    Ok(_) => {
+                        if let Err(e) = tx.commit() {
+                            eprintln!("Failed to commit transaction for '{}': {}", file_name, e);
+                            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
+                                format!("Commit failed for file '{}': {}", file_name, e),
+                            )));
 
-                        continue;
-                    }
-                },
-                Err(e) => {
-                    let msg = format!("Failed to insert chamber data. Error: {}", e);
-                    let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
-                },
+                            continue;
+                        }
+                    },
+                    Err(e) => {
+                        let msg = format!("Failed to insert chamber data. Error: {}", e);
+                        let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
+                    },
+                }
             },
             Err(e) => {
                 let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MetadataFail(
