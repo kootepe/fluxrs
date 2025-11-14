@@ -148,7 +148,7 @@ impl Config {
 
         // incremental cutoff per dataset
         let files = if u.use_newest {
-            match last_ingested_ts(&conn, u.file_type.clone()) {
+            match last_ingested_ts(&conn, u.file_type) {
                 Some(since) => {
                     let v = filter_since(files0, since);
                     if v.is_empty() {
@@ -476,11 +476,11 @@ pub fn get_newest_measurement_day(conn: &Connection) -> Option<DateTime<Utc>> {
 /// Per-dataset "last ingested" timestamp (improves incremental uploads).
 fn last_ingested_ts(conn: &Connection, dt: DataType) -> Option<DateTime<Utc>> {
     let sql = match dt {
-        DataType::Gas => "SELECT MAX(ts) FROM gas",
-        DataType::Meteo => "SELECT MAX(ts) FROM meteo",
-        DataType::Height => "SELECT MAX(ts) FROM height",
+        DataType::Gas => "SELECT MAX(datetime) FROM gas",
+        DataType::Meteo => "SELECT MAX(datetime) FROM meteo",
+        DataType::Height => "SELECT MAX(datetime) FROM height",
         DataType::Cycle => "SELECT MAX(start_time) FROM cycles",
-        DataType::Chamber => "SELECT MAX(updated_at) FROM chambers",
+        DataType::Chamber => return None,
     };
     let ts: Option<i64> = conn.query_row(sql, [], |row| row.get(0)).ok().flatten();
     ts.and_then(|s| DateTime::from_timestamp(s, 0))
