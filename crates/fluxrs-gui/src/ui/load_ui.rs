@@ -18,9 +18,8 @@ impl ValidationApp {
                     match result {
                         Ok(cycles) => {
                             self.cycles = cycles;
-                            self.log_messages.push_front(good_message(
-                                &"Successfully loaded cycles.".to_string(),
-                            ));
+                            self.log_messages
+                                .push_front(good_message("Successfully loaded cycles."));
                         },
                         Err(e) => {
                             self.log_messages.push_front(bad_message(&format!("Error: {}", e)));
@@ -83,7 +82,6 @@ impl ValidationApp {
                     if let Err(ref err) = result {
                         match err {
                             AppError::NoRows(msg) => {
-                                // tailor message for the UI
                                 let _ = progress_sender.send(ProcessEvent::Done(Err(msg.clone())));
                             },
                             _ => {
