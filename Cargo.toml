@@ -4,8 +4,8 @@ default-members = ["crates/fluxrs-gui"]
 resolver = "2"
 
 [workspace.package]
-name = "fluxrs"
-version = "0.2.0"
+documentation = "https://kootepe.github.io/fluxrs/"
+version = "0.3.0"
 edition = "2021"
 
 [workspace.dependencies]
