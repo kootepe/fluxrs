@@ -3,6 +3,9 @@ title: Fluxrs
 ---
 Fluxrs is an application for manually validating chamber flux measurements.
 
+[Intro video for version v0.1.0](https://youtu.be/aavWm4GpOHQ)
+Largely the same for current version.
+
 Currently supported gas analyzers:
 - LI-7810
 - LI-7820
