@@ -184,105 +184,105 @@ impl Cycle {
     pub fn get_open(&self) -> f64 {
         self.start_time.timestamp() as f64 + self.open_offset as f64
     }
-    pub fn get_lin_r2(&self, key: GasKey) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(key, FluxKind::Linear)) {
+    pub fn get_lin_r2(&self, key: &GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(*key, FluxKind::Linear)) {
             return Some(flux.model.r2().unwrap_or(0.0));
         }
         None
     }
     pub fn get_lin_flux(&self, key: &GasKey) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(key.clone(), FluxKind::Linear)) {
+        if let Some(flux) = self.fluxes.get(&(*key, FluxKind::Linear)) {
             return Some(flux.model.flux().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_sigma(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::Linear)) {
+    pub fn get_lin_sigma(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::Linear)) {
             return Some(model.model.sigma().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_rmse(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::Linear)) {
+    pub fn get_lin_rmse(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::Linear)) {
             return Some(model.model.rmse().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_lin_p_value(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::Linear)) {
+    pub fn get_lin_p_value(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::Linear)) {
             return Some(model.model.p_value().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_roblin_flux(&self, key: GasKey) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(key, FluxKind::RobLin)) {
+    pub fn get_roblin_flux(&self, key: &GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(*key, FluxKind::RobLin)) {
             return Some(flux.model.flux().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_roblin_sigma(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::RobLin)) {
+    pub fn get_roblin_sigma(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::RobLin)) {
             return Some(model.model.sigma().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_roblin_rmse(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::RobLin)) {
+    pub fn get_roblin_rmse(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::RobLin)) {
             return Some(model.model.rmse().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_poly_flux(&self, key: GasKey) -> Option<f64> {
-        if let Some(flux) = self.fluxes.get(&(key, FluxKind::Poly)) {
+    pub fn get_poly_flux(&self, key: &GasKey) -> Option<f64> {
+        if let Some(flux) = self.fluxes.get(&(*key, FluxKind::Poly)) {
             return Some(flux.model.flux().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_poly_sigma(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::Poly)) {
+    pub fn get_poly_sigma(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::Poly)) {
             return Some(model.model.sigma().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_poly_rmse(&self, key: GasKey) -> Option<f64> {
-        if let Some(model) = self.fluxes.get(&(key, FluxKind::Poly)) {
+    pub fn get_poly_rmse(&self, key: &GasKey) -> Option<f64> {
+        if let Some(model) = self.fluxes.get(&(*key, FluxKind::Poly)) {
             return Some(model.model.rmse().unwrap_or(0.0));
         }
         None
     }
-    pub fn get_flux(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.flux())
+    pub fn get_flux(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.flux())
     }
 
-    pub fn get_r2(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.r2())
+    pub fn get_r2(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.r2())
     }
 
-    pub fn get_adjusted_r2(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.adj_r2())
+    pub fn get_adjusted_r2(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.adj_r2())
     }
 
-    pub fn get_aic(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.aic())
+    pub fn get_aic(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.aic())
     }
 
-    pub fn get_p_value(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.p_value())
+    pub fn get_p_value(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.p_value())
     }
 
-    pub fn get_sigma(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.sigma())
+    pub fn get_sigma(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.sigma())
     }
 
-    pub fn get_rmse(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.rmse())
+    pub fn get_rmse(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.rmse())
     }
-    pub fn get_cv(&self, key: GasKey, kind: FluxKind) -> Option<f64> {
-        self.fluxes.get(&(key, kind)).and_then(|m| m.model.cv())
+    pub fn get_cv(&self, key: &GasKey, kind: FluxKind) -> Option<f64> {
+        self.fluxes.get(&(*key, kind)).and_then(|m| m.model.cv())
     }
 
-    pub fn get_model(&self, key: GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
-        self.fluxes.get(&(key, kind)).map(|b| b.model.as_ref())
+    pub fn get_model(&self, key: &GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
+        self.fluxes.get(&(*key, kind)).map(|b| b.model.as_ref())
     }
     pub fn get_adjusted_close_i(&self) -> usize {
         (self.close_offset as f64 + self.open_lag_s + self.close_lag_s) as usize
@@ -556,7 +556,7 @@ impl Cycle {
         self.compute_all_fluxes();
     }
 
-    pub fn search_new_open_lag(&mut self, key: GasKey) {
+    pub fn search_new_open_lag(&mut self, key: &GasKey) {
         self.search_open_lag(key);
 
         self.adjust_calc_range_all();
@@ -987,7 +987,7 @@ impl Cycle {
         None
     }
     /// gets the timestamp of the highest gas concentration from the last 240 entries
-    pub fn search_open_lag(&mut self, key: GasKey) -> Option<f64> {
+    pub fn search_open_lag(&mut self, key: &GasKey) -> Option<f64> {
         if let Some(gas_v) = self.gas_v.get(&key) {
             let len = gas_v.len();
             let search_len = len / 4;
@@ -1071,7 +1071,7 @@ impl Cycle {
         }
     }
 
-    pub fn _calculate_measurement_r(&mut self, key: GasKey) {
+    pub fn _calculate_measurement_r(&mut self, key: &GasKey) {
         if let Some(gas_v) = self.measurement_gas_v.get(&key) {
             // let dt_vv: Vec<f64> =
             //     self.measurement_dt_v.iter().map(|x| x.timestamp() as f64).collect();
@@ -1089,11 +1089,11 @@ impl Cycle {
 
             // Calculate and store r^2
             let r2 = stats::pearson_correlation(&filtered_x, &filtered_y).unwrap_or(0.0).powi(2);
-            self.measurement_r2.insert(key, r2);
+            self.measurement_r2.insert(*key, r2);
         }
     }
 
-    pub fn calculate_calc_r(&mut self, key: GasKey) {
+    pub fn calculate_calc_r(&mut self, key: &GasKey) {
         // let dt = self.get_calc_dt2(&key.clone());
         // let gas = self.get_calc_gas_v(key.clone());
         let (dt, gas) = self.get_calc_data2(&key);
@@ -1102,11 +1102,11 @@ impl Cycle {
 
         let (x, y): (Vec<f64>, Vec<f64>) = filtered.into_iter().unzip();
 
-        self.calc_r2.insert(key, stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2));
+        self.calc_r2.insert(*key, stats::pearson_correlation(&x, &y).unwrap_or(0.0).powi(2));
     }
 
     pub fn calculate_calc_rs(&mut self) {
-        for key in self.gases.clone() {
+        for key in &self.gases.clone() {
             self.calculate_calc_r(key);
         }
     }
@@ -1318,7 +1318,10 @@ impl Cycle {
         if !self.has_error(ErrorCode::ErrorsInMeasurement)
             || !self.has_error(ErrorCode::TooFewMeasurements)
         {
-            self.search_open_lag(GasKey::from((&self.main_gas, &self.main_instrument.id.unwrap())));
+            self.search_open_lag(&GasKey::from((
+                &self.main_gas,
+                &self.main_instrument.id.unwrap(),
+            )));
             if use_best_r {
                 self.find_best_r_indices();
             } else {
@@ -1486,7 +1489,7 @@ impl Cycle {
 
         (filtered_dt, filtered_gas)
     }
-    // pub fn get_measurement_data(&mut self, key: GasKey) {
+    // pub fn get_measurement_data(&mut self, key: &GasKey) {
     //     if let Some(gas_v) = self.gas_v.get(&key) {
     //         let close_time = self.get_adjusted_close();
     //         let open_time = self.get_adjusted_open();
@@ -1540,22 +1543,22 @@ impl Cycle {
 
     pub fn compute_all_fluxes(&mut self) {
         for key in &self.gases.clone() {
-            self.calculate_lin_flux(key.clone());
-            self.calculate_poly_flux(key.clone());
-            self.calculate_roblin_flux(key.clone());
+            self.calculate_lin_flux(key);
+            self.calculate_poly_flux(key);
+            self.calculate_roblin_flux(key);
         }
     }
     pub fn compute_single_flux(&mut self, key: &GasKey) {
-        self.calculate_lin_flux(key.clone());
-        self.calculate_poly_flux(key.clone());
-        self.calculate_roblin_flux(key.clone());
+        self.calculate_lin_flux(key);
+        self.calculate_poly_flux(key);
+        self.calculate_roblin_flux(key);
     }
 
     // pub fn get_calc_dt(&self, key: GasType) -> Vec<f64> {
     //     let ret: Vec<f64> = *self.calc_dt_v.get(&key).unwrap_or(&Vec::new());
     //     ret
     // }
-    pub fn _get_calc_dt2(&self, key: GasKey) -> Vec<f64> {
+    pub fn _get_calc_dt2(&self, key: &GasKey) -> Vec<f64> {
         let s = (self.get_calc_start(&key) - self.start_time.timestamp() as f64) as usize;
         let e = (self.get_calc_end(&key) - self.start_time.timestamp() as f64) as usize;
         let ret: Vec<f64> = self.dt_v.get(&key.id).unwrap().clone();
@@ -1564,7 +1567,7 @@ impl Cycle {
         }
         ret[s..e].to_vec()
     }
-    pub fn _get_calc_gas_v2(&self, key: GasKey) -> Vec<f64> {
+    pub fn _get_calc_gas_v2(&self, key: &GasKey) -> Vec<f64> {
         let s = (self.get_calc_start(&key) - self.start_time.timestamp() as f64) as usize;
         let e = (self.get_calc_end(&key) - self.start_time.timestamp() as f64) as usize;
         let ret: Vec<f64> = self
@@ -1628,21 +1631,21 @@ impl Cycle {
     // pub fn get_measurement_dt_v(&self) -> Vec<f64> {
     //     self.measurement_dt_v.iter().map(|s| s.timestamp() as f64).collect()
     // }
-    pub fn get_measurement_gas_v(&self, key: GasKey) -> Vec<f64> {
+    pub fn get_measurement_gas_v(&self, key: &GasKey) -> Vec<f64> {
         self.measurement_gas_v
             .get(&key)
             .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default()
     }
 
-    pub fn get_calc_gas_v(&self, key: GasKey) -> Vec<f64> {
+    pub fn get_calc_gas_v(&self, key: &GasKey) -> Vec<f64> {
         self.calc_gas_v
             .get(&key)
             .map(|vec| vec.iter().map(|s| s.unwrap_or(0.0)).collect())
             .unwrap_or_default()
     }
 
-    pub fn calculate_lin_flux(&mut self, key: GasKey) {
+    pub fn calculate_lin_flux(&mut self, key: &GasKey) {
         let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
@@ -1668,7 +1671,7 @@ impl Cycle {
             self.chamber,
         ) {
             self.fluxes.insert(
-                (key, FluxKind::Linear),
+                (*key, FluxKind::Linear),
                 FluxRecord {
                     model: Box::new(data),
                     is_valid: true, // default to valid unless user invalidates later
@@ -1678,7 +1681,7 @@ impl Cycle {
             // Optionally log: fitting failed
         }
     }
-    pub fn calculate_poly_flux(&mut self, key: GasKey) {
+    pub fn calculate_poly_flux(&mut self, key: &GasKey) {
         let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
@@ -1709,14 +1712,14 @@ impl Cycle {
             self.chamber,
         ) {
             self.fluxes.insert(
-                (key, FluxKind::Poly),
+                (*key, FluxKind::Poly),
                 FluxRecord { model: Box::new(data), is_valid: true },
             );
         } else {
             eprintln!("Polynomial regression failed for gas {:?}", key.gas_type);
         }
     }
-    pub fn calculate_roblin_flux(&mut self, key: GasKey) {
+    pub fn calculate_roblin_flux(&mut self, key: &GasKey) {
         let (x, y) = self.get_calc_data2(&key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
@@ -1738,7 +1741,7 @@ impl Cycle {
             self.chamber,
         ) {
             self.fluxes.insert(
-                (key, FluxKind::RobLin),
+                (*key, FluxKind::RobLin),
                 FluxRecord { model: Box::new(data), is_valid: true },
             );
         } else {
@@ -1850,7 +1853,7 @@ impl Cycle {
 
     pub fn is_valid_by_threshold(
         &self,
-        key: GasKey,
+        key: &GasKey,
         kind: FluxKind,
         p_val_thresh: f64,
         r2_thresh: f64,
@@ -1878,14 +1881,14 @@ impl Cycle {
         p_val < p_val_thresh && r2 > r2_thresh && rmse < rmse_thresh && t0 < t0_thresh
     }
 
-    pub fn mark_flux_invalid(&mut self, key: GasKey, kind: FluxKind) {
-        if let Some(record) = self.fluxes.get_mut(&(key, kind)) {
+    pub fn mark_flux_invalid(&mut self, key: &GasKey, kind: FluxKind) {
+        if let Some(record) = self.fluxes.get_mut(&(*key, kind)) {
             record.is_valid = false;
         }
     }
 
-    pub fn mark_flux_valid(&mut self, key: GasKey, kind: FluxKind) {
-        if let Some(record) = self.fluxes.get_mut(&(key, kind)) {
+    pub fn mark_flux_valid(&mut self, key: &GasKey, kind: FluxKind) {
+        if let Some(record) = self.fluxes.get_mut(&(*key, kind)) {
             record.is_valid = true;
         }
     }
@@ -2810,7 +2813,7 @@ pub fn load_cycles_sync(
                             unit: ch.unit,
                             instrument_id: ch.instrument_id.clone(),
                         };
-                        gas_channels.insert(gas_key.clone(), chan);
+                        gas_channels.insert(gas_key, chan);
                     }
                 }
             }

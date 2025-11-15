@@ -426,7 +426,7 @@ impl ValidationApp {
                                     };
 
                                     if ui.button(button_label).clicked() {
-                                        self.toggled_gas = Some(key.clone());
+                                        self.toggled_gas = Some(key);
                                     }
                                 }
                             });
@@ -597,7 +597,7 @@ impl ValidationApp {
                 if self.keybinds.action_triggered(Action::SearchLag, i) {
                     self.mark_dirty();
                     if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                        cycle.search_new_open_lag(GasKey::from((
+                        cycle.search_new_open_lag(&GasKey::from((
                             &cycle.main_gas,
                             &cycle.instrument.id.unwrap(),
                         )));
@@ -826,7 +826,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), selected_model))
+                                            .get(&(*key, selected_model))
                                             .and_then(|model| model.model.flux())
                                             .unwrap_or(0.0)
                                     },
@@ -859,7 +859,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .get(&(*key, FluxKind::Poly))
                                             .and_then(|model| model.model.flux())
                                             .unwrap_or(0.0)
                                     },
@@ -892,7 +892,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .get(&(*key, FluxKind::RobLin))
                                             .and_then(|model| model.model.flux())
                                             .unwrap_or(0.0)
                                     },
@@ -925,7 +925,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .get(&(*key, FluxKind::Linear))
                                             .and_then(|model| model.model.p_value())
                                             .unwrap_or(0.0)
                                     },
@@ -989,7 +989,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), selected_model))
+                                            .get(&(*key, selected_model))
                                             .and_then(|model| model.model.r2())
                                             .unwrap_or(0.0)
                                     },
@@ -1049,7 +1049,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .get(&(*key, FluxKind::Linear))
                                             .and_then(|model| model.model.adj_r2())
                                             .unwrap_or(0.0)
                                     },
@@ -1080,7 +1080,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .get(&(*key, FluxKind::Linear))
                                             .and_then(|model| model.model.sigma())
                                             .unwrap_or(0.0)
                                     },
@@ -1111,7 +1111,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .get(&(*key, FluxKind::Linear))
                                             .and_then(|model| model.model.aic())
                                             .unwrap_or(0.0)
                                     },
@@ -1142,7 +1142,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .get(&(*key, FluxKind::Linear))
                                             .and_then(|model| model.model.rmse())
                                             .unwrap_or(0.0)
                                     },
@@ -1173,7 +1173,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Linear))
+                                            .get(&(*key, FluxKind::Linear))
                                             .and_then(|model| model.model.cv())
                                             .unwrap_or(0.0)
                                     },
@@ -1204,7 +1204,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .get(&(*key, FluxKind::Poly))
                                             .and_then(|model| model.model.adj_r2())
                                             .unwrap_or(0.0)
                                     },
@@ -1235,7 +1235,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .get(&(*key, FluxKind::Poly))
                                             .and_then(|model| model.model.sigma())
                                             .unwrap_or(0.0)
                                     },
@@ -1266,7 +1266,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .get(&(*key, FluxKind::Poly))
                                             .and_then(|model| model.model.aic())
                                             .unwrap_or(0.0)
                                     },
@@ -1297,7 +1297,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .get(&(*key, FluxKind::Poly))
                                             .and_then(|model| model.model.rmse())
                                             .unwrap_or(0.0)
                                     },
@@ -1328,7 +1328,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::Poly))
+                                            .get(&(*key, FluxKind::Poly))
                                             .and_then(|model| model.model.cv())
                                             .unwrap_or(0.0)
                                     },
@@ -1359,7 +1359,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .get(&(*key, FluxKind::RobLin))
                                             .and_then(|model| model.model.adj_r2())
                                             .unwrap_or(0.0)
                                     },
@@ -1390,7 +1390,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .get(&(*key, FluxKind::RobLin))
                                             .and_then(|model| model.model.sigma())
                                             .unwrap_or(0.0)
                                     },
@@ -1421,7 +1421,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .get(&(*key, FluxKind::RobLin))
                                             .and_then(|model| model.model.aic())
                                             .unwrap_or(0.0)
                                     },
@@ -1452,7 +1452,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .get(&(*key, FluxKind::RobLin))
                                             .and_then(|model| model.model.rmse())
                                             .unwrap_or(0.0)
                                     },
@@ -1483,7 +1483,7 @@ impl ValidationApp {
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
-                                            .get(&(key.clone(), FluxKind::RobLin))
+                                            .get(&(*key, FluxKind::RobLin))
                                             .and_then(|model| model.model.cv())
                                             .unwrap_or(0.0)
                                     },
@@ -1514,12 +1514,12 @@ impl ValidationApp {
                 //                     move |cycle, key| {
                 //                         cycle
                 //                             .fluxes
-                //                             .get(&(key.clone(), FluxKind::RobLin))
+                //                             .get(&(*key, FluxKind::RobLin))
                 //                             .and_then(|model| model.model.aic())
                 //                             .unwrap_or(0.0)
                 //                             - cycle
                 //                                 .fluxes
-                //                                 .get(&(key.clone(), FluxKind::Linear))
+                //                                 .get(&(*key, FluxKind::Linear))
                 //                                 .and_then(|model| model.model.aic())
                 //                                 .unwrap_or(0.0)
                 //                     },
@@ -1776,13 +1776,13 @@ impl ValidationApp {
             let gases = cycle.gases.clone(); // Clone gases early!
 
             let mut main_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|key| (key.clone(), self.is_gas_enabled(key))).collect();
+                gases.iter().map(|key| (*key, self.is_gas_enabled(key))).collect();
 
             let mut measurement_r_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|key| (key.clone(), self.is_measurement_r_enabled(key))).collect();
+                gases.iter().map(|key| (*key, self.is_measurement_r_enabled(key))).collect();
 
             let mut conc_t0_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|key| (key.clone(), self.is_conc_t0_enabled(key))).collect();
+                gases.iter().map(|key| (*key, self.is_conc_t0_enabled(key))).collect();
 
             let min_width = 100.;
             ui.vertical(|ui| {
@@ -2584,29 +2584,28 @@ impl ValidationApp {
                             ui.end_row();
 
                             for gas in &self.enabled_gases {
-                                let flux =
-                                    if let Some(raw_flux) = cycle.get_flux(gas.clone(), *model) {
-                                        let converted_flux =
-                                            self.flux_unit.from_umol_m2_s(raw_flux, gas.gas_type);
+                                let flux = if let Some(raw_flux) = cycle.get_flux(gas, *model) {
+                                    let converted_flux =
+                                        self.flux_unit.from_umol_m2_s(raw_flux, gas.gas_type);
 
-                                        format!("{:.6}", converted_flux)
-                                    } else {
-                                        "N/A".to_string()
-                                    };
+                                    format!("{:.6}", converted_flux)
+                                } else {
+                                    "N/A".to_string()
+                                };
                                 let r2 = cycle
-                                    .get_r2(gas.clone(), *model)
+                                    .get_r2(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v));
                                 let cv = cycle
-                                    .get_cv(gas.clone(), *model)
+                                    .get_cv(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v * 100.));
                                 let sigma = cycle
-                                    .get_sigma(gas.clone(), *model)
+                                    .get_sigma(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v));
                                 let rmse = cycle
-                                    .get_rmse(gas.clone(), *model)
+                                    .get_rmse(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v));
                                 let aic = cycle
-                                    .get_aic(gas.clone(), *model)
+                                    .get_aic(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v));
 
                                 ui.label(format!("{}", gas.gas_type));

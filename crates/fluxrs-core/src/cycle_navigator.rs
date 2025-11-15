@@ -218,7 +218,7 @@ fn is_cycle_visible(
     // let stats_valid =
     //     p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh;
     let is_valid =
-        cycle.is_valid_by_threshold(key, kind, p_val_thresh, r2_thresh, rmse_thresh, t0_thresh)
+        cycle.is_valid_by_threshold(&key, kind, p_val_thresh, r2_thresh, rmse_thresh, t0_thresh)
             && cycle.error_code.0 == 0;
 
     let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);

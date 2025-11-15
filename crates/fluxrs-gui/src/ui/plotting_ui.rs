@@ -179,9 +179,9 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key.clone());
-            // let actual = cycle.get_calc_gas_v2(&key.clone());
-            let (dt_v, actual) = cycle.get_calc_data2(&key.clone());
+            // let dt_v = cycle.get_calc_dt2(&key);
+            // let actual = cycle.get_calc_gas_v2(&key);
+            let (dt_v, actual) = cycle.get_calc_data2(&key);
 
             // Prepare predictions from the selected model
 
@@ -238,8 +238,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key.clone());
-            // let actual = cycle.get_calc_gas_v2(&key.clone());
+            // let dt_v = cycle.get_calc_dt2(&key);
+            // let actual = cycle.get_calc_gas_v2(&key);
             let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // let gas_nopt: Vec<f64> = actual.iter().map(|x| x.unwrap_or(0.0)).collect();
@@ -294,8 +294,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key.clone());
-            // let actual = cycle.get_calc_gas_v2(&key.clone());
+            // let dt_v = cycle.get_calc_dt2(&key);
+            // let actual = cycle.get_calc_gas_v2(&key);
             let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // Prepare predictions from the selected model
@@ -692,7 +692,7 @@ impl ValidationApp {
                 if let Some(best_kind) = cycle.best_model_by_aic(key) {
                     let gas_key = GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()));
                     let is_valid = cycle.is_valid_by_threshold(
-                        gas_key,
+                        &gas_key,
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,
@@ -877,9 +877,7 @@ impl ValidationApp {
     }
 
     pub fn get_model(&self, key: &GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
-        self.cycle_nav
-            .current_cycle(&self.cycles)
-            .and_then(|cycle| cycle.get_model(key.clone(), kind))
+        self.cycle_nav.current_cycle(&self.cycles).and_then(|cycle| cycle.get_model(key, kind))
     }
     // pub fn get_model(&self, key: GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
     //     if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
@@ -935,7 +933,7 @@ impl ValidationApp {
                 || !c.has_error(ErrorCode::TooFewMeasurements)
             {
                 c.search_open_lag(
-                    GasKey::from((&c.main_gas, &c.main_instrument.id.unwrap())).clone(),
+                    &GasKey::from((&c.main_gas, &c.main_instrument.id.unwrap())).clone(),
                 );
                 match mode {
                     Mode::AfterDeadband => c.set_calc_ranges(),
@@ -999,7 +997,7 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             let s = cycle.calc_range_start.get(key).unwrap_or(&0.0);
             let new_value = s - x;
-            cycle.calc_range_start.insert(key.clone(), new_value);
+            cycle.calc_range_start.insert(*key, new_value);
         }
     }
     pub fn decrement_calc_starts(&mut self, x: f64) {
@@ -1008,7 +1006,7 @@ impl ValidationApp {
             for key in cycle.gases.clone() {
                 let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
                 let new_value = s - x;
-                cycle.calc_range_start.insert(key.clone(), new_value);
+                cycle.calc_range_start.insert(key, new_value);
             }
         }
     }
@@ -1018,7 +1016,7 @@ impl ValidationApp {
             for key in cycle.gases.clone() {
                 let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
                 let new_value = s - x;
-                cycle.calc_range_end.insert(key.clone(), new_value);
+                cycle.calc_range_end.insert(key, new_value);
             }
         }
     }
@@ -1028,7 +1026,7 @@ impl ValidationApp {
             for key in cycle.gases.clone() {
                 let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
                 let new_value = s + x;
-                cycle.calc_range_start.insert(key.clone(), new_value);
+                cycle.calc_range_start.insert(key, new_value);
             }
         }
     }
@@ -1038,7 +1036,7 @@ impl ValidationApp {
             for key in cycle.gases.clone() {
                 let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
                 let new_value = s + x;
-                cycle.calc_range_end.insert(key.clone(), new_value);
+                cycle.calc_range_end.insert(key, new_value);
             }
         }
     }
@@ -1125,7 +1123,7 @@ impl ValidationApp {
                     .iter()
                     .filter_map(|kind| {
                         cycle
-                            .get_model(GasKey::from((&main_gas, id)), *kind)
+                            .get_model(&GasKey::from((&main_gas, id)), *kind)
                             .and_then(|m| m.aic().map(|aic| (*kind, aic)))
                     })
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -1134,7 +1132,7 @@ impl ValidationApp {
                     let value = selector(cycle, key);
 
                     let is_valid = cycle.is_valid_by_threshold(
-                        GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())),
+                        &GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())),
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,
@@ -1628,8 +1626,8 @@ impl ValidationApp {
 
             let calc_start = self.get_calc_start(key);
             let calc_end = self.get_calc_end(key);
-            let min_y = self.get_min_y(&key.clone());
-            let max_y = self.get_max_y(&key.clone());
+            let min_y = self.get_min_y(&key);
+            let max_y = self.get_max_y(&key);
 
             let inside_left =
                 is_inside_polygon(pointer_pos, calc_start, calc_start + dpw, min_y, max_y);
@@ -1928,8 +1926,8 @@ impl ValidationApp {
                 });
 
                 if ui.button("Select All").clicked() {
-                    for key in &sorted_traces {
-                        self.visible_traces.insert(key.clone(), true);
+                    for key in sorted_traces {
+                        self.visible_traces.insert(key, true);
                     }
                     self.update_plots();
                 }

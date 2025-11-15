@@ -160,7 +160,7 @@ impl Flux {
 //         let date_key = datetime.format("%Y-%m-%d").to_string();
 //
 //         //   Get or create a new GasData entry
-//         let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
+//         let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
 //             header: StringRecord::new(),
 //             instrument_model: String::new(),
 //             instrument_serial: String::new(),
