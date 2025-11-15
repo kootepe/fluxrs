@@ -2821,9 +2821,10 @@ pub fn load_cycles_sync(
         if let Some(gas_data_day) = gas_data.get(&day) {
             let gas_key = GasKey::from((&gas, &instrument_id));
 
-            let dt_values = gas_data_day.datetime.get(&instrument_id).unwrap();
-            let diag_values = gas_data_day.diag.get(&instrument_id).unwrap();
-            // let g_values = gas_data_day.gas.get(&gas_key.clone()).unwrap();
+            let dt_values =
+                gas_data_day.datetime.get(&instrument_id).map(|v| v.as_slice()).unwrap_or(&[]);
+            let diag_values =
+                gas_data_day.diag.get(&instrument_id).map(|v| v.as_slice()).unwrap_or(&[]);
             let main_instrument = Instrument {
                 model: main_instrument_model,
                 serial: main_instrument_serial,
