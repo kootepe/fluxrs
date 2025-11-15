@@ -45,7 +45,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -55,6 +61,7 @@ jobs:
       - name: Build (release-fast profile, default member = fluxrs-gui)
         shell: bash
         run: |
+          set -e
           cargo build \
             --profile release-fast \
             --locked \
@@ -81,6 +88,7 @@ jobs:
         with:
           name: ${{ matrix.target }}
           path: dist/*
+
 
   release:
     name: Create GitHub Release
