@@ -1775,13 +1775,13 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let gases = cycle.gases.clone(); // Clone gases early!
 
-            let mut main_gases: Vec<(GasKey, bool)> =
+            let main_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|key| (*key, self.is_gas_enabled(key))).collect();
 
-            let mut measurement_r_gases: Vec<(GasKey, bool)> =
+            let measurement_r_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|key| (*key, self.is_measurement_r_enabled(key))).collect();
 
-            let mut conc_t0_gases: Vec<(GasKey, bool)> =
+            let conc_t0_gases: Vec<(GasKey, bool)> =
                 gases.iter().map(|key| (*key, self.is_conc_t0_enabled(key))).collect();
 
             let min_width = 100.;
@@ -1791,7 +1791,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.label("Enable gases");
                     ui.vertical(|ui| {
-                        for (gas, mut is_enabled) in &mut main_gases {
+                        for (gas, mut is_enabled) in &main_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1804,7 +1804,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_gases.insert(gas.clone());
+                                    self.enabled_gases.insert(*gas);
                                 } else {
                                     self.enabled_gases.remove(gas);
                                 }
@@ -1817,7 +1817,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Cycle r2");
-                        for (gas, mut is_enabled) in &mut measurement_r_gases {
+                        for (gas, mut is_enabled) in &measurement_r_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1830,7 +1830,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_measurement_rs.insert(gas.clone());
+                                    self.enabled_measurement_rs.insert(*gas);
                                 } else {
                                     self.enabled_measurement_rs.remove(gas);
                                 }
@@ -1842,7 +1842,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("t0 concentration");
-                        for (gas, mut is_enabled) in &mut conc_t0_gases {
+                        for (gas, mut is_enabled) in &conc_t0_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1855,7 +1855,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_conc_t0.insert(gas.clone());
+                                    self.enabled_conc_t0.insert(*gas);
                                 } else {
                                     self.enabled_conc_t0.remove(gas);
                                 }
@@ -1867,10 +1867,10 @@ impl ValidationApp {
                 //     ui.set_min_width(min_width); // Enforce group width here
                 //     ui.vertical(|ui| {
                 //         ui.label("AIC diff");
-                //         for (gas, mut is_enabled) in &mut aic_diff_gases {
+                //         for (gas, mut is_enabled) in &aic_diff_gases {
                 //             if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
                 //                 if is_enabled {
-                //                     self.enabled_aic_diff.insert(gas.clone());
+                //                     self.enabled_aic_diff.insert(gas);
                 //                 } else {
                 //                     self.enabled_aic_diff.remove(gas);
                 //                 }
@@ -1887,20 +1887,20 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let gases = cycle.gases.clone(); // Clone gases early!
 
-            let mut lin_flux_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_flux_enabled(gas))).collect();
+            let lin_flux_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_lin_flux_enabled(&gas))).collect();
             let mut lin_p_val_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_p_val_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_lin_p_val_enabled(&gas))).collect();
             let mut lin_adj_r2_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_adj_r2_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_lin_adj_r2_enabled(&gas))).collect();
             let mut lin_sigma_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_sigma_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_lin_sigma_enabled(&gas))).collect();
             let mut lin_rmse_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_rmse_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_lin_rmse_enabled(&gas))).collect();
             let mut lin_cv_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_cv_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_lin_cv_enabled(&gas))).collect();
             let mut lin_aic_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_lin_aic_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_lin_aic_enabled(&gas))).collect();
 
             let min_width = 150.;
             ui.vertical(|ui| {
@@ -1909,7 +1909,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Flux");
-                        for (gas, mut is_enabled) in &mut lin_flux_gases {
+                        for (gas, mut is_enabled) in &lin_flux_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1922,7 +1922,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_fluxes.insert(gas.clone());
+                                    self.enabled_lin_fluxes.insert(*gas);
                                 } else {
                                     self.enabled_lin_fluxes.remove(gas);
                                 }
@@ -1935,7 +1935,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Adjusted r2");
-                        for (gas, mut is_enabled) in &mut lin_adj_r2_gases {
+                        for (gas, mut is_enabled) in &lin_adj_r2_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1948,7 +1948,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_adj_r2.insert(gas.clone());
+                                    self.enabled_lin_adj_r2.insert(*gas);
                                 } else {
                                     self.enabled_lin_adj_r2.remove(gas);
                                 }
@@ -1960,7 +1960,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Sigma");
-                        for (gas, mut is_enabled) in &mut lin_sigma_gases {
+                        for (gas, mut is_enabled) in &lin_sigma_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1973,7 +1973,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_sigma.insert(gas.clone());
+                                    self.enabled_lin_sigma.insert(*gas);
                                 } else {
                                     self.enabled_lin_sigma.remove(gas);
                                 }
@@ -1985,7 +1985,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("AIC");
-                        for (gas, mut is_enabled) in &mut lin_aic_gases {
+                        for (gas, mut is_enabled) in &lin_aic_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -1998,7 +1998,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_aic.insert(gas.clone());
+                                    self.enabled_lin_aic.insert(*gas);
                                 } else {
                                     self.enabled_lin_aic.remove(gas);
                                 }
@@ -2010,7 +2010,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("RMSE");
-                        for (gas, mut is_enabled) in &mut lin_rmse_gases {
+                        for (gas, mut is_enabled) in &lin_rmse_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2023,7 +2023,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_rmse.insert(gas.clone());
+                                    self.enabled_lin_rmse.insert(*gas);
                                 } else {
                                     self.enabled_lin_rmse.remove(gas);
                                 }
@@ -2035,7 +2035,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("CV");
-                        for (gas, mut is_enabled) in &mut lin_cv_gases {
+                        for (gas, mut is_enabled) in &lin_cv_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2048,7 +2048,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_cv.insert(gas.clone());
+                                    self.enabled_lin_cv.insert(*gas);
                                 } else {
                                     self.enabled_lin_cv.remove(gas);
                                 }
@@ -2060,7 +2060,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("p-value");
-                        for (gas, mut is_enabled) in &mut lin_p_val_gases {
+                        for (gas, mut is_enabled) in &lin_p_val_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2073,7 +2073,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_lin_p_val.insert(gas.clone());
+                                    self.enabled_lin_p_val.insert(*gas);
                                 } else {
                                     self.enabled_lin_p_val.remove(gas);
                                 }
@@ -2091,17 +2091,23 @@ impl ValidationApp {
             let gases = cycle.gases.clone(); // Clone gases early!
 
             let mut roblin_flux_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_roblin_flux_enabled(gas))).collect();
-            let mut roblin_adj_r2_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_roblin_adj_r2_enabled(gas))).collect();
-            let mut roblin_sigma_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_roblin_sigma_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_roblin_flux_enabled(&gas))).collect();
+            let mut roblin_adj_r2_gases: Vec<(GasKey, bool)> = gases
+                .iter()
+                .copied()
+                .map(|gas| (gas, self.is_roblin_adj_r2_enabled(&gas)))
+                .collect();
+            let mut roblin_sigma_gases: Vec<(GasKey, bool)> = gases
+                .iter()
+                .copied()
+                .map(|gas| (gas, self.is_roblin_sigma_enabled(&gas)))
+                .collect();
             let mut roblin_rmse_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_roblin_rmse_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_roblin_rmse_enabled(&gas))).collect();
             let mut roblin_cv_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_roblin_cv_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_roblin_cv_enabled(&gas))).collect();
             let mut roblin_aic_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_roblin_aic_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_roblin_aic_enabled(&gas))).collect();
 
             let min_width = 150.;
             ui.vertical(|ui| {
@@ -2110,7 +2116,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Flux");
-                        for (gas, mut is_enabled) in &mut roblin_flux_gases {
+                        for (gas, mut is_enabled) in &roblin_flux_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2123,7 +2129,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_roblin_fluxes.insert(gas.clone());
+                                    self.enabled_roblin_fluxes.insert(*gas);
                                 } else {
                                     self.enabled_roblin_fluxes.remove(gas);
                                 }
@@ -2135,7 +2141,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Adjusted r2");
-                        for (gas, mut is_enabled) in &mut roblin_adj_r2_gases {
+                        for (gas, mut is_enabled) in &roblin_adj_r2_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2148,7 +2154,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_roblin_adj_r2.insert(gas.clone());
+                                    self.enabled_roblin_adj_r2.insert(*gas);
                                 } else {
                                     self.enabled_roblin_adj_r2.remove(gas);
                                 }
@@ -2160,7 +2166,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Sigma");
-                        for (gas, mut is_enabled) in &mut roblin_sigma_gases {
+                        for (gas, mut is_enabled) in &roblin_sigma_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2173,7 +2179,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_roblin_sigma.insert(gas.clone());
+                                    self.enabled_roblin_sigma.insert(*gas);
                                 } else {
                                     self.enabled_roblin_sigma.remove(gas);
                                 }
@@ -2185,7 +2191,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("AIC");
-                        for (gas, mut is_enabled) in &mut roblin_aic_gases {
+                        for (gas, mut is_enabled) in &roblin_aic_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2198,7 +2204,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_roblin_aic.insert(gas.clone());
+                                    self.enabled_roblin_aic.insert(*gas);
                                 } else {
                                     self.enabled_roblin_aic.remove(gas);
                                 }
@@ -2210,7 +2216,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("RMSE");
-                        for (gas, mut is_enabled) in &mut roblin_rmse_gases {
+                        for (gas, mut is_enabled) in &roblin_rmse_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2223,7 +2229,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_roblin_rmse.insert(gas.clone());
+                                    self.enabled_roblin_rmse.insert(*gas);
                                 } else {
                                     self.enabled_roblin_rmse.remove(gas);
                                 }
@@ -2235,7 +2241,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("CV");
-                        for (gas, mut is_enabled) in &mut roblin_cv_gases {
+                        for (gas, mut is_enabled) in &roblin_cv_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2248,7 +2254,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_roblin_cv.insert(gas.clone());
+                                    self.enabled_roblin_cv.insert(*gas);
                                 } else {
                                     self.enabled_roblin_cv.remove(gas);
                                 }
@@ -2266,17 +2272,17 @@ impl ValidationApp {
             let gases = cycle.gases.clone(); // Clone gases early!
 
             let mut poly_flux_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_poly_flux_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_poly_flux_enabled(&gas))).collect();
             let mut poly_adj_r2_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_poly_adj_r2_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_poly_adj_r2_enabled(&gas))).collect();
             let mut poly_sigma_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_poly_sigma_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_poly_sigma_enabled(&gas))).collect();
             let mut poly_rmse_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_poly_rmse_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_poly_rmse_enabled(&gas))).collect();
             let mut poly_cv_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_poly_cv_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_poly_cv_enabled(&gas))).collect();
             let mut poly_aic_gases: Vec<(GasKey, bool)> =
-                gases.iter().map(|gas| (gas.clone(), self.is_poly_aic_enabled(gas))).collect();
+                gases.iter().copied().map(|gas| (gas, self.is_poly_aic_enabled(&gas))).collect();
 
             let min_width = 150.;
             ui.vertical(|ui| {
@@ -2285,7 +2291,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Flux");
-                        for (gas, mut is_enabled) in &mut poly_flux_gases {
+                        for (gas, mut is_enabled) in &poly_flux_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2298,7 +2304,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_poly_fluxes.insert(gas.clone());
+                                    self.enabled_poly_fluxes.insert(*gas);
                                 } else {
                                     self.enabled_poly_fluxes.remove(gas);
                                 }
@@ -2310,7 +2316,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Adjusted r2");
-                        for (gas, mut is_enabled) in &mut poly_adj_r2_gases {
+                        for (gas, mut is_enabled) in &poly_adj_r2_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2323,7 +2329,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_poly_adj_r2.insert(gas.clone());
+                                    self.enabled_poly_adj_r2.insert(*gas);
                                 } else {
                                     self.enabled_poly_adj_r2.remove(gas);
                                 }
@@ -2335,7 +2341,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("Sigma");
-                        for (gas, mut is_enabled) in &mut poly_sigma_gases {
+                        for (gas, mut is_enabled) in &poly_sigma_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2348,7 +2354,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_poly_sigma.insert(gas.clone());
+                                    self.enabled_poly_sigma.insert(*gas);
                                 } else {
                                     self.enabled_poly_sigma.remove(gas);
                                 }
@@ -2360,7 +2366,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("AIC");
-                        for (gas, mut is_enabled) in &mut poly_aic_gases {
+                        for (gas, mut is_enabled) in &poly_aic_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2373,7 +2379,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_poly_aic.insert(gas.clone());
+                                    self.enabled_poly_aic.insert(*gas);
                                 } else {
                                     self.enabled_poly_aic.remove(gas);
                                 }
@@ -2385,7 +2391,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("RMSE");
-                        for (gas, mut is_enabled) in &mut poly_rmse_gases {
+                        for (gas, mut is_enabled) in &poly_rmse_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2398,7 +2404,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_poly_rmse.insert(gas.clone());
+                                    self.enabled_poly_rmse.insert(*gas);
                                 } else {
                                     self.enabled_poly_rmse.remove(gas);
                                 }
@@ -2410,7 +2416,7 @@ impl ValidationApp {
                     ui.set_min_width(min_width); // Enforce group width here
                     ui.vertical(|ui| {
                         ui.label("CV");
-                        for (gas, mut is_enabled) in &mut poly_cv_gases {
+                        for (gas, mut is_enabled) in &poly_cv_gases {
                             if ui
                                 .checkbox(
                                     &mut is_enabled,
@@ -2423,7 +2429,7 @@ impl ValidationApp {
                                 .changed()
                             {
                                 if is_enabled {
-                                    self.enabled_poly_cv.insert(gas.clone());
+                                    self.enabled_poly_cv.insert(*gas);
                                 } else {
                                     self.enabled_poly_cv.remove(gas);
                                 }

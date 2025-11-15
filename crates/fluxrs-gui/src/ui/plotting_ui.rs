@@ -181,7 +181,7 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             // let dt_v = cycle.get_calc_dt2(&key);
             // let actual = cycle.get_calc_gas_v2(&key);
-            let (dt_v, actual) = cycle.get_calc_data2(&key);
+            let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // Prepare predictions from the selected model
 
@@ -1626,8 +1626,8 @@ impl ValidationApp {
 
             let calc_start = self.get_calc_start(key);
             let calc_end = self.get_calc_end(key);
-            let min_y = self.get_min_y(&key);
-            let max_y = self.get_max_y(&key);
+            let min_y = self.get_min_y(key);
+            let max_y = self.get_max_y(key);
 
             let inside_left =
                 is_inside_polygon(pointer_pos, calc_start, calc_start + dpw, min_y, max_y);
