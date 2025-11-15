@@ -1003,7 +1003,7 @@ impl ValidationApp {
     pub fn decrement_calc_starts(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
+            for & key in &cycle.gases {
                 let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
                 let new_value = s - x;
                 cycle.calc_range_start.insert(key, new_value);
@@ -1013,7 +1013,7 @@ impl ValidationApp {
     pub fn decrement_calc_ends(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
+            for & key in &cycle.gases {
                 let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
                 let new_value = s - x;
                 cycle.calc_range_end.insert(key, new_value);
@@ -1023,7 +1023,7 @@ impl ValidationApp {
     pub fn increment_calc_starts(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
+            for & key in &cycle.gases {
                 let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
                 let new_value = s + x;
                 cycle.calc_range_start.insert(key, new_value);
@@ -1033,7 +1033,7 @@ impl ValidationApp {
     pub fn increment_calc_ends(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
+            for & key in &cycle.gases {
                 let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
                 let new_value = s + x;
                 cycle.calc_range_end.insert(key, new_value);
