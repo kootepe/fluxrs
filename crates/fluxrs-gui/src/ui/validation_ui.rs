@@ -1540,7 +1540,12 @@ impl ValidationApp {
         }
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             ui.horizontal(|ui| {
-                let lag_plot = init_lag_plot(&main_key, self.lag_plot_w, self.lag_plot_h);
+                let lag_plot = init_lag_plot(
+                    &main_key,
+                    main_instrument.clone(),
+                    self.lag_plot_w,
+                    self.lag_plot_h,
+                );
                 let response = lag_plot.show(ui, |plot_ui| {
                     self.render_lag_plot(plot_ui);
                 });
