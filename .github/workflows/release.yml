@@ -73,6 +73,7 @@ jobs:
           mkdir -p dist
           FILE="${BIN_NAME}${{ matrix.ext }}"
 
+
           # release-fast profile goes into target/<target>/release-fast/
           cp "target/${{ matrix.target }}/release-fast/${FILE}" dist/
           cd dist
@@ -86,6 +87,9 @@ jobs:
           else
             tar czf "${ARCHIVE}.tar.gz" "${FILE}"
           fi
+
+          # remove binary so it wont be in release
+          rm "${FILE}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
