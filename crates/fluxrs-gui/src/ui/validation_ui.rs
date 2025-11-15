@@ -397,7 +397,7 @@ impl ValidationApp {
                     // Group keys by their label
                     let mut label_map: BTreeMap<i64, Vec<_>> = BTreeMap::new();
 
-                    for key in current_cycle.gases.clone() {
+                    for key in &current_cycle.gases {
                         label_map.entry(key.id).or_default().push(key);
                     }
 
@@ -409,7 +409,7 @@ impl ValidationApp {
                                     let any_valid = current_cycle
                                         .fluxes
                                         .iter()
-                                        .any(|((g, _s), record)| g == &key && record.is_valid);
+                                        .any(|((g, _s), record)| g == key && record.is_valid);
 
                                     let button_label = if any_valid {
                                         format!(
@@ -426,7 +426,7 @@ impl ValidationApp {
                                     };
 
                                     if ui.button(button_label).clicked() {
-                                        self.toggled_gas = Some(key);
+                                        self.toggled_gas = Some(*key);
                                     }
                                 }
                             });
@@ -783,7 +783,8 @@ impl ValidationApp {
                     if self.zoom_to_measurement == 2 {
                         self.should_reset_bounds = true;
                     }
-                    for key in self.enabled_gases.clone() {
+                    let keys: Vec<_> = self.enabled_gases.iter().copied().collect();
+                    for key in &keys {
                         if self.is_gas_enabled(&key) {
                             let gas_plot = init_gas_plot(
                                 &key,
@@ -810,7 +811,8 @@ impl ValidationApp {
             ui.horizontal(|ui| {
                 if !self.enabled_lin_fluxes.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_fluxes.clone() {
+                        let keys: Vec<_> = self.enabled_lin_fluxes.iter().copied().collect();
+                        for key in &keys {
                             let flux_plot = init_attribute_plot(
                                 "flux".to_owned(),
                                 key,
@@ -844,7 +846,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_poly_fluxes.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_poly_fluxes.clone() {
+                        let keys: Vec<_> = self.enabled_poly_fluxes.iter().copied().collect();
+                        for key in &keys {
                             let poly_flux_plot = init_attribute_plot(
                                 "Poly Flux".to_owned(),
                                 key,
@@ -877,7 +880,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_roblin_fluxes.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_roblin_fluxes.clone() {
+                        let keys: Vec<_> = self.enabled_roblin_fluxes.iter().copied().collect();
+                        for key in &keys {
                             let roblin_flux_plot = init_attribute_plot(
                                 "RobLin Flux".to_owned(),
                                 key,
@@ -910,7 +914,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_lin_p_val.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_p_val.clone() {
+                        let keys: Vec<_> = self.enabled_lin_p_val.iter().copied().collect();
+                        for key in &keys {
                             let lin_p_val_plot = init_attribute_plot(
                                 "Linear p-value".to_owned(),
                                 key,
@@ -943,7 +948,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_measurement_rs.is_empty() {
                     ui.vertical(|ui| {
-                        for key in self.enabled_measurement_rs.clone() {
+                        let keys: Vec<_> = self.enabled_measurement_rs.iter().copied().collect();
+                        for key in &keys {
                             let measurement_r_plot = init_attribute_plot(
                                 "Measurement r2".to_owned(),
                                 &key,
@@ -973,7 +979,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_calc_r.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_calc_r.clone() {
+                        let keys: Vec<_> = self.enabled_calc_r.iter().copied().collect();
+                        for key in &keys {
                             let selected_model = self.selected_model;
                             let calc_r_plot = init_attribute_plot(
                                 format!("{} r2", selected_model),
@@ -1007,7 +1014,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_conc_t0.is_empty() {
                     ui.vertical(|ui| {
-                        for key in self.enabled_conc_t0.clone() {
+                        let keys: Vec<_> = self.enabled_conc_t0.iter().copied().collect();
+                        for key in &keys {
                             let conc_plot = init_attribute_plot(
                                 "Concentration t0".to_owned(),
                                 &key,
@@ -1034,7 +1042,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_lin_adj_r2.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_adj_r2.clone() {
+                        let keys: Vec<_> = self.enabled_lin_adj_r2.iter().copied().collect();
+                        for key in &keys {
                             let adj_r2_val_plot = init_attribute_plot(
                                 "Lin adjusted r2".to_owned(),
                                 key,
@@ -1065,7 +1074,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_lin_sigma.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_sigma.clone() {
+                        let keys: Vec<_> = self.enabled_lin_sigma.iter().copied().collect();
+                        for key in &keys {
                             let sigma_plot = init_attribute_plot(
                                 "Lin sigma".to_owned(),
                                 key,
@@ -1096,7 +1106,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_lin_aic.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_aic.clone() {
+                        let keys: Vec<_> = self.enabled_lin_aic.iter().copied().collect();
+                        for key in &keys {
                             let lin_aic_plot = init_attribute_plot(
                                 "Lin AIC".to_owned(),
                                 key,
@@ -1127,7 +1138,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_lin_rmse.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_rmse.clone() {
+                        let keys: Vec<_> = self.enabled_lin_rmse.iter().copied().collect();
+                        for key in &keys {
                             let lin_rmse_plot = init_attribute_plot(
                                 "Lin RMSE".to_owned(),
                                 key,
@@ -1158,7 +1170,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_lin_cv.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_lin_cv.clone() {
+                        let keys: Vec<_> = self.enabled_lin_cv.iter().copied().collect();
+                        for key in &keys {
                             let lin_cv_plot = init_attribute_plot(
                                 "Lin cv".to_owned(),
                                 key,
@@ -1189,7 +1202,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_poly_adj_r2.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_poly_adj_r2.clone() {
+                        let keys: Vec<_> = self.enabled_poly_adj_r2.iter().copied().collect();
+                        for key in &keys {
                             let adj_r2_val_plot = init_attribute_plot(
                                 "Poly adjusted r2".to_owned(),
                                 key,
@@ -1220,7 +1234,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_poly_sigma.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_poly_sigma.clone() {
+                        let keys: Vec<_> = self.enabled_poly_sigma.iter().copied().collect();
+                        for key in &keys {
                             let sigma_plot = init_attribute_plot(
                                 "Poly sigma".to_owned(),
                                 key,
@@ -1251,7 +1266,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_poly_aic.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_poly_aic.clone() {
+                        let keys: Vec<_> = self.enabled_poly_aic.iter().copied().collect();
+                        for key in &keys {
                             let poly_aic_plot = init_attribute_plot(
                                 "Poly AIC".to_owned(),
                                 key,
@@ -1282,7 +1298,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_poly_rmse.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_poly_rmse.clone() {
+                        let keys: Vec<_> = self.enabled_poly_rmse.iter().copied().collect();
+                        for key in &keys {
                             let poly_rmse_plot = init_attribute_plot(
                                 "Poly RMSE".to_owned(),
                                 key,
@@ -1313,7 +1330,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_poly_cv.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_poly_cv.clone() {
+                        let keys: Vec<_> = self.enabled_poly_cv.iter().copied().collect();
+                        for key in &keys {
                             let poly_cv_plot = init_attribute_plot(
                                 "Poly cv".to_owned(),
                                 key,
@@ -1344,7 +1362,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_roblin_adj_r2.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_roblin_adj_r2.clone() {
+                        let keys: Vec<_> = self.enabled_roblin_adj_r2.iter().copied().collect();
+                        for key in &keys {
                             let adj_r2_val_plot = init_attribute_plot(
                                 "Roblin Adjusted r2".to_owned(),
                                 key,
@@ -1375,7 +1394,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_roblin_sigma.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_roblin_sigma.clone() {
+                        let keys: Vec<_> = self.enabled_roblin_sigma.iter().copied().collect();
+                        for key in &keys {
                             let sigma_plot = init_attribute_plot(
                                 "RobLin sigma".to_owned(),
                                 key,
@@ -1406,7 +1426,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_roblin_aic.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_roblin_aic.clone() {
+                        let keys: Vec<_> = self.enabled_roblin_aic.iter().copied().collect();
+                        for key in &keys {
                             let roblin_aic_plot = init_attribute_plot(
                                 "RobLin AIC".to_owned(),
                                 key,
@@ -1437,7 +1458,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_roblin_rmse.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_roblin_rmse.clone() {
+                        let keys: Vec<_> = self.enabled_roblin_rmse.iter().copied().collect();
+                        for key in &keys {
                             let roblin_rmse_plot = init_attribute_plot(
                                 "RobLin RMSE".to_owned(),
                                 key,
@@ -1468,7 +1490,8 @@ impl ValidationApp {
                 }
                 if !self.enabled_roblin_cv.is_empty() {
                     ui.vertical(|ui| {
-                        for key in &self.enabled_roblin_cv.clone() {
+                        let keys: Vec<_> = self.enabled_roblin_cv.iter().copied().collect();
+                        for key in &keys {
                             let roblin_cv_plot = init_attribute_plot(
                                 "RobLin cv".to_owned(),
                                 key,
@@ -1500,7 +1523,7 @@ impl ValidationApp {
 
                 // if !self.enabled_aic_diff.is_empty() {
                 //     ui.vertical(|ui| {
-                //         for key in &self.enabled_aic_diff.clone() {
+                //         let keys: Vec<_> = self.enabled_aic_diff.iter().copied().collect(); for key in &keys {
                 //             let aic_diff_plot = init_attribute_plot(
                 //                 "".to_owned(),
                 //                 key,
@@ -1551,16 +1574,17 @@ impl ValidationApp {
                     self.render_lag_plot(plot_ui);
                 });
                 let flux_unit = self.flux_unit;
-                for gas_type in self.enabled_gases.clone() {
+                let keys: Vec<_> = self.enabled_gases.iter().copied().collect();
+                for key in &keys {
                     let flux_plot = init_attribute_plot(
                         format!("Best flux {}", flux_unit),
-                        &gas_type,
+                        key,
                         main_instrument.clone(),
                         self.flux_plot_w,
                         self.flux_plot_h,
                     );
                     let response2 = flux_plot.show(ui, |plot_ui| {
-                        self.render_best_flux_plot(plot_ui, &gas_type, |cycle, gas| {
+                        self.render_best_flux_plot(plot_ui, key, |cycle, gas| {
                             let umol_m2_s = cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN);
                             flux_unit.from_umol_m2_s(umol_m2_s, gas.gas_type)
                         });

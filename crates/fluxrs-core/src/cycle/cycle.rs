@@ -420,7 +420,7 @@ impl Cycle {
     //     F: FnMut(&mut Self, GasKey, f64),
     // {
     //     let mut shortfall_adjustments = Vec::new();
-    //     for key in self.gases.iter().clone() {
+    //     let keys: Vec<_> = self.gases.iter().copied().collect(); for key in &keys {
     //         let deadband = self.get_deadband(key);
     //         let range_min = self.get_adjusted_close() + deadband;
     //         let range_max = self.get_adjusted_open();
@@ -502,14 +502,14 @@ impl Cycle {
         self.compute_all_fluxes();
     }
     pub fn set_deadband_and_start(&mut self, x: f64) {
-        for &key in &self.gases.clone() {
-            let deadband = self.deadbands.get(&key).unwrap_or(&0.0);
+        for key in &self.gases {
+            let deadband = self.deadbands.get(key).unwrap_or(&0.0);
             let new_db = deadband + x;
-            self.deadbands.insert(key, new_db.max(0.));
-            let s = self.get_calc_start(&key);
+            self.deadbands.insert(*key, new_db.max(0.));
+            let s = self.get_calc_start(key);
             let new_s = s + x;
 
-            self.calc_range_start.insert(key, new_s);
+            self.calc_range_start.insert(*key, new_s);
         }
         self.adjust_calc_range_all();
 
@@ -570,7 +570,8 @@ impl Cycle {
         range_max - range_min
     }
     fn adjust_calc_range_all_deadband(&mut self) {
-        for key in self.gases.iter().clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             let mut deadband = self.get_deadband(key);
             let range_min = self.get_adjusted_close() + deadband;
             let range_max = self.get_adjusted_open();
@@ -666,7 +667,8 @@ impl Cycle {
         self.calc_range_end.insert(*key, e);
     }
     pub fn stick_calc_to_range_start_for_all(&mut self) {
-        for key in self.gases.clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             self.stick_calc_to_range_start(&key);
         }
     }
@@ -809,7 +811,7 @@ impl Cycle {
         (start, end)
     }
     // fn adjust_calc_range_all(&mut self) {
-    //     for key in self.gases.iter().clone() {
+    //     let keys: Vec<_> = self.gases.iter().copied().collect(); for key in &keys {
     //         let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
     //         let range_max = self.get_adjusted_open();
     //         let min_range = self.min_calc_len;
@@ -1105,7 +1107,8 @@ impl Cycle {
     }
 
     pub fn calculate_calc_rs(&mut self) {
-        for key in &self.gases.clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             self.calculate_calc_r(key);
         }
     }
@@ -1146,7 +1149,8 @@ impl Cycle {
         // prepare gas value vectors
         let mut gas_vecs = FastMap::default();
         let mut dt_vecs = FastMap::default();
-        for key in self.gases.clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             let (dv, gv) = self.get_measurement_data(&key);
             gas_vecs.insert(key, gv);
             dt_vecs.insert(key, dv);
@@ -1186,7 +1190,8 @@ impl Cycle {
         }
     }
     pub fn get_calc_datas(&mut self) {
-        for key in &self.gases.clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             self.get_calc_data(key);
         }
     }
@@ -1334,7 +1339,8 @@ impl Cycle {
     }
 
     pub fn set_calc_ranges(&mut self) {
-        for key in self.gases.clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             let start = self.get_measurement_start() + self.deadbands.get(&key).unwrap_or(&0.0);
             let end = start + self.min_calc_len;
             // println!("cstart idx{}", self.get_start() - start);
@@ -1345,7 +1351,8 @@ impl Cycle {
         }
     }
     pub fn set_calc_ranges_to_best_r(&mut self) {
-        for key in self.gases.clone() {
+        let keys: Vec<_> = self.gases.iter().copied().collect();
+        for key in &keys {
             let start = self.get_measurement_start() + self.deadbands.get(&key).unwrap_or(&0.0);
             let end = start + self.min_calc_len;
             self.set_calc_start(&key, start);
@@ -1536,7 +1543,9 @@ impl Cycle {
     // }
 
     pub fn compute_all_fluxes(&mut self) {
-        for key in &self.gases.clone() {
+        let keys = self.gases.to_vec();
+
+        for key in &keys {
             self.calculate_lin_flux(key);
             self.calculate_poly_flux(key);
             self.calculate_roblin_flux(key);
@@ -1753,10 +1762,11 @@ impl Cycle {
         let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
         let ppb_to_nmol = conversion_factor * 1e-9 * 1e9; // mol → nmol, and ppb = 1e-9
         let mut converted: FastMap<GasKey, Vec<Option<f64>>> = FastMap::default();
-        for key in self.gases.clone() {
-            if let Some(values) = self.gas_v.get(&key) {
+        let keys: Vec<_> = self.gases.to_vec();
+        for key in &keys {
+            if let Some(values) = self.gas_v.get(key) {
                 let new_vals = values.iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
-                converted.insert(key, new_vals);
+                converted.insert(*key, new_vals);
             }
             // if let Some(values) = self.gas_v.get_mut(&key) {
             //     for value in values.iter_mut().flatten() {
@@ -2404,7 +2414,7 @@ fn execute_insert(
     project_id: &i64,
 ) -> Result<usize> {
     let mut affected = 0;
-    for key in cycle.gases.clone() {
+    for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
         let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
         let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
@@ -2514,7 +2524,7 @@ fn execute_update(
     project_id: &i64,
 ) -> Result<usize> {
     let mut affected = 0;
-    for key in cycle.gases.clone() {
+    for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
         let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
         let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
