@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"   # e.g. v0.3.0
+
+env:
+  CARGO_TERM_COLOR: always
+  # Change this to the actual binary name from crates/fluxrs-gui/Cargo.toml
+  BIN_NAME: "fluxrs"
+
+jobs:
+  # remove tests until i can make proper tests
+  # test:
+  #   name: Test workspace
+  #   runs-on: ubuntu-latest
+  #
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Install Rust toolchain
+  #       uses: dtolnay/rust-toolchain@stable
+  #
+  #     - name: Run tests
+  #       run: cargo test --workspace --all-features --locked
+
+  build:
+    name: Build for ${{ matrix.target }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build (release-fast profile, default member = fluxrs-gui)
+        run: |
+          cargo build \
+            --profile release-fast \
+            --locked \
+            --target ${{ matrix.target }}
+
+      - name: Package binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          FILE="${BIN_NAME}${{ matrix.ext }}"
+          # release-fast profile goes into target/<target>/release-fast/
+          cp "target/${{ matrix.target }}/release-fast/${FILE}" dist/
+          cd dist
+
+          ARCHIVE="${BIN_NAME}-${{ github.ref_name }}-${{ matrix.target }}"
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            zip "${ARCHIVE}.zip" "${FILE}"
+          else
+            tar czf "${ARCHIVE}.tar.gz" "${FILE}"
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}           # e.g. v0.3.0
+          name: ${{ github.ref_name }}
+          body: |
+            See documentation: https://kootepe.github.io/fluxrs/
+          files: dist/**/*                           # all packaged binaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
