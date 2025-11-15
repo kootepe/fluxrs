@@ -1889,17 +1889,17 @@ impl ValidationApp {
 
             let lin_flux_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_flux_enabled(&gas))).collect();
-            let mut lin_p_val_gases: Vec<(GasKey, bool)> =
+            let lin_p_val_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_p_val_enabled(&gas))).collect();
-            let mut lin_adj_r2_gases: Vec<(GasKey, bool)> =
+            let lin_adj_r2_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_adj_r2_enabled(&gas))).collect();
-            let mut lin_sigma_gases: Vec<(GasKey, bool)> =
+            let lin_sigma_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_sigma_enabled(&gas))).collect();
-            let mut lin_rmse_gases: Vec<(GasKey, bool)> =
+            let lin_rmse_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_rmse_enabled(&gas))).collect();
-            let mut lin_cv_gases: Vec<(GasKey, bool)> =
+            let lin_cv_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_cv_enabled(&gas))).collect();
-            let mut lin_aic_gases: Vec<(GasKey, bool)> =
+            let lin_aic_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_lin_aic_enabled(&gas))).collect();
 
             let min_width = 150.;
@@ -2090,23 +2090,23 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let gases = cycle.gases.clone(); // Clone gases early!
 
-            let mut roblin_flux_gases: Vec<(GasKey, bool)> =
+            let roblin_flux_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_roblin_flux_enabled(&gas))).collect();
-            let mut roblin_adj_r2_gases: Vec<(GasKey, bool)> = gases
+            let roblin_adj_r2_gases: Vec<_> = gases
                 .iter()
                 .copied()
                 .map(|gas| (gas, self.is_roblin_adj_r2_enabled(&gas)))
                 .collect();
-            let mut roblin_sigma_gases: Vec<(GasKey, bool)> = gases
+            let roblin_sigma_gases: Vec<_> = gases
                 .iter()
                 .copied()
                 .map(|gas| (gas, self.is_roblin_sigma_enabled(&gas)))
                 .collect();
-            let mut roblin_rmse_gases: Vec<(GasKey, bool)> =
+            let roblin_rmse_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_roblin_rmse_enabled(&gas))).collect();
-            let mut roblin_cv_gases: Vec<(GasKey, bool)> =
+            let roblin_cv_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_roblin_cv_enabled(&gas))).collect();
-            let mut roblin_aic_gases: Vec<(GasKey, bool)> =
+            let roblin_aic_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_roblin_aic_enabled(&gas))).collect();
 
             let min_width = 150.;
@@ -2271,17 +2271,17 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
             let gases = cycle.gases.clone(); // Clone gases early!
 
-            let mut poly_flux_gases: Vec<(GasKey, bool)> =
+            let poly_flux_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_poly_flux_enabled(&gas))).collect();
-            let mut poly_adj_r2_gases: Vec<(GasKey, bool)> =
+            let poly_adj_r2_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_poly_adj_r2_enabled(&gas))).collect();
-            let mut poly_sigma_gases: Vec<(GasKey, bool)> =
+            let poly_sigma_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_poly_sigma_enabled(&gas))).collect();
-            let mut poly_rmse_gases: Vec<(GasKey, bool)> =
+            let poly_rmse_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_poly_rmse_enabled(&gas))).collect();
-            let mut poly_cv_gases: Vec<(GasKey, bool)> =
+            let poly_cv_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_poly_cv_enabled(&gas))).collect();
-            let mut poly_aic_gases: Vec<(GasKey, bool)> =
+            let poly_aic_gases: Vec<_> =
                 gases.iter().copied().map(|gas| (gas, self.is_poly_aic_enabled(&gas))).collect();
 
             let min_width = 150.;
