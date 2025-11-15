@@ -53,6 +53,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build (release-fast profile, default member = fluxrs-gui)
+        shell: bash
         run: |
           cargo build \
             --profile release-fast \
