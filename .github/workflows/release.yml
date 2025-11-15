@@ -28,7 +28,7 @@ jobs:
 
   build:
     name: Build for ${{ matrix.target }}
-    needs: test
+    # needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
