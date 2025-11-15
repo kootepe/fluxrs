@@ -760,7 +760,7 @@ impl ValidationApp {
         };
 
         if self.enabled_gases.is_empty() {
-            self.enabled_gases.insert(main_key.clone());
+            self.enabled_gases.insert(main_key);
         }
 
         if ctx.style().visuals.dark_mode {
@@ -787,6 +787,7 @@ impl ValidationApp {
                         if self.is_gas_enabled(&key) {
                             let gas_plot = init_gas_plot(
                                 &key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.get_start(),
                                 self.get_end(),
                                 self.gas_plot_w,

@@ -1997,7 +1997,7 @@ pub fn init_attribute_plot(
         .width(w)
         .height(h)
         .x_axis_formatter(format_x_axis)
-        .y_axis_label(format!("{} {} {}", key.gas_type, key.id, attribute))
+        .y_axis_label(format!("{} {} {}", key.gas_type, instrument.serial , attribute))
 }
 pub fn init_residual_plot(gas_type: &GasType, kind: FluxKind, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}{}residual_plot", gas_type, kind.as_str()))
@@ -2027,7 +2027,14 @@ pub fn init_residual_bars(key: &GasKey, kind: FluxKind, w: f32, h: f32) -> egui_
         .allow_zoom(false)
         .y_axis_label(format!("{}{}", key.id, key.gas_type))
 }
-pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_gas_plot(
+    key: &GasKey,
+    instrument: Instrument,
+    start: f64,
+    end: f64,
+    w: f32,
+    h: f32,
+) -> egui_plot::Plot {
     let _x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
         let timestamp = mark.value as i64;
 
@@ -2073,7 +2080,7 @@ pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui
         .height(h)
         .include_x(start)
         .include_x(end)
-        .y_axis_label(format!("{}", key.gas_type))
+        .y_axis_label(format!("{} {}", key.gas_type, instrument.serial))
     // .legend(Legend::default().position(Corner::LeftTop))
 }
 
@@ -2098,7 +2105,7 @@ pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
         .y_axis_label(format!("{} calc r2", gas_type))
 }
 
-pub fn init_lag_plot(key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_lag_plot(key: &GasKey, instrument: Instrument, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}{}lag_plot",key.gas_type,key.id))
         // .coordinates_formatter(
         //     Corner::LeftBottom,
@@ -2126,7 +2133,7 @@ pub fn init_lag_plot(key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
         .allow_drag(false)
         .width(w)
         .height(h)
-        .y_axis_label(format!("{} {} lag s", key.gas_type, key.id))
+        .y_axis_label(format!("{} {} lag s", key.gas_type, instrument.serial))
         .x_axis_formatter(format_x_axis)
 }
 fn _generate_grid_marks(range: GridInput) -> Vec<GridMark> {
