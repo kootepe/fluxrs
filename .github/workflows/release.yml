@@ -131,6 +131,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body: ${{ steps.notes.outputs.content }}
+          draft: false
           files: |
             dist/**/*.tar.gz
             dist/**/*.zip
