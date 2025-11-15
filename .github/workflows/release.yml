@@ -113,7 +113,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME}"
 
-          # Extract section starting at "## VERSION" until next "## v..."
+          # Extract only the section for this version
           awk "/^##[[:space:]]+$VERSION/{flag=1; next} /^##[[:space:]]+v/{flag=0} flag" RELEASE_NOTES.md \
             > RELEASE_NOTES_EXTRACTED.md
 
@@ -127,7 +127,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           body: ${{ steps.notes.outputs.content }}
-          files: dist/**/*
+          files: |
+            dist/**/*.tar.gz
+            dist/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
