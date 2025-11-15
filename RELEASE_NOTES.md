@@ -1,5 +1,8 @@
 # Release Notes
 
+# Next release
+- Performance improvements by removing clones from structs are now copy
+
 ## v0.3.1
 **BREAKING CHANGES**
 Reworked the db schema quite a bit to allow easier deletion of data.
