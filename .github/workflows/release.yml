@@ -3,11 +3,13 @@ name: Release
 on:
   push:
     tags:
-      - "v*"   # e.g. v0.3.0
+      - "v*"
+
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
-  # Change this to the actual binary name from crates/fluxrs-gui/Cargo.toml
   BIN_NAME: "fluxrs"
 
 jobs:
