@@ -1,4 +1,3 @@
-use crate::concentrationunit::ConcentrationUnit;
 use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::cycle::gaskey::GasKey;
 use crate::data_formats::gasdata::{query_gas2, query_gas_all};
@@ -3722,7 +3721,7 @@ mod tests {
         fn gas_channel(&self) -> GasChannel {
             GasChannel {
                 gas: GasType::CH4,
-                unit: ConcentrationUnit::Ppb,
+                unit: crate::concentrationunit::ConcentrationUnit::Ppb,
                 instrument_id: "asd".to_owned(),
             }
         }
