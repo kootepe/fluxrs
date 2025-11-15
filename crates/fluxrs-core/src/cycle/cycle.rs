@@ -1149,44 +1149,39 @@ impl Cycle {
         let mut dt_vecs = FastMap::default();
         for key in self.gases.clone() {
             let (dv, gv) = self.get_measurement_data(&key);
-            // let gv = self.get_measurement_gas_v2(&key);
-            // let dv = self.get_measurement_dt_v2(&key);
-            gas_vecs.insert(key.clone(), gv);
-            dt_vecs.insert(key.clone(), dv);
+            gas_vecs.insert(key, gv);
+            dt_vecs.insert(key, dv);
         }
 
-        // run analysis in parallel for all gases
+        let min_len = self.min_calc_len as usize;
+        let gap_threshold = 1.0;
+
         let results: Vec<_> = self
             .gases
             .iter()
             .filter_map(|key| {
                 let gas_v = gas_vecs.get(key)?;
                 let dt_v = dt_vecs.get(key)?;
-                let gaps: Vec<bool> = dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > 1.0).collect();
 
-                if gas_v.len() < self.min_calc_len as usize
-                    || dt_v.len() < self.min_calc_len as usize
-                {
+                if gas_v.len() < min_len || dt_v.len() < min_len {
                     return None;
                 }
 
-                find_best_window_for_gas_par(
-                    dt_v,
-                    gas_v,
-                    &gaps,
-                    self.min_calc_len as usize,
-                    WINDOW_INCREMENT, // Assuming this is available
+                let gaps: Vec<bool> =
+                    dt_v.windows(2).map(|w| (w[1] - w[0]).abs() > gap_threshold).collect();
+
+                find_best_window_for_gas_par(dt_v, gas_v, &gaps, min_len, WINDOW_INCREMENT).map(
+                    |(start, end, r)| {
+                        let start_time = dt_v[start];
+                        let end_time = dt_v[end - 1];
+                        (*key, start_time, end_time, r)
+                    },
                 )
-                .map(|(start, end, r)| (key.clone(), start, end, r))
             })
             .collect();
 
         // Apply results
-        for (key, start, end, _) in results {
-            let start_time = dt_vecs.get(&key).unwrap()[start];
-            let end_time = dt_vecs.get(&key).unwrap()[end - 1];
-            // println!("{} {:?}", start_time - self.get_start(), key);
-            // println!("{} {:?}", end_time - self.get_start(), key);
+        for (key, start_time, end_time, _) in results {
             self.set_calc_start(&key, start_time);
             self.set_calc_end(&key, end_time);
         }
