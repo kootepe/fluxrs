@@ -7,6 +7,7 @@ use fluxrs_core::cycle_navigator::compute_visible_indexes;
 use fluxrs_core::errorcode::ErrorCode;
 use fluxrs_core::flux::{FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
 use fluxrs_core::gastype::GasType;
+use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::mode::Mode;
 
 use crate::flux_extension::UiColor;
@@ -1971,7 +1972,13 @@ impl ValidationApp {
         }
     }
 }
-pub fn init_attribute_plot(attribute: String, key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_attribute_plot(
+    attribute: String,
+    key: &GasKey,
+    instrument: Instrument,
+    w: f32,
+    h: f32,
+) -> egui_plot::Plot {
     let attrib = attribute.clone();
     Plot::new(format!("{}{}{}", key.gas_type, key.id, attrib))
         // .coordinates_formatter(

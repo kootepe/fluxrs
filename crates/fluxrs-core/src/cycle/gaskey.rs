@@ -3,7 +3,7 @@ use std::fmt;
 
 type InstrumentId = i64;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy)]
 pub struct GasKey {
     pub gas_type: GasType,
     pub id: InstrumentId,

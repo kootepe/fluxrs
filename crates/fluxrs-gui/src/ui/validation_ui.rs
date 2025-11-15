@@ -1,5 +1,4 @@
 use crate::appview::AppState;
-use crate::ui::gasmetrics;
 use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
@@ -16,11 +15,13 @@ use fluxrs_core::datatype::DataType;
 use fluxrs_core::errorcode::ErrorCode;
 use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::gastype::GasType;
+use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::mode::Mode;
 use fluxrs_core::processevent::{
     InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
 };
 use fluxrs_core::project::Project;
+use fluxrs_core::types::FastMap;
 
 use std::path::PathBuf;
 
@@ -773,6 +774,10 @@ impl ValidationApp {
         }
 
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
+            let mut instruments = FastMap::default();
+            if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+                instruments = cycle.instruments.clone();
+            }
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
                     if self.zoom_to_measurement == 2 {
@@ -808,6 +813,7 @@ impl ValidationApp {
                             let flux_plot = init_attribute_plot(
                                 "flux".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -841,6 +847,7 @@ impl ValidationApp {
                             let poly_flux_plot = init_attribute_plot(
                                 "Poly Flux".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -873,6 +880,7 @@ impl ValidationApp {
                             let roblin_flux_plot = init_attribute_plot(
                                 "RobLin Flux".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -905,6 +913,7 @@ impl ValidationApp {
                             let lin_p_val_plot = init_attribute_plot(
                                 "Linear p-value".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -937,6 +946,7 @@ impl ValidationApp {
                             let measurement_r_plot = init_attribute_plot(
                                 "Measurement r2".to_owned(),
                                 &key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.measurement_r_plot_w,
                                 self.measurement_r_plot_h,
                             );
@@ -967,6 +977,7 @@ impl ValidationApp {
                             let calc_r_plot = init_attribute_plot(
                                 format!("{} r2", selected_model),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.calc_r_plot_w,
                                 self.calc_r_plot_h,
                             );
@@ -999,6 +1010,7 @@ impl ValidationApp {
                             let conc_plot = init_attribute_plot(
                                 "Concentration t0".to_owned(),
                                 &key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.conc_t0_plot_w,
                                 self.conc_t0_plot_h,
                             );
@@ -1025,6 +1037,7 @@ impl ValidationApp {
                             let adj_r2_val_plot = init_attribute_plot(
                                 "Lin adjusted r2".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1055,6 +1068,7 @@ impl ValidationApp {
                             let sigma_plot = init_attribute_plot(
                                 "Lin sigma".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1085,6 +1099,7 @@ impl ValidationApp {
                             let lin_aic_plot = init_attribute_plot(
                                 "Lin AIC".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1115,6 +1130,7 @@ impl ValidationApp {
                             let lin_rmse_plot = init_attribute_plot(
                                 "Lin RMSE".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1145,6 +1161,7 @@ impl ValidationApp {
                             let lin_cv_plot = init_attribute_plot(
                                 "Lin cv".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1175,6 +1192,7 @@ impl ValidationApp {
                             let adj_r2_val_plot = init_attribute_plot(
                                 "Poly adjusted r2".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1205,6 +1223,7 @@ impl ValidationApp {
                             let sigma_plot = init_attribute_plot(
                                 "Poly sigma".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1235,6 +1254,7 @@ impl ValidationApp {
                             let poly_aic_plot = init_attribute_plot(
                                 "Poly AIC".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1265,6 +1285,7 @@ impl ValidationApp {
                             let poly_rmse_plot = init_attribute_plot(
                                 "Poly RMSE".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1295,6 +1316,7 @@ impl ValidationApp {
                             let poly_cv_plot = init_attribute_plot(
                                 "Poly cv".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1325,6 +1347,7 @@ impl ValidationApp {
                             let adj_r2_val_plot = init_attribute_plot(
                                 "Roblin Adjusted r2".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1355,6 +1378,7 @@ impl ValidationApp {
                             let sigma_plot = init_attribute_plot(
                                 "RobLin sigma".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1385,6 +1409,7 @@ impl ValidationApp {
                             let roblin_aic_plot = init_attribute_plot(
                                 "RobLin AIC".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1415,6 +1440,7 @@ impl ValidationApp {
                             let roblin_rmse_plot = init_attribute_plot(
                                 "RobLin RMSE".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1445,6 +1471,7 @@ impl ValidationApp {
                             let roblin_cv_plot = init_attribute_plot(
                                 "RobLin cv".to_owned(),
                                 key,
+                                instruments.get(&key.id).unwrap().clone(),
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
@@ -1507,6 +1534,10 @@ impl ValidationApp {
                 // }
             });
         });
+        let mut main_instrument = Instrument::default();
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            main_instrument = cycle.instruments.get(&main_key.id).unwrap().clone();
+        }
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             ui.horizontal(|ui| {
                 let lag_plot = init_lag_plot(&main_key, self.lag_plot_w, self.lag_plot_h);
@@ -1518,6 +1549,7 @@ impl ValidationApp {
                     let flux_plot = init_attribute_plot(
                         format!("Best flux {}", flux_unit),
                         &gas_type,
+                        main_instrument.clone(),
                         self.flux_plot_w,
                         self.flux_plot_h,
                     );
