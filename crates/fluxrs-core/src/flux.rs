@@ -1,9 +1,7 @@
-use crate::concentrationunit::ConcentrationUnit;
 use crate::data_formats::chamberdata::ChamberShape;
-use crate::gaschannel::{self, GasChannel};
+use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
-use crate::stats::{pearson_correlation, LinReg, PolyReg, RobReg};
-use crate::Flux;
+use crate::stats::{LinReg, PolyReg, RobReg};
 use dyn_clone::DynClone;
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::any::Any;
@@ -857,7 +855,8 @@ mod tests {
         let temperature = 20.0; // °C
         let pressure = 1013.25; // hPa
         let chamber = ChamberShape::default();
-        let channel = GasChannel::new(gas, ConcentrationUnit::Ppb, fit_id.to_owned());
+        let channel =
+            GasChannel::new(gas, concentrationunit::ConcentrationUnit::Ppb, fit_id.to_owned());
 
         let flux = RobustFlux::from_data(
             fit_id,
