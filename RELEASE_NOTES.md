@@ -4,6 +4,8 @@
 **BREAKING CHANGES**
 Reworked the db schema quite a bit to allow easier deletion of data.
 
+Hopefully the last time i'll break semver.
+
 - Polynomial flux now initiates slope at t0
   - used to be in the middle of the measurement causing linear nad polynomial
   flux to be essentially the same
@@ -36,3 +38,9 @@ Various usability features, nonexhaustive list:
   - all files ask for timezone when uploading
   - project timezone used for displaying
   - all data still stored internally as UTC
+
+## v0.1.0
+First pre-alpha release to agonize the people....
+Expect bugs and usability issues :-)
+
+Need to set up automated releases at some point.
