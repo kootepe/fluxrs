@@ -92,14 +92,26 @@ jobs:
         with:
           path: dist
 
+      - name: Extract release notes for current version
+        id: notes
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+
+          # Extract section starting at "## VERSION" until next "## "
+          awk "/^##[[:space:]]+$VERSION/{flag=1; next} /^##[[:space:]]+v/{flag=0} flag" RELEASE_NOTES.md \
+            > RELEASE_NOTES_EXTRACTED.md
+
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          cat RELEASE_NOTES_EXTRACTED.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}           # e.g. v0.3.0
+          tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          body: |
-            See documentation: https://kootepe.github.io/fluxrs/
-          files: dist/**/*                           # all packaged binaries
+          body: ${{ steps.notes.outputs.content }}
+          files: dist/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
