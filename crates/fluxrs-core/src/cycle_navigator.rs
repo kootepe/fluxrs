@@ -64,7 +64,7 @@ impl CycleNavigator {
         let previous_start_time = self
             .current_index()
             .and_then(|idx| cycles.get(idx))
-            .map(|cycle| cycle.start_time.timestamp());
+            .map(|cycle| cycle.timing.start_time.timestamp());
 
         self.visible_cycles.clear();
 
@@ -156,7 +156,7 @@ impl CycleNavigator {
 
         let result = self
             .visible_cycles
-            .binary_search_by_key(&target_time, |&idx| cycles[idx].start_time.timestamp());
+            .binary_search_by_key(&target_time, |&idx| cycles[idx].timing.start_time.timestamp());
 
         match result {
             Ok(pos) => Some(pos), // Exact match, perfect
@@ -170,8 +170,10 @@ impl CycleNavigator {
                     (Some(b), Some(a)) => {
                         let b_idx = self.visible_cycles[b];
                         let a_idx = self.visible_cycles[a];
-                        let b_diff = (cycles[b_idx].start_time.timestamp() - target_time).abs();
-                        let a_diff = (cycles[a_idx].start_time.timestamp() - target_time).abs();
+                        let b_diff =
+                            (cycles[b_idx].timing.start_time.timestamp() - target_time).abs();
+                        let a_diff =
+                            (cycles[a_idx].timing.start_time.timestamp() - target_time).abs();
                         if b_diff <= a_diff {
                             b
                         } else {

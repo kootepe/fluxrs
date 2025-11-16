@@ -618,9 +618,11 @@ impl ValidationApp {
                                 .rev()
                                 .find(|cycle| cycle.chamber_id == chamber_id && cycle.is_valid)
                             {
-                                let target = current_cycle.start_time
-                                    + chrono::TimeDelta::seconds(current_cycle.open_offset)
-                                    + chrono::TimeDelta::seconds(previous_cycle.open_lag_s as i64);
+                                let target = current_cycle.timing.start_time
+                                    + chrono::TimeDelta::seconds(current_cycle.timing.open_offset)
+                                    + chrono::TimeDelta::seconds(
+                                        previous_cycle.timing.open_lag_s as i64,
+                                    );
 
                                 let Some(main_gas) =
                                     self.selected_project.as_ref().unwrap().main_gas
@@ -695,7 +697,7 @@ impl ValidationApp {
         if add_to_end {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                cycle.set_end_lag_s(cycle.end_lag_s + 120.);
+                cycle.set_end_lag_s(cycle.timing.end_lag_s + 120.);
                 // cycle.reload_gas_data();
                 self.update_plots();
             }
@@ -703,14 +705,14 @@ impl ValidationApp {
         if remove_from_end {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                cycle.set_end_lag_s(cycle.end_lag_s - 120.);
+                cycle.set_end_lag_s(cycle.timing.end_lag_s - 120.);
                 self.update_plots();
             }
         }
         if add_to_start {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                cycle.set_start_lag_s(cycle.start_lag_s - 120.);
+                cycle.set_start_lag_s(cycle.timing.start_lag_s - 120.);
                 // cycle.reload_gas_data();
                 self.update_plots();
             }
@@ -718,7 +720,7 @@ impl ValidationApp {
         if remove_from_start {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                cycle.set_start_lag_s(cycle.start_lag_s + 120.);
+                cycle.set_start_lag_s(cycle.timing.start_lag_s + 120.);
                 // cycle.reload_gas_data();
                 self.update_plots();
             }
@@ -2508,16 +2510,20 @@ impl ValidationApp {
                         ui.label(format!("{}", cycle.chamber));
                         ui.end_row();
                         ui.label("Start Time:");
-                        ui.label(cycle.start_time.to_string());
+                        ui.label(cycle.timing.start_time.to_string());
                         ui.end_row();
                         ui.label("Epoch:");
-                        ui.label(cycle.start_time.timestamp().to_string());
+                        ui.label(cycle.timing.start_time.timestamp().to_string());
                         ui.end_row();
                         ui.label("Epoch End:");
-                        ui.label((cycle.start_time.timestamp() + cycle.end_offset).to_string());
+                        ui.label(
+                            (cycle.timing.start_time.timestamp() + cycle.timing.end_offset)
+                                .to_string(),
+                        );
                         ui.end_row();
                         ui.label("First TS:");
                         if let Some(first_val) = cycle
+                            .timing
                             .dt_v
                             .get(&self.selected_project.as_ref().unwrap().instrument.id.unwrap())
                             .unwrap_or(&vec![])
@@ -2530,6 +2536,7 @@ impl ValidationApp {
                         ui.end_row();
                         ui.label("Last TS:");
                         if let Some(last_val) = cycle
+                            .timing
                             .dt_v
                             .get(&self.selected_project.as_ref().unwrap().instrument.id.unwrap())
                             .unwrap_or(&vec![])
@@ -2541,19 +2548,19 @@ impl ValidationApp {
                         }
                         ui.end_row();
                         ui.label("Close Offset:");
-                        ui.label(cycle.close_offset.to_string());
+                        ui.label(cycle.timing.close_offset.to_string());
                         ui.end_row();
                         ui.label("Close lag:");
-                        ui.label(cycle.close_lag_s.to_string());
+                        ui.label(cycle.timing.close_lag_s.to_string());
                         ui.end_row();
                         ui.label("Open Offset:");
-                        ui.label(cycle.open_offset.to_string());
+                        ui.label(cycle.timing.open_offset.to_string());
                         ui.end_row();
                         ui.label("Open lag:");
-                        ui.label(cycle.open_lag_s.to_string());
+                        ui.label(cycle.timing.open_lag_s.to_string());
                         ui.end_row();
                         ui.label("End Offset:");
-                        ui.label(cycle.end_offset.to_string());
+                        ui.label(cycle.timing.end_offset.to_string());
                         ui.end_row();
                         ui.label("Current Index:");
                         ui.label(self.cycle_nav.current_index().unwrap().to_string());
