@@ -6,7 +6,7 @@ mod keybinds;
 mod ui;
 mod utils;
 
-use crate::ui::main_frame::MyApp;
+use crate::ui::main_frame::FluxApp;
 use fluxrs_core::cmd::cli::Cli;
 use fluxrs_core::cmd::config::Config;
 use fluxrs_core::fluxes_schema;
@@ -101,6 +101,6 @@ fn main() -> eframe::Result {
         process::exit(0);
     }
 
-    let app = MyApp::new();
+    let app = FluxApp::new();
     eframe::run_native("fluxrs", Default::default(), Box::new(|_cc| Ok(Box::new(app))))
 }
