@@ -50,16 +50,11 @@ impl Recalcer {
             c.chamber.set_height(
                 self.data
                     .height
-                    .get_nearest_previous_height(
-                        c.timing.start_time.to_utc().timestamp(),
-                        &c.chamber_id,
-                    )
+                    .get_nearest_previous_height(c.timing.get_start_utc_ts(), &c.chamber_id)
                     .unwrap_or(old_height),
             );
 
-            if let Some((temp, press)) =
-                self.data.meteo.get_nearest(c.timing.start_time.to_utc().timestamp())
-            {
+            if let Some((temp, press)) = self.data.meteo.get_nearest(c.get_start_ts()) {
                 c.air_temperature = temp;
                 c.air_pressure = press;
             }

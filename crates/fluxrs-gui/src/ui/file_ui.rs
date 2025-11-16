@@ -38,8 +38,6 @@ impl ValidationApp {
         let mut gas_btn_text = "Select Analyzer Files".to_owned();
 
         if let Some(project) = self.selected_project.as_mut() {
-            println!("{:?}", project.upload_from);
-
             project.upload_from = Some(project.upload_from.unwrap_or(project.instrument.model));
             let current_value = project.upload_from.unwrap(); // fallback display value
 
@@ -235,7 +233,6 @@ impl ValidationApp {
 
     // convoluted function. Check that current datatype is gas and then check if the current
     // instrument has has_tz as true. If both are true, returns true and tz_prompt will not prompt.
-    // So prevents prompting for timezone on instruments that define tz in the datafile
     fn current_gas_instrument_has_tz(&self) -> bool {
         let is_gas = self.selected_data_type == Some(DataType::Gas);
         if !is_gas {

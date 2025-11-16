@@ -164,7 +164,7 @@ impl ValidationApp {
             .cycles
             .iter()
             .enumerate()
-            .find(|(_, cycle)| cycle.timing.start_time.timestamp() as f64 == timestamp)
+            .find(|(_, cycle)| cycle.get_start_ts() as f64 == timestamp)
         {
             if Some(idx) != self.cycle_nav.current_index() {
                 self.commit_current_cycle();
@@ -473,7 +473,7 @@ impl ValidationApp {
                 plot_ui.polygon(right_polygon);
             }
             if let Some(data) = cycle.gas_v.get(key) {
-                let dt_v = &cycle.timing.dt_v.get(&key.id).unwrap();
+                let dt_v = &cycle.get_dt_v(&key.id);
                 let diag_v = &cycle.diag_v.get(&key.id).unwrap();
 
                 let mut normal_points = Vec::new();
@@ -685,7 +685,7 @@ impl ValidationApp {
             if let Some(cycle) = self.cycles.get(index) {
                 let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
                 let value = selector(cycle, key); // Extract value using selector
-                let start_time = cycle.timing.start_time.timestamp() as f64; // Get timestamp
+                let start_time = cycle.get_start_ts() as f64; // Get timestamp
 
                 // BUG: Thresholds need to be enabled/disabled within the app, otherwise it causes
                 // issues with showing which measurements are valid.
@@ -718,21 +718,21 @@ impl ValidationApp {
 
     pub fn get_close_offset(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.timing.close_offset as f64
+            cycle.get_close_offset() as f64
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
     pub fn get_open_offset(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.timing.open_offset as f64
+            cycle.get_open_offset() as f64
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
     pub fn get_end_offset(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.timing.end_offset as f64
+            cycle.get_end_offset() as f64
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
@@ -760,7 +760,7 @@ impl ValidationApp {
     }
     pub fn get_min_calc_area_len(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.timing.min_calc_len
+            cycle.get_min_calc_len()
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
@@ -794,7 +794,7 @@ impl ValidationApp {
     }
     pub fn get_open_lag_s(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.timing.open_lag_s
+            cycle.get_open_lag()
         } else {
             0.0
         }
@@ -830,7 +830,7 @@ impl ValidationApp {
     }
     pub fn drag_left_to(&mut self, key: &GasKey, new_start: f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.timing.drag_left_to(key, new_start)
+            cycle.drag_left_to(key, new_start)
         }
     }
     pub fn drag_right_to(&mut self, key: &GasKey, new_end: f64) {
@@ -863,7 +863,7 @@ impl ValidationApp {
 
     pub fn get_deadband(&self, key: &GasKey) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            *cycle.timing.deadbands.get(key).unwrap_or(&0.0)
+            cycle.get_deadband(key)
         } else {
             0.0
         }
@@ -890,7 +890,7 @@ impl ValidationApp {
     pub fn set_calc_start(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.timing.set_calc_start(key, x);
+            cycle.set_calc_start(key, x);
         }
     }
     pub fn set_calc_start_all(&mut self, x: f64) {
@@ -919,11 +919,11 @@ impl ValidationApp {
         if let Some(c) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             c.manual_adjusted = false;
             c.override_valid = None;
-            c.timing.close_lag_s = 0.;
-            c.timing.open_lag_s = 0.;
+            c.set_close_lag(0.);
+            c.set_open_lag(0.);
             c.reset_deadbands(self.selected_project.as_ref().unwrap().deadband);
-            c.timing.end_lag_s = 0.;
-            c.timing.start_lag_s = 0.;
+            c.set_end_lag_only(0.);
+            c.set_start_lag_only(0.);
             c.error_code.0 = 0;
             c.reload_gas_data();
             c.check_diag();
@@ -950,23 +950,6 @@ impl ValidationApp {
             }
         }
     }
-    // pub fn print_stats(&self) {
-    //     if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-    //         println!("g {}", cycle.gas_v.get(&GasType, ::CH4).unwrap().len());
-    //         println!("t {}", cycle.dt_v.len());
-    //         println!("d {}", cycle.diag_v.len());
-    //         println!(
-    //             "gs {}",
-    //             cycle
-    //                 .gas_v
-    //                 .get(&GasType::CH4)
-    //                 .map(|v| v.iter().filter_map(|&x| x).sum::<f64>())
-    //                 .unwrap_or(0.0)
-    //         );
-    //         println!("ts {:?}", cycle.dt_v);
-    //         println!("###");
-    //     }
-    // }
 
     pub fn set_calc_end(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
@@ -995,48 +978,52 @@ impl ValidationApp {
     pub fn decrement_calc_start(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            let s = cycle.timing.calc_range_start.get(key).unwrap_or(&0.0);
+            let s = cycle.get_calc_start(key);
             let new_value = s - x;
-            cycle.timing.calc_range_start.insert(*key, new_value);
+            cycle.set_calc_start(key, new_value);
         }
     }
     pub fn decrement_calc_starts(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for &key in &cycle.gases {
-                let s = cycle.timing.calc_range_start.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_start(&key);
                 let new_value = s - x;
-                cycle.timing.calc_range_start.insert(key, new_value);
+                cycle.set_calc_start(&key, new_value);
             }
         }
     }
     pub fn decrement_calc_ends(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for &key in &cycle.gases {
-                let s = cycle.timing.calc_range_end.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_end(&key);
                 let new_value = s - x;
-                cycle.timing.calc_range_end.insert(key, new_value);
+                cycle.set_calc_end(&key, new_value);
             }
         }
     }
     pub fn increment_calc_starts(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for &key in &cycle.gases {
-                let s = cycle.timing.calc_range_start.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_start(&key);
                 let new_value = s + x;
-                cycle.timing.calc_range_start.insert(key, new_value);
+                cycle.set_calc_start(&key, new_value);
             }
         }
     }
     pub fn increment_calc_ends(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for &key in &cycle.gases {
-                let s = cycle.timing.calc_range_end.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_end(&key);
                 let new_value = s + x;
-                cycle.timing.calc_range_end.insert(key, new_value);
+                cycle.set_calc_end(&key, new_value);
             }
         }
     }
@@ -1045,30 +1032,33 @@ impl ValidationApp {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             let s = cycle.get_calc_start(key);
             let new_value = s + x;
-            cycle.timing.set_calc_start(key, new_value);
+            cycle.set_calc_start(key, new_value);
         }
     }
 
     pub fn increment_calc_end(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
+        // NOTE: Get rid of clone
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             let s = cycle.get_calc_end(key);
             let new_value = s + x;
-            cycle.timing.set_calc_end(key, new_value);
+            cycle.set_calc_end(key, new_value);
         }
     }
     pub fn increment_deadband_gas(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
+        // NOTE: Get rid of clone
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            let deadband = cycle.timing.deadbands.get(key).unwrap_or(&0.0);
+            let deadband = cycle.get_deadband(key);
             cycle.set_deadband(key, deadband + x);
         }
     }
     pub fn increment_deadband(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            // NOTE: Get rid of clone
             for gas in cycle.gases.clone() {
-                let deadband = cycle.timing.deadbands.get(&gas).unwrap_or(&0.0);
+                let deadband = cycle.get_deadband(&gas);
                 cycle.set_deadband(&gas, deadband + x);
             }
         }
@@ -1109,7 +1099,7 @@ impl ValidationApp {
         for &index in &self.cycle_nav.visible_cycles {
             if let Some(cycle) = self.cycles.get(index) {
                 let chamber_id = cycle.chamber_id.clone();
-                let start_time = cycle.timing.start_time.timestamp() as f64;
+                let start_time = cycle.get_start_ts() as f64;
                 let main_gas = cycle.main_gas;
                 let id = &cycle.instrument.id.unwrap();
 
@@ -1239,7 +1229,7 @@ impl ValidationApp {
 
         // **Force `selected_point` to update whenever `index` changes**
         if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let x_coord = current_cycle.timing.start_time.timestamp() as f64;
+            let x_coord = current_cycle.get_start_ts() as f64;
 
             if let Some(new_y) = all_traces
                 .values()
@@ -1368,7 +1358,7 @@ impl ValidationApp {
 
         // **Force `selected_point` to update whenever `index` changes**
         if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let x_coord = current_cycle.timing.start_time.timestamp() as f64;
+            let x_coord = current_cycle.get_start_ts() as f64;
 
             if let Some(new_y) =
                 all_traces.values().flatten().filter(|p| p[0] == x_coord).map(|p| p[1]).last()
@@ -1439,8 +1429,8 @@ impl ValidationApp {
         let main_gas = self.selected_project.as_ref().unwrap().main_gas.unwrap();
         let id = self.selected_project.as_ref().unwrap().instrument.id.unwrap();
 
-        let (valid_traces, invalid_traces) = self
-            .create_traces(&(GasKey::from((&main_gas, &id))), |cycle, _| cycle.timing.open_lag_s);
+        let (valid_traces, invalid_traces) =
+            self.create_traces(&(GasKey::from((&main_gas, &id))), |cycle, _| cycle.get_open_lag());
         let lag_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
 
         let mut hovered_point: Option<[f64; 2]> = None;
@@ -1508,7 +1498,7 @@ impl ValidationApp {
 
                 // Set lag on currently selected cycle
                 if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                    if cycle.timing.start_time.timestamp() as f64 == dragged[0] {
+                    if cycle.get_start_ts() as f64 == dragged[0] {
                         cycle.increment_open_lag(steps);
                         // cycle.set_open_lag(new_y);
                         if self.mode_pearsons() {
@@ -1548,7 +1538,7 @@ impl ValidationApp {
 
         // Sync selected point with current cycle
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let x = cycle.timing.start_time.timestamp() as f64;
+            let x = cycle.get_start_ts() as f64;
             if let Some(y) = lag_traces.values().flatten().find(|p| p[0] == x).map(|p| p[1]) {
                 self.selected_point = Some([x, y]);
             }
