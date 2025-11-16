@@ -547,9 +547,7 @@ impl ValidationApp {
 
                     match self.zoom_to_measurement {
                         0 => {
-                            if self.mode_after_deadband() {
-                                self.increment_open_lag(delta);
-                            }
+                            self.increment_open_lag(delta);
                         },
                         1 => {
                             self.increment_open_lag(delta);
