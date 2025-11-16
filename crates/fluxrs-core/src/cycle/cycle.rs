@@ -792,8 +792,7 @@ impl Cycle {
         let min_len = self.get_min_calc_len() as usize;
         let gap_threshold = 1.0;
 
-        let results: Vec<_> = self
-            .gases
+        let results: Vec<_> = keys
             .iter()
             .filter_map(|key| {
                 let gas_v = gas_vecs.get(key)?;
