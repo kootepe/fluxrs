@@ -180,7 +180,7 @@ impl CycleTiming {
             self.calc_range_start.insert(*key, value);
         }
     }
-    pub fn set_calc_start_all(&mut self, gases: &Vec<GasKey>, value: f64) {
+    pub fn set_calc_start_all(&mut self, gases: &[GasKey], value: f64) {
         for key in gases.iter() {
             let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap_or(&0.0);
             // the calc area cant go beyond the measurement area
@@ -201,7 +201,7 @@ impl CycleTiming {
         }
         // self.adjust_calc_range_all();
     }
-    pub fn set_calc_end_all(&mut self, gases: &Vec<GasKey>, value: f64) {
+    pub fn set_calc_end_all(&mut self, gases: &[GasKey], value: f64) {
         for key in gases.iter() {
             let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap_or(&0.0);
             // the calc area cant go beyond the measurement area
@@ -258,7 +258,7 @@ impl CycleTiming {
         // self.compute_all_fluxes();
     }
 
-    pub fn set_deadband_constant_calc(&mut self, gases: &Vec<GasKey>, x: f64) {
+    pub fn set_deadband_constant_calc(&mut self, gases: &[GasKey], x: f64) {
         for &key in gases {
             let deadband = self.deadbands.get(&key).unwrap_or(&0.0);
             let new_db = deadband + x;
@@ -323,8 +323,8 @@ impl CycleTiming {
         self.calc_range_start.insert(*key, s);
         self.calc_range_end.insert(*key, e);
     }
-    pub fn stick_calc_to_range_start_for_all(&mut self, gases: &Vec<GasKey>) {
-        let keys: Vec<_> = gases.iter().copied().collect();
+    pub fn stick_calc_to_range_start_for_all(&mut self, gases: &[GasKey]) {
+        let keys: Vec<_> = gases.to_vec();
         for key in &keys {
             self.stick_calc_to_range_start(key);
         }
@@ -362,7 +362,7 @@ impl CycleTiming {
         (min_b, max_b)
     }
 
-    fn adjust_calc_range_all(&mut self, gases: &Vec<GasKey>) {
+    fn adjust_calc_range_all(&mut self, gases: &[GasKey]) {
         for key in gases.iter().copied() {
             let range_min =
                 self.get_adjusted_close() + self.deadbands.get(&key).copied().unwrap_or(0.0);
@@ -487,8 +487,8 @@ impl CycleTiming {
         let end = self.get_calc_end(key);
         end - start
     }
-    fn adjust_calc_range_all_deadband(&mut self, gases: &Vec<GasKey>) {
-        let keys: Vec<_> = gases.iter().copied().collect();
+    fn adjust_calc_range_all_deadband(&mut self, gases: &[GasKey]) {
+        let keys: Vec<_> = gases.to_vec();
         for key in &keys {
             let mut deadband = self.get_deadband(key);
             let range_min = self.get_adjusted_close() + deadband;
@@ -916,7 +916,7 @@ impl Cycle {
     }
 
     // fn adjust_calc_range_all(&mut self) {
-    //     let keys: Vec<_> = self.gases.iter().copied().collect(); for key in &keys {
+    //     let keys: Vec<_> = self.gases.to_vec(); for key in &keys {
     //         let range_min = self.get_adjusted_close() + self.deadbands.get(key).unwrap();
     //         let range_max = self.get_adjusted_open();
     //         let min_range = self.min_calc_len;
@@ -1206,7 +1206,7 @@ impl Cycle {
     }
 
     pub fn calculate_calc_rs(&mut self) {
-        let keys: Vec<_> = self.gases.iter().copied().collect();
+        let keys: Vec<_> = self.gases.to_vec();
         for key in &keys {
             self.calculate_calc_r(key);
         }
@@ -1250,9 +1250,9 @@ impl Cycle {
         // prepare gas value vectors
         let mut gas_vecs = FastMap::default();
         let mut dt_vecs = FastMap::default();
-        let keys: Vec<_> = self.gases.iter().copied().collect();
+        let keys: Vec<_> = self.gases.to_vec();
         for key in &keys {
-            let (dv, gv) = self.get_measurement_data(&key);
+            let (dv, gv) = self.get_measurement_data(key);
             gas_vecs.insert(key, gv);
             dt_vecs.insert(key, dv);
         }
@@ -1291,7 +1291,7 @@ impl Cycle {
         }
     }
     pub fn get_calc_datas(&mut self) {
-        let keys: Vec<_> = self.gases.iter().copied().collect();
+        let keys: Vec<_> = self.gases.to_vec();
         for key in &keys {
             self.get_calc_data(key);
         }
@@ -1440,24 +1440,24 @@ impl Cycle {
     }
 
     pub fn set_calc_ranges(&mut self) {
-        let keys: Vec<_> = self.gases.iter().copied().collect();
+        let keys: Vec<_> = self.gases.to_vec();
         for key in &keys {
             let start =
-                self.get_measurement_start() + self.timing.deadbands.get(&key).unwrap_or(&0.0);
+                self.get_measurement_start() + self.timing.deadbands.get(key).unwrap_or(&0.0);
             let end = start + self.timing.min_calc_len;
 
-            self.timing.set_calc_start(&key, start);
-            self.timing.set_calc_end(&key, end);
+            self.timing.set_calc_start(key, start);
+            self.timing.set_calc_end(key, end);
         }
     }
     pub fn set_calc_ranges_to_best_r(&mut self) {
-        let keys: Vec<_> = self.gases.iter().copied().collect();
+        let keys: Vec<_> = self.gases.to_vec();
         for key in &keys {
             let start =
-                self.get_measurement_start() + self.timing.deadbands.get(&key).unwrap_or(&0.0);
+                self.get_measurement_start() + self.timing.deadbands.get(key).unwrap_or(&0.0);
             let end = start + self.timing.min_calc_len;
-            self.timing.set_calc_start(&key, start);
-            self.timing.set_calc_end(&key, end);
+            self.timing.set_calc_start(key, start);
+            self.timing.set_calc_end(key, end);
         }
     }
 
@@ -1509,7 +1509,7 @@ impl Cycle {
             .unwrap_or_default()
     }
     pub fn get_dt_v(&self, key: &GasKey) -> Vec<f64> {
-        self.timing.get_dt_v(&key)
+        self.timing.get_dt_v(key)
     }
     // pub fn get_measurement_gas_v2(&self, key: &GasKey) -> Vec<f64> {
     //     let s = self.get_adjusted_close_i();
