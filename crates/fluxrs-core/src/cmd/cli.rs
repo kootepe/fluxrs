@@ -108,6 +108,9 @@ pub enum UploadKind {
 
     /// Upload meteo data files
     Meteo(UploadArgs),
+
+    /// Upload chamber metadata files
+    ChamberMeta(UploadArgs),
 }
 
 #[derive(Debug, Args)]
@@ -228,6 +231,9 @@ impl Cli {
                     },
                     UploadKind::Cycle(u) => {
                         (u.project, DataType::Cycle, u.inputs, u.use_newest, u.tz)
+                    },
+                    UploadKind::ChamberMeta(u) => {
+                        (u.project, DataType::Chamber, u.inputs, u.use_newest, u.tz)
                     },
                 };
 

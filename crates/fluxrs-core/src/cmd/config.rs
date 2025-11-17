@@ -1,5 +1,5 @@
 use crate::cycle_processor::{Datasets, Infra, Processor};
-use crate::data_formats::chamberdata::query_chamber_async;
+use crate::data_formats::chamberdata::{query_chamber_async, upload_chamber_metadata_async};
 use crate::data_formats::gasdata::query_gas_async;
 use crate::data_formats::heightdata::{query_height_async, upload_height_data_async};
 use crate::data_formats::meteodata::{query_meteo_async, upload_meteo_data_async};
@@ -183,8 +183,11 @@ impl Config {
             DataType::Meteo => {
                 upload_meteo_data_async(files, &mut conn, &project, tz, sender_clone)
             },
-            DataType::Height | DataType::Chamber => {
+            DataType::Height => {
                 upload_height_data_async(files, &mut conn, &project, tz, sender_clone)
+            },
+            DataType::Chamber => {
+                upload_chamber_metadata_async(files, &mut conn, &project, tz, sender_clone)
             },
         }
 
