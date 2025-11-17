@@ -2615,6 +2615,7 @@ impl ValidationApp {
                                 } else {
                                     "N/A".to_string()
                                 };
+                                // NOTE: Add pearsons r2
                                 let r2 = cycle
                                     .get_r2(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v));
