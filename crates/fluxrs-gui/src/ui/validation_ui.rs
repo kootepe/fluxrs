@@ -1652,13 +1652,20 @@ impl ValidationApp {
                 }
             });
         });
+        let mut instruments = FastMap::default();
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            instruments = cycle.instruments.clone();
+        }
         if self.show_residuals {
             egui::Window::new("Residual bar plots").show(ctx, |ui| {
                 ui.vertical(|ui| {
                     for model in FluxKind::all() {
                         ui.horizontal(|ui| {
                             for gas in &self.enabled_gases {
-                                let residual_bars = init_residual_bars(gas, *model, 250., 145.);
+                                // NOTE: get rid of clone
+                                let instrument = instruments.get(&gas.id).unwrap().clone();
+                                let residual_bars =
+                                    init_residual_bars(gas, instrument, *model, 250., 145.);
                                 let response = residual_bars.show(ui, |plot_ui| {
                                     self.render_residual_bars(plot_ui, gas, *model);
                                 });
@@ -1675,11 +1682,14 @@ impl ValidationApp {
         if self.show_standardized_residuals {
             egui::Window::new("Standardized Residuals").show(ctx, |ui| {
                 ui.vertical(|ui| {
-                    for model in &[FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin] {
+                    for model in FluxKind::all() {
                         ui.horizontal(|ui| {
                             for gas in &self.enabled_gases {
-                                let residual_plot_stand =
-                                    init_standardized_residuals_plot(gas, *model, 250., 145.);
+                                // NOTE: get rid of clone
+                                let instrument = instruments.get(&gas.id).unwrap().clone();
+                                let residual_plot_stand = init_standardized_residuals_plot(
+                                    gas, instrument, *model, 250., 145.,
+                                );
                                 let response = residual_plot_stand.show(ui, |plot_ui| {
                                     self.render_standardized_residuals_plot(plot_ui, gas, *model);
                                 });
@@ -2862,7 +2872,7 @@ impl ValidationApp {
                 });
                 ui.separator();
 
-                for model in &[FluxKind::Linear, FluxKind::Poly, FluxKind::RobLin] {
+                for model in FluxKind::all() {
                     ui.heading(model.label()); // Or .to_string() if you don’t have label()
 
                     egui::Grid::new(format!("gas_values_grid_{:?}", model)).striped(true).show(

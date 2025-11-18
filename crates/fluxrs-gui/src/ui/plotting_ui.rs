@@ -2015,6 +2015,7 @@ pub fn init_residual_plot(gas_type: &GasType, kind: FluxKind, w: f32, h: f32) ->
 }
 pub fn init_standardized_residuals_plot(
     key: &GasKey,
+    instrument: Instrument,
     kind: FluxKind,
     w: f32,
     h: f32,
@@ -2025,15 +2026,21 @@ pub fn init_standardized_residuals_plot(
         .x_axis_formatter(|_val, _range| String::new()) // Hide tick labels.width(w)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}",key.id, key.gas_type))
+        .y_axis_label(format!("{}{}",key.gas_type,instrument.serial ))
 }
-pub fn init_residual_bars(key: &GasKey, kind: FluxKind, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_residual_bars(
+    key: &GasKey,
+    instrument: Instrument,
+    kind: FluxKind,
+    w: f32,
+    h: f32,
+) -> egui_plot::Plot {
     Plot::new(format!("{}{}{}residual_bars", key.id, key.gas_type, kind.as_str()))
         .width(w)
         .height(h)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}", key.id, key.gas_type))
+        .y_axis_label(format!("{} {}", key.gas_type, instrument.serial))
 }
 pub fn init_gas_plot(
     key: &GasKey,
