@@ -38,9 +38,6 @@ impl ValidationApp {
     pub fn is_lin_flux_enabled(&self, key: &GasKey) -> bool {
         self.enabled_lin_fluxes.contains(key)
     }
-    pub fn is_poly_flux_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_fluxes.contains(key)
-    }
     pub fn is_lin_p_val_enabled(&self, key: &GasKey) -> bool {
         self.enabled_lin_p_val.contains(key)
     }
@@ -58,6 +55,9 @@ impl ValidationApp {
     }
     pub fn is_lin_aic_enabled(&self, key: &GasKey) -> bool {
         self.enabled_lin_aic.contains(key)
+    }
+    pub fn is_poly_flux_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_poly_fluxes.contains(key)
     }
     pub fn is_poly_rmse_enabled(&self, key: &GasKey) -> bool {
         self.enabled_poly_rmse.contains(key)
@@ -93,6 +93,27 @@ impl ValidationApp {
         self.enabled_roblin_fluxes.contains(key)
     }
 
+    pub fn is_exp_flux_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_fluxes.contains(key)
+    }
+    pub fn is_exp_p_val_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_p_val.contains(key)
+    }
+    pub fn is_exp_rmse_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_rmse.contains(key)
+    }
+    pub fn is_exp_cv_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_cv.contains(key)
+    }
+    pub fn is_exp_sigma_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_sigma.contains(key)
+    }
+    pub fn is_exp_adj_r2_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_adj_r2.contains(key)
+    }
+    pub fn is_exp_aic_enabled(&self, key: &GasKey) -> bool {
+        self.enabled_exp_aic.contains(key)
+    }
     // pub fn is_aic_diff_enabled(&self, key: &GasKey) -> bool {
     //     self.enabled_aic_diff.contains(key)
     // }
@@ -179,8 +200,6 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key);
-            // let actual = cycle.get_calc_gas_v2(&key);
             let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // Prepare predictions from the selected model
@@ -519,6 +538,9 @@ impl ValidationApp {
                 }
                 if self.show_polyfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::Poly);
+                }
+                if self.show_expfit {
+                    self.plot_model_fit(plot_ui, key, FluxKind::Exponential);
                 }
 
                 plot_ui.vline(adj_open_line);

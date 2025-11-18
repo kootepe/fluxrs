@@ -100,6 +100,7 @@ pub struct ValidationApp {
     pub enabled_lin_fluxes: BTreeSet<GasKey>,
     pub enabled_poly_fluxes: BTreeSet<GasKey>,
     pub enabled_roblin_fluxes: BTreeSet<GasKey>,
+    pub enabled_exp_fluxes: BTreeSet<GasKey>,
 
     pub enabled_lin_adj_r2: BTreeSet<GasKey>,
     pub enabled_lin_p_val: BTreeSet<GasKey>,
@@ -119,6 +120,13 @@ pub struct ValidationApp {
     pub enabled_poly_rmse: BTreeSet<GasKey>,
     pub enabled_poly_cv: BTreeSet<GasKey>,
     pub enabled_poly_aic: BTreeSet<GasKey>,
+
+    pub enabled_exp_adj_r2: BTreeSet<GasKey>,
+    pub enabled_exp_p_val: BTreeSet<GasKey>,
+    pub enabled_exp_sigma: BTreeSet<GasKey>,
+    pub enabled_exp_rmse: BTreeSet<GasKey>,
+    pub enabled_exp_cv: BTreeSet<GasKey>,
+    pub enabled_exp_aic: BTreeSet<GasKey>,
 
     pub enabled_measurement_rs: BTreeSet<GasKey>,
     pub enabled_conc_t0: BTreeSet<GasKey>,
@@ -165,6 +173,7 @@ pub struct ValidationApp {
     pub show_linfit: bool,
     pub show_polyfit: bool,
     pub show_roblinfit: bool,
+    pub show_expfit: bool,
     pub calc_area_color: Color32,
     pub calc_area_adjust_color: Color32,
     pub calc_area_stroke_color: Color32,
@@ -225,6 +234,13 @@ impl Default for ValidationApp {
             enabled_poly_aic: BTreeSet::new(),
             enabled_poly_rmse: BTreeSet::new(),
             enabled_poly_cv: BTreeSet::new(),
+            enabled_exp_fluxes: BTreeSet::new(),
+            enabled_exp_p_val: BTreeSet::new(),
+            enabled_exp_sigma: BTreeSet::new(),
+            enabled_exp_adj_r2: BTreeSet::new(),
+            enabled_exp_aic: BTreeSet::new(),
+            enabled_exp_rmse: BTreeSet::new(),
+            enabled_exp_cv: BTreeSet::new(),
             enabled_measurement_rs: BTreeSet::new(),
             enabled_calc_r: BTreeSet::new(),
             enabled_conc_t0: BTreeSet::new(),
@@ -269,6 +285,7 @@ impl Default for ValidationApp {
             show_linfit: true,
             show_polyfit: true,
             show_roblinfit: true,
+            show_expfit: true,
             keep_calc_constant_deadband: true,
             calc_area_color: Color32::BLACK,
             calc_area_adjust_color: Color32::BLACK,
@@ -353,6 +370,7 @@ impl ValidationApp {
         let mut show_linear_model = true;
         let mut show_poly_model = true;
         let mut show_roblin_model = true;
+        let mut show_exp_model = true;
         let mut reload_gas = false;
         let mut keep_calc_area_constant_with_deadband = false;
         egui::ComboBox::from_label("Select flux unit")
@@ -390,6 +408,8 @@ impl ValidationApp {
                     ui.checkbox(&mut self.show_polyfit, "Show polynomial model").clicked();
                 show_roblin_model =
                     ui.checkbox(&mut self.show_roblinfit, "Show robust linear model").clicked();
+                show_exp_model =
+                    ui.checkbox(&mut self.show_expfit, "Show exponential model").clicked();
             });
 
             ui.vertical(|ui| {
@@ -910,6 +930,31 @@ impl ValidationApp {
                         }
                     });
                 }
+                if !self.enabled_exp_fluxes.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_fluxes.iter().copied().collect();
+                        for key in &keys {
+                            let exp_flux_plot = init_attribute_plot(
+                                "Exponential Flux".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let flux_unit = self.flux_unit;
+                            let fluxkind = FluxKind::Exponential;
+                            let response = exp_flux_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        flux_value_for_plot(cycle, key, fluxkind, flux_unit)
+                                    },
+                                    &format!(
+                                        "Flux ({} {})",
+                                        fluxkind.label(),
+                                        flux_unit.to_owned()
+                                    ),
                                     Some(MarkerShape::Diamond),
                                 );
                             });
@@ -2475,6 +2520,216 @@ impl ValidationApp {
             ui.label("No cycles.");
         }
     }
+    pub fn render_exp_plot_selection(&mut self, ui: &mut egui::Ui) {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            let gases = cycle.gases.clone(); // Clone gases early!
+
+            let exp_flux_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_flux_enabled(&gas))).collect();
+            let exp_p_val_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_p_val_enabled(&gas))).collect();
+            let exp_adj_r2_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_adj_r2_enabled(&gas))).collect();
+            let exp_sigma_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_sigma_enabled(&gas))).collect();
+            let exp_rmse_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_rmse_enabled(&gas))).collect();
+            let exp_cv_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_cv_enabled(&gas))).collect();
+            let exp_aic_gases: Vec<_> =
+                gases.iter().copied().map(|gas| (gas, self.is_exp_aic_enabled(&gas))).collect();
+
+            let min_width = 150.0;
+            ui.vertical(|ui| {
+                ui.add(Label::new("Exponential model plots").wrap_mode(TextWrapMode::Truncate));
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("Flux");
+                        for (gas, mut is_enabled) in &exp_flux_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_fluxes.insert(*gas);
+                                } else {
+                                    self.enabled_exp_fluxes.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("Adjusted r2");
+                        for (gas, mut is_enabled) in &exp_adj_r2_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_adj_r2.insert(*gas);
+                                } else {
+                                    self.enabled_exp_adj_r2.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("Sigma");
+                        for (gas, mut is_enabled) in &exp_sigma_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_sigma.insert(*gas);
+                                } else {
+                                    self.enabled_exp_sigma.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("AIC");
+                        for (gas, mut is_enabled) in &exp_aic_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_aic.insert(*gas);
+                                } else {
+                                    self.enabled_exp_aic.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("RMSE");
+                        for (gas, mut is_enabled) in &exp_rmse_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_rmse.insert(*gas);
+                                } else {
+                                    self.enabled_exp_rmse.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("CV");
+                        for (gas, mut is_enabled) in &exp_cv_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_cv.insert(*gas);
+                                } else {
+                                    self.enabled_exp_cv.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+
+                ui.group(|ui| {
+                    ui.set_min_width(min_width);
+                    ui.vertical(|ui| {
+                        ui.label("p-value");
+                        for (gas, mut is_enabled) in &exp_p_val_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.enabled_exp_p_val.insert(*gas);
+                                } else {
+                                    self.enabled_exp_p_val.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+            });
+        } else {
+            ui.label("No cycles.");
+        }
+    }
+
     pub fn to_app_state(&self) -> AppState {
         AppState { start_date: self.start_date.to_utc(), end_date: self.end_date.to_utc() }
     }
