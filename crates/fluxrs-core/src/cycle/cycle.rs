@@ -2553,12 +2553,75 @@ pub fn load_cycles_sync(
                     range_start: calc_start,
                     range_end: calc_end,
                 };
-                // println!("{}", lin);
                 cycle.fluxes.insert(
                     (gk, FluxKind::Linear),
                     FluxRecord { model: Box::new(lin), is_valid: gas_is_valid },
                 );
             }
+
+            if let (
+                Ok(flux),
+                Ok(r2),
+                Ok(adjusted_r2),
+                Ok(sigma),
+                Ok(p_value),
+                Ok(aic),
+                Ok(rmse),
+                Ok(cv),
+                Ok(a),
+                Ok(b),
+                Ok(calc_start),
+                Ok(calc_end),
+                Ok(gas_i),
+                Ok(instrument_id),
+            ) = (
+                row.get(*column_index.get("exp_flux").unwrap()),
+                row.get(*column_index.get("exp_r2").unwrap()),
+                row.get(*column_index.get("exp_adj_r2").unwrap()),
+                row.get(*column_index.get("exp_sigma").unwrap()),
+                row.get(*column_index.get("exp_p_value").unwrap()),
+                row.get(*column_index.get("exp_aic").unwrap()),
+                row.get(*column_index.get("exp_rmse").unwrap()),
+                row.get(*column_index.get("exp_cv").unwrap()),
+                row.get(*column_index.get("exp_a").unwrap()),
+                row.get(*column_index.get("exp_b").unwrap()),
+                row.get(*column_index.get("exp_range_start").unwrap()),
+                row.get(*column_index.get("exp_range_end").unwrap()),
+                row.get(*column_index.get("gas").unwrap()),
+                row.get(*column_index.get("instrument_id").unwrap()),
+            ) {
+                let gas_type = GasType::from_int(gas_i).unwrap();
+                if gas_type != gk.gas_type {
+                    continue;
+                }
+                let key: GasKey = GasKey::from((&gas_type, &instrument_id));
+                let gas_channel = gas_channels.get(&key).unwrap().clone();
+
+                cycle.set_calc_start(&gk, calc_start);
+                cycle.set_calc_end(&gk, calc_end + 1.0);
+
+                let exp = ExponentialFlux {
+                    fit_id: "exp".to_string(),
+                    gas_channel,
+                    flux,
+                    r2,
+                    adjusted_r2,
+                    model: ExpReg::from_val(a, b),
+                    sigma,
+                    p_value,
+                    aic,
+                    rmse,
+                    cv,
+                    range_start: calc_start,
+                    range_end: calc_end,
+                };
+
+                cycle.fluxes.insert(
+                    (gk, FluxKind::Exponential),
+                    FluxRecord { model: Box::new(exp), is_valid: gas_is_valid },
+                );
+            }
+
             if let (
                 Ok(flux),
                 Ok(r2),
@@ -2610,7 +2673,6 @@ pub fn load_cycles_sync(
                     range_start: calc_start,
                     range_end: calc_end,
                 };
-                // println!("{}", lin);
                 cycle.fluxes.insert(
                     (gk, FluxKind::RobLin),
                     FluxRecord { model: Box::new(roblin), is_valid: gas_is_valid },
@@ -2674,7 +2736,6 @@ pub fn load_cycles_sync(
                     (gk, FluxKind::Poly),
                     FluxRecord { model: Box::new(poly), is_valid: gas_is_valid },
                 );
-                // }
             }
         }
     }
