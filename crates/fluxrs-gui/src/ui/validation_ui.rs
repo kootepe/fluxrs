@@ -2917,3 +2917,9 @@ pub fn drain_progress_messages<T: ProcessEventSink>(
         }
     }
 }
+fn flux_value_for_plot(cycle: &Cycle, key: &GasKey, model: FluxKind, flux_unit: FluxUnit) -> f64 {
+    let flux_umol_m2_s =
+        cycle.fluxes.get(&(*key, model)).and_then(|record| record.model.flux()).unwrap_or(0.0);
+
+    flux_unit.from_umol_m2_s(flux_umol_m2_s, key.gas_type)
+}
