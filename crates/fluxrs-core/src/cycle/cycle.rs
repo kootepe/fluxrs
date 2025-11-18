@@ -1006,18 +1006,12 @@ impl Cycle {
     }
 
     pub fn update_calc_attributes(&mut self, key: &GasKey) {
-        // self.get_calc_data(key);
         self.calculate_concentration_at_t0();
-        // self.calculate_calc_r(key);
-        self.compute_single_flux(key);
+        self.calculate_calc_r(key);
     }
     pub fn update_measurement_attributes(&mut self, key: &GasKey) {
-        // self.get_measurement_datas();
         self.calculate_measurement_rs();
-        // self.get_calc_data(key);
         self.calculate_concentration_at_t0();
-        // self.calculate_calc_r(key);
-        self.compute_single_flux(key);
     }
 
     pub fn get_calc_data(&mut self, key: &GasKey) {

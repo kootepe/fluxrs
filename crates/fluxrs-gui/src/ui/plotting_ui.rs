@@ -919,6 +919,15 @@ impl ValidationApp {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.timing.set_calc_start_all(&cycle.gases, x);
+            cycle.compute_all_fluxes();
+        }
+    }
+
+    pub fn set_calc_end_all(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.timing.set_calc_end_all(&cycle.gases, x);
+            cycle.compute_all_fluxes();
         }
     }
     // pub fn print_first_dt(&mut self) {
@@ -977,12 +986,6 @@ impl ValidationApp {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.timing.set_calc_end(key, x);
-        }
-    }
-    pub fn set_calc_end_all(&mut self, x: f64) {
-        self.mark_dirty();
-        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.timing.set_calc_end_all(&cycle.gases, x);
         }
     }
 
@@ -1768,7 +1771,7 @@ impl ValidationApp {
                             self.increment_close_lag(delta);
 
                             // Anchor calc window to new start of range (stick-to-beginning)
-                            self.stick_calc_to_range_start(key);
+                            self.stick_calc_to_range_start_for_all();
 
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
@@ -1795,7 +1798,7 @@ impl ValidationApp {
                             self.increment_open_lag(delta);
 
                             // Anchor calc window to new start of range (stick-to-beginning)
-                            self.stick_calc_to_range_start(key);
+                            self.stick_calc_to_range_start_for_all();
 
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
