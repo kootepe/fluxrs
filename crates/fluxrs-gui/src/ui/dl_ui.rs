@@ -118,18 +118,8 @@ impl DownloadApp {
         let column_names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
 
         // Build drop_after_processing based on which models are unchecked
-        let mut drop_after_processing = vec![
-            "start_lag_s",
-            "close_lag_s",
-            "open_lag_s",
-            "end_lag_s",
-            "lin_range_start",
-            "lin_range_end",
-            "roblin_range_start",
-            "roblin_range_end",
-            "poly_range_start",
-            "poly_range_end",
-        ];
+        let mut drop_after_processing =
+            vec!["start_lag_s", "close_lag_s", "open_lag_s", "end_lag_s"];
 
         let lin_drops = [
             "lin_flux",
@@ -172,10 +162,25 @@ impl DownloadApp {
             "poly_a1",
             "poly_a2",
         ];
+        let exp_drops = [
+            "exp_flux",
+            "exp_r2",
+            "exp_adj_r2",
+            "exp_intercept",
+            "exp_slope",
+            "exp_sigma",
+            "exp_p_value",
+            "exp_aic",
+            "exp_rmse",
+            "exp_cv",
+            "exp_a",
+            "exp_b",
+        ];
 
         let lin_enabled = self.model_checked.get(&FluxKind::Linear).copied().unwrap_or(false);
         let roblin_enabled = self.model_checked.get(&FluxKind::RobLin).copied().unwrap_or(false);
         let poly_enabled = self.model_checked.get(&FluxKind::Poly).copied().unwrap_or(false);
+        let exp_enabled = self.model_checked.get(&FluxKind::Exponential).copied().unwrap_or(false);
 
         if !lin_enabled {
             drop_after_processing.extend(lin_drops);
@@ -185,6 +190,9 @@ impl DownloadApp {
         }
         if !poly_enabled {
             drop_after_processing.extend(poly_drops);
+        }
+        if !exp_enabled {
+            drop_after_processing.extend(exp_drops);
         }
 
         // Which model flux cols are active
@@ -198,6 +206,9 @@ impl DownloadApp {
         }
         if poly_enabled {
             enabled_models.push("poly_flux");
+        }
+        if exp_enabled {
+            enabled_models.push("exp_flux");
         }
 
         // Which gases are selected
@@ -218,6 +229,7 @@ impl DownloadApp {
                     && *c != "lin_flux"
                     && *c != "roblin_flux"
                     && *c != "poly_flux"
+                    && *c != "exp_flux"
             })
             .cloned()
             .collect();
