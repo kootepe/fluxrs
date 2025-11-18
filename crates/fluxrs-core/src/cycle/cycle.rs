@@ -238,6 +238,9 @@ impl Cycle {
     pub fn drag_left_to(&mut self, key: &GasKey, new_start: f64) {
         self.timing.drag_left_to(key, new_start);
     }
+    pub fn get_start_after_deadband(&self, key: &GasKey) -> f64 {
+        self.timing.get_start_after_deadband(key)
+    }
     // pub fn get_start_no_lag(&self) -> f64 {
     //     self.start_time.timestamp() as f64
     // }

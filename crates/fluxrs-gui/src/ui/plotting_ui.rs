@@ -850,6 +850,13 @@ impl ValidationApp {
             0.0
         }
     }
+    pub fn get_start_after_deadband(&self, key: &GasKey) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_start_after_deadband(key)
+        } else {
+            0.0
+        }
+    }
     pub fn drag_left_to(&mut self, key: &GasKey, new_start: f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.drag_left_to(key, new_start)

@@ -219,6 +219,9 @@ impl CycleTiming {
     pub fn get_measurement_end(&self) -> f64 {
         self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
     }
+    pub fn get_start_after_deadband(&self, key: &GasKey) -> f64 {
+        self.get_measurement_start() + self.get_deadband(key)
+    }
 
     pub fn get_deadband(&self, key: &GasKey) -> f64 {
         *self.deadbands.get(key).unwrap_or(&0.0)
