@@ -1966,7 +1966,7 @@ impl ValidationApp {
     }
 
     pub fn plot_model_fit(&self, plot_ui: &mut egui_plot::PlotUi, key: &GasKey, kind: FluxKind) {
-        let x_min = self.get_calc_start(key);
+        let x_min = self.get_start_after_deadband(key);
         let x_max = self.get_measurement_end();
         let num_points = 50;
 
