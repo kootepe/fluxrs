@@ -1574,6 +1574,166 @@ impl ValidationApp {
                         }
                     });
                 }
+                if !self.enabled_exp_adj_r2.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_adj_r2.iter().copied().collect();
+                        for key in &keys {
+                            let adj_r2_val_plot = init_attribute_plot(
+                                "Exp adjusted r2".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = adj_r2_val_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(*key, FluxKind::Exponential))
+                                            .and_then(|model| model.model.adj_r2())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Exponential.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
+                if !self.enabled_exp_sigma.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_sigma.iter().copied().collect();
+                        for key in &keys {
+                            let sigma_plot = init_attribute_plot(
+                                "Exp sigma".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = sigma_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(*key, FluxKind::Exponential))
+                                            .and_then(|model| model.model.sigma())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Exponential.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
+                if !self.enabled_exp_aic.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_aic.iter().copied().collect();
+                        for key in &keys {
+                            let exp_aic_plot = init_attribute_plot(
+                                "Exp AIC".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = exp_aic_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(*key, FluxKind::Exponential))
+                                            .and_then(|model| model.model.aic())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Exponential.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
+                if !self.enabled_exp_rmse.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_rmse.iter().copied().collect();
+                        for key in &keys {
+                            let exp_rmse_plot = init_attribute_plot(
+                                "Exp RMSE".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = exp_rmse_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(*key, FluxKind::Exponential))
+                                            .and_then(|model| model.model.rmse())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Exponential.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
+                if !self.enabled_exp_cv.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_cv.iter().copied().collect();
+                        for key in &keys {
+                            let exp_cv_plot = init_attribute_plot(
+                                "Exp cv".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = exp_cv_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(*key, FluxKind::Exponential))
+                                            .and_then(|model| model.model.cv())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Exponential.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                            }
+                        }
+                    });
+                }
 
                 // if !self.enabled_aic_diff.is_empty() {
                 //     ui.vertical(|ui| {
