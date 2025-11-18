@@ -2026,7 +2026,7 @@ pub fn init_standardized_residuals_plot(
         .x_axis_formatter(|_val, _range| String::new()) // Hide tick labels.width(w)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}",key.gas_type,instrument.serial ))
+        .y_axis_label(format!("{} {}",key.gas_type,instrument.serial ))
 }
 pub fn init_residual_bars(
     key: &GasKey,
