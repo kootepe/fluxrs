@@ -1,7 +1,7 @@
 use crate::data_formats::chamberdata::ChamberShape;
 use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
-use crate::stats::{LinReg, PolyReg, RobReg};
+use crate::stats::{ExpReg, LinReg, PolyReg, RobReg};
 use dyn_clone::DynClone;
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::any::Any;
@@ -105,6 +105,7 @@ pub struct FluxRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FluxKind {
     Linear,
+    Exponential,
     RobLin,
     Poly,
 }
@@ -113,6 +114,7 @@ impl std::fmt::Display for FluxKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FluxKind::Linear => write!(f, "Linear"),
+            FluxKind::Exponential => write!(f, "Exponential"),
             FluxKind::RobLin => write!(f, "Robust linear"),
             FluxKind::Poly => write!(f, "Polynomial"),
         }
@@ -123,6 +125,7 @@ impl FluxKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             FluxKind::Linear => "linear",
+            FluxKind::Exponential => "exponential",
             FluxKind::RobLin => "roblin",
             FluxKind::Poly => "poly",
         }
@@ -130,13 +133,14 @@ impl FluxKind {
     pub fn label(&self) -> &'static str {
         match self {
             FluxKind::Linear => "linear",
+            FluxKind::Exponential => "exponential",
             FluxKind::RobLin => "roblin",
             FluxKind::Poly => "poly",
         }
     }
     pub fn all() -> &'static [FluxKind] {
         use FluxKind::*;
-        &[Linear, Poly, RobLin]
+        &[Linear, Poly, RobLin, Exponential]
     }
 }
 
@@ -414,6 +418,105 @@ impl LinearFlux {
         let r = 8.314;
 
         self.flux = slope_ppm_hour / 1_000_000.0 * volume * ((mol_mass * p) / (r * t)) * 1000.0
+    }
+}
+
+#[derive(Clone)]
+pub struct ExponentialFlux {
+    pub fit_id: String,
+    pub gas_channel: GasChannel,
+    pub flux: f64,
+    pub r2: f64,
+    pub adjusted_r2: f64,
+    pub model: ExpReg,
+    pub p_value: f64,
+    pub sigma: f64,
+    pub aic: f64,
+    pub rmse: f64,
+    pub cv: f64,
+    pub range_start: f64,
+    pub range_end: f64,
+}
+
+impl FluxModel for ExponentialFlux {
+    fn flux(&self) -> Option<f64> {
+        Some(self.flux)
+    }
+
+    fn r2(&self) -> Option<f64> {
+        Some(self.r2)
+    }
+
+    fn adj_r2(&self) -> Option<f64> {
+        Some(self.adjusted_r2)
+    }
+
+    fn fit_id(&self) -> FluxKind {
+        FluxKind::Exponential // you’ll need to add this variant
+    }
+
+    fn gas_channel(&self) -> GasChannel {
+        self.gas_channel.clone()
+    }
+
+    fn predict(&self, x: f64) -> Option<f64> {
+        // normalize like LinearFlux: prediction on (x - range_start)
+        Some(self.model.calculate(x - self.range_start))
+    }
+
+    fn set_range_start(&mut self, value: f64) {
+        self.range_start = value;
+    }
+
+    fn set_range_end(&mut self, value: f64) {
+        self.range_end = value;
+    }
+
+    fn range_start(&self) -> Option<f64> {
+        Some(self.range_start)
+    }
+
+    fn range_end(&self) -> Option<f64> {
+        Some(self.range_end)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    /// Intercept here is y(0) = a (with time normalized to 0 at start).
+    fn intercept(&self) -> Option<f64> {
+        Some(self.model.a)
+    }
+
+    /// "Slope" is the initial derivative f0 = dy/dx at t0:
+    /// For y = a * exp(b x), dy/dx|_{x=0} = a * b
+    fn slope(&self) -> Option<f64> {
+        Some(self.model.a * self.model.b)
+    }
+
+    fn sigma(&self) -> Option<f64> {
+        Some(self.sigma)
+    }
+
+    fn p_value(&self) -> Option<f64> {
+        Some(self.p_value)
+    }
+
+    fn aic(&self) -> Option<f64> {
+        Some(self.aic)
+    }
+
+    fn rmse(&self) -> Option<f64> {
+        Some(self.rmse)
+    }
+
+    fn cv(&self) -> Option<f64> {
+        Some(self.cv)
     }
 }
 
