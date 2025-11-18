@@ -140,7 +140,7 @@ impl FluxKind {
     }
     pub fn all() -> &'static [FluxKind] {
         use FluxKind::*;
-        &[Linear, Poly, RobLin, Exponential]
+        &[Linear, Exponential, RobLin, Poly]
     }
 }
 
