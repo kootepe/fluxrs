@@ -359,9 +359,9 @@ pub fn create_flux_table() -> String {
             roblin_range_start		FLOAT,
             roblin_range_end		FLOAT,
 
-            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id) ON DELETE CASCADE
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id) ON DELETE CASCADE,
             FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
 
             UNIQUE (instrument_link, start_time, project_link, gas)
@@ -442,9 +442,9 @@ pub fn create_flux_history_table() -> String {
             roblin_range_start		FLOAT,
             roblin_range_end		FLOAT,
 
-            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id),
             FOREIGN KEY (instrument_link) REFERENCES instruments(id)
         )"
     .to_owned()
@@ -509,7 +509,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             instrument_serial   TEXT NOT NULL,
             project_link        INTEGER NOT NULL,
 
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
             UNIQUE (project_link, instrument_model, instrument_serial)
         )",
         [],
@@ -526,9 +526,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             project_link        INTEGER NOT NULL,
             instrument_link     INTEGER NOT NULL,
 
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id),
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
 
             PRIMARY KEY (datetime, instrument_link, project_link)
         )",
@@ -548,9 +548,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             instrument_link INTEGER NOT NULL,
 
 
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id),
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
 
             UNIQUE (start_time, chamber_id, project_link)
         )",
@@ -564,8 +564,8 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             file_link       INTEGER NOT NULL,
             project_link    INTEGER NOT NULL,
 
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
             PRIMARY KEY (datetime, project_link)
         )",
         [],
@@ -578,8 +578,8 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             project_link    INTEGER NOT NULL,
             file_link       INTEGER NOT NULL,
 
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
 
             PRIMARY KEY (chamber_id, project_link, datetime)
         )",
@@ -597,8 +597,8 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             file_link       INTEGER NOT NULL,
             project_link    INTEGER NOT NULL,
 
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
 
             UNIQUE(chamber_id, project_link)
         );",
