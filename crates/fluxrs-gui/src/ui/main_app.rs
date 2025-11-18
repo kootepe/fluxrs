@@ -205,8 +205,10 @@ impl MainApp {
                         self.validation_panel.render_measurement_plots(ui);
                         self.validation_panel.enable_floaters(ui);
                     });
-                    self.validation_panel.render_lin_plot_selection(ui);
 
+                    self.validation_panel.render_lin_plot_selection(ui);
+                    ui.add(Separator::default().vertical());
+                    self.validation_panel.render_exp_plot_selection(ui);
                     ui.add(Separator::default().vertical());
                     self.validation_panel.render_roblin_plot_selection(ui);
                     ui.add(Separator::default().vertical());
