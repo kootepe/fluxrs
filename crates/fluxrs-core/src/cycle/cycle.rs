@@ -1906,11 +1906,13 @@ fn execute_history_insert(
 ) -> Result<()> {
     for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
-        let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
-        let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
+        let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
         let poly = polynomial.map(|m| m.model.as_ref());
+        let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
         let roblin = robustlinear.map(|m| m.model.as_ref());
+        let exponential = cycle.fluxes.get(&(key, FluxKind::Exponential));
+        let exp = exponential.map(|m| m.model.as_ref());
         // NOTE: for a specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
         let deadband = cycle.get_deadband(&key);
@@ -2001,6 +2003,24 @@ fn execute_history_insert(
             roblin.and_then(|m| m.cv()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
+            exp.and_then(|m| m.flux()).unwrap_or(0.0),
+            exp.and_then(|m| m.r2()).unwrap_or(0.0),
+            exp.and_then(|m| m.adj_r2()).unwrap_or(0.0),
+            exp.and_then(|m| m.intercept()).unwrap_or(0.0),
+            exp.and_then(|m| m.slope()).unwrap_or(0.0),
+            exp.and_then(|m| m.sigma()).unwrap_or(0.0),
+            exp.and_then(|m| m.p_value()).unwrap_or(0.0),
+            exp.and_then(|m| m.aic()).unwrap_or(0.0),
+            exp.and_then(|m| m.rmse()).unwrap_or(0.0),
+            exp.and_then(|m| m.cv()).unwrap_or(0.0),
+            exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
+                .map(|m| m.model.a)
+                .unwrap_or(0.0),
+            exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
+                .map(|m| m.model.b)
+                .unwrap_or(0.0),
+            exp.and_then(|m| m.range_start()).unwrap_or(0.0),
+            exp.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
     }
     Ok(())
@@ -2014,11 +2034,13 @@ fn execute_insert(
     let mut affected = 0;
     for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
-        let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
-        let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
+        let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
         let poly = polynomial.map(|m| m.model.as_ref());
+        let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
         let roblin = robustlinear.map(|m| m.model.as_ref());
+        let exponential = cycle.fluxes.get(&(key, FluxKind::Exponential));
+        let exp = exponential.map(|m| m.model.as_ref());
         // NOTE: FluxRecord is gas specific
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
         let deadband = cycle.get_deadband(&key);
@@ -2111,6 +2133,24 @@ fn execute_insert(
             roblin.and_then(|m| m.cv()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
+            exp.and_then(|m| m.flux()).unwrap_or(0.0),
+            exp.and_then(|m| m.r2()).unwrap_or(0.0),
+            exp.and_then(|m| m.adj_r2()).unwrap_or(0.0),
+            exp.and_then(|m| m.intercept()).unwrap_or(0.0),
+            exp.and_then(|m| m.slope()).unwrap_or(0.0),
+            exp.and_then(|m| m.sigma()).unwrap_or(0.0),
+            exp.and_then(|m| m.p_value()).unwrap_or(0.0),
+            exp.and_then(|m| m.aic()).unwrap_or(0.0),
+            exp.and_then(|m| m.rmse()).unwrap_or(0.0),
+            exp.and_then(|m| m.cv()).unwrap_or(0.0),
+            exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
+                .map(|m| m.model.a)
+                .unwrap_or(0.0),
+            exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
+                .map(|m| m.model.b)
+                .unwrap_or(0.0),
+            exp.and_then(|m| m.range_start()).unwrap_or(0.0),
+            exp.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
         affected += inserts;
     }
@@ -2124,11 +2164,13 @@ fn execute_update(
     let mut affected = 0;
     for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
-        let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
-        let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
         let lin = linear.map(|m| m.model.as_ref());
+        let polynomial = cycle.fluxes.get(&(key, FluxKind::Poly));
         let poly = polynomial.map(|m| m.model.as_ref());
+        let robustlinear = cycle.fluxes.get(&(key, FluxKind::RobLin));
         let roblin = robustlinear.map(|m| m.model.as_ref());
+        let exponential = cycle.fluxes.get(&(key, FluxKind::Exponential));
+        let exp = exponential.map(|m| m.model.as_ref());
         let lin_valid = linear.map(|m| m.is_valid).unwrap_or(false);
         let deadband = cycle.get_deadband(&key);
         // Skip row if neither model exists
@@ -2215,6 +2257,24 @@ fn execute_update(
             roblin.and_then(|m| m.cv()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
             roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
+            exp.and_then(|m| m.flux()).unwrap_or(0.0),
+            exp.and_then(|m| m.r2()).unwrap_or(0.0),
+            exp.and_then(|m| m.adj_r2()).unwrap_or(0.0),
+            exp.and_then(|m| m.intercept()).unwrap_or(0.0),
+            exp.and_then(|m| m.slope()).unwrap_or(0.0),
+            exp.and_then(|m| m.sigma()).unwrap_or(0.0),
+            exp.and_then(|m| m.p_value()).unwrap_or(0.0),
+            exp.and_then(|m| m.aic()).unwrap_or(0.0),
+            exp.and_then(|m| m.rmse()).unwrap_or(0.0),
+            exp.and_then(|m| m.cv()).unwrap_or(0.0),
+            exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
+                .map(|m| m.model.a)
+                .unwrap_or(0.0),
+            exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
+                .map(|m| m.model.b)
+                .unwrap_or(0.0),
+            exp.and_then(|m| m.range_start()).unwrap_or(0.0),
+            exp.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
         affected += inserts;
     }
