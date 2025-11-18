@@ -520,6 +520,156 @@ impl FluxModel for ExponentialFlux {
     }
 }
 
+impl ExponentialFlux {
+    pub fn from_data(
+        fit_id: &str,
+        channel: GasChannel,
+        x: &[f64],
+        y: &[f64],
+        start: f64,
+        end: f64,
+        air_temperature: f64,
+        air_pressure: f64,
+        chamber: ChamberShape,
+    ) -> Option<Self> {
+        if x.len() != y.len() || x.len() < 3 {
+            return None;
+        }
+
+        if !y.iter().all(|&v| v > 0.0) {
+            // exponential model requires positive y
+            return None;
+        }
+
+        let n = x.len() as f64;
+
+        // Normalize time so that t0 = 0 (like in LinearFlux)
+        let x0 = x[0];
+        let x_norm: Vec<f64> = x.iter().map(|&t| t - x0).collect();
+
+        // --- Fit exponential model y = a * exp(b * x) ---
+
+        let model = ExpReg::train(&x_norm, y);
+
+        // Predictions in original space
+        let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
+        let residuals: Vec<f64> = y.iter().zip(&y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
+
+        let rss: f64 = residuals.iter().map(|r| r.powi(2)).sum();
+        let sigma = (rss / (n - 2.0)).sqrt();
+
+        let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
+        let y_mean = y.iter().copied().sum::<f64>() / n;
+        let cv = rmse_val / y_mean;
+
+        // R² and adjusted R² based on original y
+        let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
+        let adjusted_r2 = adjusted_r2(r2, n as usize, 2); // a and b
+
+        // AIC based on RSS in original space
+        let aic = aic_from_rss(rss, n as usize, 2);
+
+        // --- p-value for b from log-linear fit ln(y) = ln(a) + b x ---
+
+        let ln_y: Vec<f64> = y.iter().map(|v| v.ln()).collect();
+        let ln_model = LinReg::train(&x_norm, &ln_y);
+
+        let ln_y_hat: Vec<f64> = x_norm.iter().map(|&xi| ln_model.calculate(xi)).collect();
+
+        let ln_residuals: Vec<f64> =
+            ln_y.iter().zip(&ln_y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
+
+        let rss_ln: f64 = ln_residuals.iter().map(|r| r.powi(2)).sum();
+        let sigma_ln = (rss_ln / (n - 2.0)).sqrt();
+
+        let x_mean = x_norm.iter().copied().sum::<f64>() / n;
+        let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
+        let se_b = sigma_ln / ss_xx.sqrt();
+
+        let t_stat = ln_model.slope / se_b;
+        let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
+        let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
+
+        // --- Flux calculation ---
+        //
+        // For y = a * exp(b t), with t normalized so t0 = 0:
+        // f0 = dC/dt |_{t=0} = a * b
+        let f0 = model.a * model.b;
+
+        // Reuse your existing flux helper
+        let flux = flux_umol_m2_s(&channel, f0, air_temperature, air_pressure, &chamber);
+
+        Some(Self {
+            fit_id: fit_id.to_string(),
+            gas_channel: channel,
+            flux,
+            adjusted_r2,
+            r2,
+            model,
+            p_value,
+            sigma,
+            aic,
+            rmse: rmse_val,
+            cv,
+            range_start: start,
+            range_end: end,
+        })
+    }
+
+    pub fn from_values(
+        fit_id: &str,
+        gas_channel: GasChannel,
+        flux: f64,
+        r2: f64,
+        adjusted_r2: f64,
+        model: ExpReg,
+        range_start: f64,
+        range_end: f64,
+        sigma: f64,
+        p_value: f64,
+        aic: f64,
+        rmse: f64,
+        cv: f64,
+    ) -> Option<Self> {
+        Some(Self {
+            fit_id: fit_id.to_string(),
+            gas_channel,
+            flux,
+            r2,
+            adjusted_r2,
+            model,
+            range_start,
+            range_end,
+            sigma,
+            p_value,
+            aic,
+            rmse,
+            cv,
+        })
+    }
+
+    /// Simple alternative "update" like your LinearFlux::flux_from_vec;
+    /// here using chamber-based flux helper and initial slope f0 = a * b.
+    pub fn flux_from_vec(
+        &mut self,
+        x: Vec<f64>,
+        y: Vec<f64>,
+        air_temperature: f64,
+        air_pressure: f64,
+        chamber: ChamberShape,
+    ) {
+        if x.len() != y.len() || x.len() < 2 || !y.iter().all(|v| *v > 0.0) {
+            return;
+        }
+
+        let x0 = x[0];
+        let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
+
+        self.model = ExpReg::train(&x_norm, &y);
+        let f0 = self.model.a * self.model.b;
+        self.flux = flux_umol_m2_s(&self.gas_channel, f0, air_temperature, air_pressure, &chamber);
+    }
+}
 #[derive(Clone)]
 pub struct PolyFlux {
     pub fit_id: String,
