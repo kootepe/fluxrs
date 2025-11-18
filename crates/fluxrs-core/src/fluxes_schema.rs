@@ -86,6 +86,8 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "deadband",
     "t0_concentration",
     "measurement_r2",
+    "calc_range_start",
+    "calc_range_end",
     "lin_flux",
     "lin_r2",
     "lin_adj_r2",
@@ -96,8 +98,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "lin_aic",
     "lin_rmse",
     "lin_cv",
-    "lin_range_start",
-    "lin_range_end",
     "poly_flux",
     "poly_r2",
     "poly_adj_r2",
@@ -108,8 +108,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "poly_a0",
     "poly_a1",
     "poly_a2",
-    "poly_range_start",
-    "poly_range_end",
     "roblin_flux",
     "roblin_r2",
     "roblin_adj_r2",
@@ -119,8 +117,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "roblin_aic",
     "roblin_rmse",
     "roblin_cv",
-    "roblin_range_start",
-    "roblin_range_end",
     "exp_flux",
     "exp_r2",
     "exp_adj_r2",
@@ -133,8 +129,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "exp_cv",
     "exp_a",
     "exp_b",
-    "exp_range_start",
-    "exp_range_end",
 ];
 pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "start_time",
@@ -171,8 +165,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "lin_aic",
     "lin_rmse",
     "lin_cv",
-    "lin_range_start",
-    "lin_range_end",
     "poly_flux",
     "poly_r2",
     "poly_adj_r2",
@@ -183,8 +175,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "poly_a0",
     "poly_a1",
     "poly_a2",
-    "poly_range_start",
-    "poly_range_end",
     "roblin_flux",
     "roblin_r2",
     "roblin_adj_r2",
@@ -194,8 +184,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "roblin_aic",
     "roblin_rmse",
     "roblin_cv",
-    "roblin_range_start",
-    "roblin_range_end",
     "exp_flux",
     "exp_r2",
     "exp_adj_r2",
@@ -208,8 +196,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "exp_cv",
     "exp_a",
     "exp_b",
-    "exp_range_start",
-    "exp_range_end",
 ];
 pub fn make_select_all_fluxes() -> String {
     format!(
@@ -349,6 +335,8 @@ pub fn create_flux_table() -> String {
             t0_concentration		FLOAT,
             measurement_r2			FLOAT,
 
+            calc_range_start        FLOAT,
+            calc_range_end          FLOAT,
             lin_flux				FLOAT,
             lin_r2					FLOAT,
             lin_adj_r2				FLOAT,
@@ -359,8 +347,6 @@ pub fn create_flux_table() -> String {
             lin_aic					FLOAT,
             lin_rmse				FLOAT,
             lin_cv  				FLOAT,
-            lin_range_start			FLOAT,
-            lin_range_end			FLOAT,
 
             poly_flux				FLOAT,
             poly_r2					FLOAT,
@@ -372,8 +358,6 @@ pub fn create_flux_table() -> String {
             poly_a0					FLOAT,
             poly_a1					FLOAT,
             poly_a2					FLOAT,
-            poly_range_start		FLOAT,
-            poly_range_end			FLOAT,
 
             roblin_flux				FLOAT,
             roblin_r2				FLOAT,
@@ -384,8 +368,6 @@ pub fn create_flux_table() -> String {
             roblin_aic				FLOAT,
             roblin_rmse				FLOAT,
             roblin_cv               FLOAT,
-            roblin_range_start		FLOAT,
-            roblin_range_end		FLOAT,
 
             exp_flux                FLOAT,
             exp_r2                  FLOAT,
@@ -399,8 +381,6 @@ pub fn create_flux_table() -> String {
             exp_cv                  FLOAT,
             exp_a                   FLOAT,
             exp_b                   FLOAT,
-            exp_range_start         FLOAT,
-            exp_range_end           FLOAT,
 
             FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE,
             FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
@@ -447,6 +427,8 @@ pub fn create_flux_history_table() -> String {
             t0_concentration		FLOAT,
             measurement_r2			FLOAT,
 
+            calc_range_start        FLOAT,
+            calc_range_end          FLOAT,
             lin_flux				FLOAT,
             lin_r2				    FLOAT,
             lin_adj_r2				FLOAT,
@@ -457,8 +439,6 @@ pub fn create_flux_history_table() -> String {
             lin_aic				    FLOAT,
             lin_rmse				FLOAT,
             lin_cv                  FLOAT,
-            lin_range_start			FLOAT,
-            lin_range_end			FLOAT,
 
             poly_flux				FLOAT,
             poly_r2				    FLOAT,
@@ -470,8 +450,6 @@ pub fn create_flux_history_table() -> String {
             poly_a0				    FLOAT,
             poly_a1				    FLOAT,
             poly_a2				    FLOAT,
-            poly_range_start		FLOAT,
-            poly_range_end			FLOAT,
 
             roblin_flux				FLOAT,
             roblin_r2				FLOAT,
@@ -482,8 +460,6 @@ pub fn create_flux_history_table() -> String {
             roblin_aic				FLOAT,
             roblin_rmse				FLOAT,
             roblin_cv				FLOAT,
-            roblin_range_start		FLOAT,
-            roblin_range_end		FLOAT,
 
             exp_flux                FLOAT,
             exp_r2                  FLOAT,
@@ -497,8 +473,6 @@ pub fn create_flux_history_table() -> String {
             exp_cv                  FLOAT,
             exp_a                   FLOAT,
             exp_b                   FLOAT,
-            exp_range_start         FLOAT,
-            exp_range_end           FLOAT,
 
             FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE,
             FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,

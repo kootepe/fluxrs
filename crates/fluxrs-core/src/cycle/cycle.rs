@@ -1952,6 +1952,8 @@ fn execute_history_insert(
                 .get(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))))
                 .copied()
                 .unwrap_or(0.0),
+            cycle.get_calc_start(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
+            cycle.get_calc_end(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -1963,8 +1965,6 @@ fn execute_history_insert(
             lin.and_then(|m| m.aic()).unwrap_or(0.0),
             lin.and_then(|m| m.rmse()).unwrap_or(0.0),
             lin.and_then(|m| m.cv()).unwrap_or(0.0),
-            lin.and_then(|m| m.range_start()).unwrap_or(0.0),
-            lin.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Polynomial fields
             poly.and_then(|m| m.flux()).unwrap_or(0.0),
             poly.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -1983,8 +1983,6 @@ fn execute_history_insert(
             poly.and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
                 .map(|m| m.model.a2)
                 .unwrap_or(0.0),
-            poly.and_then(|m| m.range_start()).unwrap_or(0.0),
-            poly.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Roblinear fields
             roblin.and_then(|m| m.flux()).unwrap_or(0.0),
             roblin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -1995,8 +1993,6 @@ fn execute_history_insert(
             roblin.and_then(|m| m.aic()).unwrap_or(0.0),
             roblin.and_then(|m| m.rmse()).unwrap_or(0.0),
             roblin.and_then(|m| m.cv()).unwrap_or(0.0),
-            roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
-            roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
             exp.and_then(|m| m.flux()).unwrap_or(0.0),
             exp.and_then(|m| m.r2()).unwrap_or(0.0),
             exp.and_then(|m| m.adj_r2()).unwrap_or(0.0),
@@ -2013,8 +2009,6 @@ fn execute_history_insert(
             exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
                 .map(|m| m.model.b)
                 .unwrap_or(0.0),
-            exp.and_then(|m| m.range_start()).unwrap_or(0.0),
-            exp.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
     }
     Ok(())
@@ -2083,6 +2077,8 @@ fn execute_insert(
             //     .copied()
             //     .unwrap_or(0.0),
             // Linear fields
+            cycle.get_calc_start(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
+            cycle.get_calc_end(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
             lin.and_then(|m| m.adj_r2()).unwrap_or(0.0),
@@ -2093,8 +2089,6 @@ fn execute_insert(
             lin.and_then(|m| m.aic()).unwrap_or(0.0),
             lin.and_then(|m| m.rmse()).unwrap_or(0.0),
             lin.and_then(|m| m.cv()).unwrap_or(0.0),
-            lin.and_then(|m| m.range_start()).unwrap_or(0.0),
-            lin.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Polynomial fields
             poly.and_then(|m| m.flux()).unwrap_or(0.0),
             poly.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2113,8 +2107,6 @@ fn execute_insert(
             poly.and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
                 .map(|m| m.model.a2)
                 .unwrap_or(0.0),
-            poly.and_then(|m| m.range_start()).unwrap_or(0.0),
-            poly.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Roblinear fields
             roblin.and_then(|m| m.flux()).unwrap_or(0.0),
             roblin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2125,8 +2117,6 @@ fn execute_insert(
             roblin.and_then(|m| m.aic()).unwrap_or(0.0),
             roblin.and_then(|m| m.rmse()).unwrap_or(0.0),
             roblin.and_then(|m| m.cv()).unwrap_or(0.0),
-            roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
-            roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
             exp.and_then(|m| m.flux()).unwrap_or(0.0),
             exp.and_then(|m| m.r2()).unwrap_or(0.0),
             exp.and_then(|m| m.adj_r2()).unwrap_or(0.0),
@@ -2143,8 +2133,6 @@ fn execute_insert(
             exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
                 .map(|m| m.model.b)
                 .unwrap_or(0.0),
-            exp.and_then(|m| m.range_start()).unwrap_or(0.0),
-            exp.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
         affected += inserts;
     }
@@ -2206,6 +2194,8 @@ fn execute_update(
                 .get(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))))
                 .copied()
                 .unwrap_or(0.0),
+            cycle.get_calc_start(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
+            cycle.get_calc_end(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2217,8 +2207,6 @@ fn execute_update(
             lin.and_then(|m| m.aic()).unwrap_or(0.0),
             lin.and_then(|m| m.rmse()).unwrap_or(0.0),
             lin.and_then(|m| m.cv()).unwrap_or(0.0),
-            lin.and_then(|m| m.range_start()).unwrap_or(0.0),
-            lin.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Polynomial fields
             poly.and_then(|m| m.flux()).unwrap_or(0.0),
             poly.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2237,8 +2225,6 @@ fn execute_update(
             poly.and_then(|m| m.as_any().downcast_ref::<PolyFlux>())
                 .map(|m| m.model.a2)
                 .unwrap_or(0.0),
-            poly.and_then(|m| m.range_start()).unwrap_or(0.0),
-            poly.and_then(|m| m.range_end()).unwrap_or(0.0),
             // Roblinear fields
             roblin.and_then(|m| m.flux()).unwrap_or(0.0),
             roblin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2249,8 +2235,6 @@ fn execute_update(
             roblin.and_then(|m| m.aic()).unwrap_or(0.0),
             roblin.and_then(|m| m.rmse()).unwrap_or(0.0),
             roblin.and_then(|m| m.cv()).unwrap_or(0.0),
-            roblin.and_then(|m| m.range_start()).unwrap_or(0.0),
-            roblin.and_then(|m| m.range_end()).unwrap_or(0.0),
             exp.and_then(|m| m.flux()).unwrap_or(0.0),
             exp.and_then(|m| m.r2()).unwrap_or(0.0),
             exp.and_then(|m| m.adj_r2()).unwrap_or(0.0),
@@ -2267,8 +2251,6 @@ fn execute_update(
             exp.and_then(|m| m.as_any().downcast_ref::<ExponentialFlux>())
                 .map(|m| m.model.b)
                 .unwrap_or(0.0),
-            exp.and_then(|m| m.range_start()).unwrap_or(0.0),
-            exp.and_then(|m| m.range_end()).unwrap_or(0.0),
         ])?;
         affected += inserts;
     }
@@ -2431,6 +2413,8 @@ pub fn load_cycles_sync(
         let manual_valid: bool = row.get(*column_index.get("manual_valid").unwrap())?;
         let m_r2: f64 = row.get(*column_index.get("measurement_r2").unwrap())?;
         let min_calc_len: f64 = row.get(*column_index.get("min_calc_len").unwrap())?;
+        let calc_range_start: f64 = row.get(*column_index.get("calc_range_start").unwrap())?;
+        let calc_range_end: f64 = row.get(*column_index.get("calc_range_end").unwrap())?;
 
         let mut override_valid = None;
         if manual_valid {
@@ -2617,8 +2601,6 @@ pub fn load_cycles_sync(
                 Ok(aic),
                 Ok(rmse),
                 Ok(cv),
-                Ok(calc_start),
-                Ok(calc_end),
                 Ok(gas_i),
                 Ok(instrument_id),
             ) = (
@@ -2632,16 +2614,14 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("lin_aic").unwrap()),
                 row.get(*column_index.get("lin_rmse").unwrap()),
                 row.get(*column_index.get("lin_cv").unwrap()),
-                row.get(*column_index.get("lin_range_start").unwrap()),
-                row.get(*column_index.get("lin_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
                 row.get(*column_index.get("instrument_id").unwrap()),
             ) {
                 let gas_type = GasType::from_int(gas_i).unwrap();
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
-                cycle.set_calc_start(&gk, calc_start);
-                cycle.set_calc_end(&gk, calc_end + 1.);
+                cycle.set_calc_start(&gk, calc_range_start);
+                cycle.set_calc_end(&gk, calc_range_end + 1.);
                 let lin = LinearFlux {
                     fit_id: "linear".to_string(),
                     gas_channel,
@@ -2654,8 +2634,8 @@ pub fn load_cycles_sync(
                     aic,
                     rmse,
                     cv,
-                    range_start: calc_start,
-                    range_end: calc_end,
+                    range_start: calc_range_start,
+                    range_end: calc_range_end,
                 };
                 cycle.fluxes.insert(
                     (gk, FluxKind::Linear),
@@ -2674,8 +2654,6 @@ pub fn load_cycles_sync(
                 Ok(cv),
                 Ok(a),
                 Ok(b),
-                Ok(calc_start),
-                Ok(calc_end),
                 Ok(gas_i),
                 Ok(instrument_id),
             ) = (
@@ -2689,8 +2667,6 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("exp_cv").unwrap()),
                 row.get(*column_index.get("exp_a").unwrap()),
                 row.get(*column_index.get("exp_b").unwrap()),
-                row.get(*column_index.get("exp_range_start").unwrap()),
-                row.get(*column_index.get("exp_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
                 row.get(*column_index.get("instrument_id").unwrap()),
             ) {
@@ -2701,8 +2677,8 @@ pub fn load_cycles_sync(
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
 
-                cycle.set_calc_start(&gk, calc_start);
-                cycle.set_calc_end(&gk, calc_end + 1.0);
+                cycle.set_calc_start(&gk, calc_range_start);
+                cycle.set_calc_end(&gk, calc_range_end + 1.);
 
                 let exp = ExponentialFlux {
                     fit_id: "exp".to_string(),
@@ -2716,8 +2692,8 @@ pub fn load_cycles_sync(
                     aic,
                     rmse,
                     cv,
-                    range_start: calc_start,
-                    range_end: calc_end,
+                    range_start: calc_range_start,
+                    range_end: calc_range_end,
                 };
 
                 cycle.fluxes.insert(
@@ -2736,8 +2712,6 @@ pub fn load_cycles_sync(
                 Ok(aic),
                 Ok(rmse),
                 Ok(cv),
-                Ok(calc_start),
-                Ok(calc_end),
                 Ok(gas_i),
                 Ok(instrument_id),
             ) = (
@@ -2750,8 +2724,6 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("roblin_aic").unwrap()),
                 row.get(*column_index.get("roblin_rmse").unwrap()),
                 row.get(*column_index.get("roblin_cv").unwrap()),
-                row.get(*column_index.get("roblin_range_start").unwrap()),
-                row.get(*column_index.get("roblin_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
                 row.get(*column_index.get("instrument_id").unwrap()),
             ) {
@@ -2761,8 +2733,8 @@ pub fn load_cycles_sync(
                 }
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
-                cycle.set_calc_start(&gk, calc_start);
-                cycle.set_calc_end(&gk, calc_end + 1.);
+                cycle.set_calc_start(&gk, calc_range_start);
+                cycle.set_calc_end(&gk, calc_range_end + 1.);
                 let roblin = RobustFlux {
                     fit_id: "roblin".to_string(),
                     gas_channel,
@@ -2774,8 +2746,8 @@ pub fn load_cycles_sync(
                     aic,
                     rmse,
                     cv,
-                    range_start: calc_start,
-                    range_end: calc_end,
+                    range_start: calc_range_start,
+                    range_end: calc_range_end,
                 };
                 cycle.fluxes.insert(
                     (gk, FluxKind::RobLin),
@@ -2793,8 +2765,6 @@ pub fn load_cycles_sync(
                 Ok(a0),
                 Ok(a1),
                 Ok(a2),
-                Ok(calc_start),
-                Ok(calc_end),
                 Ok(gas_i),
                 Ok(instrument_id),
             ) = (
@@ -2808,8 +2778,6 @@ pub fn load_cycles_sync(
                 row.get(*column_index.get("poly_a0").unwrap()),
                 row.get(*column_index.get("poly_a1").unwrap()),
                 row.get(*column_index.get("poly_a2").unwrap()),
-                row.get(*column_index.get("poly_range_start").unwrap()),
-                row.get(*column_index.get("poly_range_end").unwrap()),
                 row.get(*column_index.get("gas").unwrap()),
                 row.get(*column_index.get("instrument_id").unwrap()),
             ) {
@@ -2819,8 +2787,8 @@ pub fn load_cycles_sync(
                 }
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
-                cycle.set_calc_start(&gk, calc_start);
-                cycle.set_calc_end(&gk, calc_end + 1.);
+                cycle.set_calc_start(&gk, calc_range_start);
+                cycle.set_calc_end(&gk, calc_range_end + 1.);
                 let poly = PolyFlux {
                     fit_id: "poly".to_string(),
                     gas_channel,
@@ -2832,9 +2800,9 @@ pub fn load_cycles_sync(
                     aic,
                     rmse,
                     cv,
-                    range_start: calc_start,
-                    range_end: calc_end,
-                    x_offset: calc_start,
+                    range_start: calc_range_start,
+                    range_end: calc_range_end,
+                    x_offset: calc_range_start,
                 };
                 cycle.fluxes.insert(
                     (gk, FluxKind::Poly),
