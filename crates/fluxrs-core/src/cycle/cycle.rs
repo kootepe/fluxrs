@@ -1171,12 +1171,14 @@ impl Cycle {
             self.calculate_lin_flux(key);
             self.calculate_poly_flux(key);
             self.calculate_roblin_flux(key);
+            self.calculate_exp_flux(key);
         }
     }
     pub fn compute_single_flux(&mut self, key: &GasKey) {
         self.calculate_lin_flux(key);
         self.calculate_poly_flux(key);
         self.calculate_roblin_flux(key);
+        self.calculate_exp_flux(key);
     }
 
     // pub fn get_calc_dt(&self, key: GasType) -> Vec<f64> {
