@@ -813,19 +813,20 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
-                            let selected_model = self.selected_model;
+                            let flux_unit = self.flux_unit;
+                            let fluxkind = FluxKind::Linear;
                             let response = flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
                                     move |cycle, key| {
-                                        cycle
-                                            .fluxes
-                                            .get(&(*key, selected_model))
-                                            .and_then(|model| model.model.flux())
-                                            .unwrap_or(0.0)
+                                        flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
-                                    &format!("Flux ({})", selected_model.label()),
+                                    &format!(
+                                        "Flux ({} {})",
+                                        fluxkind.label(),
+                                        flux_unit.to_owned()
+                                    ),
                                     Some(MarkerShape::Circle),
                                 );
                             });
@@ -848,18 +849,20 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
+                            let flux_unit = self.flux_unit;
+                            let fluxkind = FluxKind::Poly;
                             let response = poly_flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
                                     move |cycle, key| {
-                                        cycle
-                                            .fluxes
-                                            .get(&(*key, FluxKind::Poly))
-                                            .and_then(|model| model.model.flux())
-                                            .unwrap_or(0.0)
+                                        flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
-                                    &format!("Flux ({})", FluxKind::Poly.label()),
+                                    &format!(
+                                        "Flux ({} {})",
+                                        fluxkind.label(),
+                                        flux_unit.to_owned()
+                                    ),
                                     Some(MarkerShape::Square),
                                 );
                             });
@@ -882,18 +885,31 @@ impl ValidationApp {
                                 self.flux_plot_w,
                                 self.flux_plot_h,
                             );
+                            let flux_unit = self.flux_unit;
+                            let fluxkind = FluxKind::RobLin;
                             let response = roblin_flux_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
                                     move |cycle, key| {
-                                        cycle
-                                            .fluxes
-                                            .get(&(*key, FluxKind::RobLin))
-                                            .and_then(|model| model.model.flux())
-                                            .unwrap_or(0.0)
+                                        flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
-                                    &format!("Flux ({})", FluxKind::RobLin.label()),
+                                    &format!(
+                                        "Flux ({} {})",
+                                        fluxkind.label(),
+                                        flux_unit.to_owned()
+                                    ),
+                                    Some(MarkerShape::Diamond),
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                                // Hide cursor
+                                // println!("Gas plot is hovered!");
+                            }
+                        }
+                    });
+                }
                                     Some(MarkerShape::Diamond),
                                 );
                             });
