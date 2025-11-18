@@ -48,7 +48,7 @@ impl LinReg {
         let ss_xx: f64 = x_differences_to_average_squared.iter().sum();
 
         let avg_y = y.iter().sum::<f64>() / y.len() as f64;
-        let y_differences_to_average: Vec<f64> = y.iter().map(|value| value - avg_x).collect();
+        let y_differences_to_average: Vec<f64> = y.iter().map(|value| value - avg_y).collect();
         let x_and_y_differences_multiplied: Vec<f64> = x_differences_to_average
             .iter()
             .zip(y_differences_to_average.iter())
