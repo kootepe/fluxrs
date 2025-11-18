@@ -3,7 +3,9 @@ use crate::cycle::cycletiming::CycleTiming;
 use crate::cycle::gaskey::GasKey;
 use crate::data_formats::gasdata::{query_gas2, query_gas_all};
 use crate::errorcode::{ErrorCode, ErrorMask};
-use crate::flux::{FluxKind, FluxModel, FluxRecord, LinearFlux, PolyFlux, RobustFlux};
+use crate::flux::{
+    ExponentialFlux, FluxKind, FluxModel, FluxRecord, LinearFlux, PolyFlux, RobustFlux,
+};
 use crate::fluxes_schema::{
     make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
     make_update_fluxes,
@@ -14,7 +16,7 @@ use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::mode::Mode;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::project::Project;
-use crate::stats::{self, LinReg, PolyReg, RobReg};
+use crate::stats::{self, ExpReg, LinReg, PolyReg, RobReg};
 use chrono_tz::{Tz, UTC};
 
 use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
@@ -1343,6 +1345,52 @@ impl Cycle {
             );
         } else {
             // Optionally log: fitting failed (maybe x.len != y.len or regression degenerate)
+        }
+    }
+
+    pub fn calculate_exp_flux(&mut self, key: &GasKey) {
+        let (x, y) = self.get_calc_data2(key);
+        let s = x.first().unwrap_or(&0.0);
+        let e = x.last().unwrap_or(&0.0);
+
+        // Need at least a few points, and all y > 0 for exp fit
+        if x.len() < 3 || y.len() < 3 || x.len() != y.len() {
+            eprintln!(
+                "Insufficient data for exponential flux on gas {:?}: x = {}, y = {}",
+                key.gas_type,
+                x.len(),
+                y.len()
+            );
+            return;
+        }
+
+        if !y.iter().all(|v| *v > 0.0) {
+            eprintln!(
+                "Non-positive values in y for exponential flux on gas {:?}; skipping.",
+                key.gas_type
+            );
+            return;
+        }
+
+        let channel = self.gas_channels.get(key).unwrap().clone();
+
+        if let Some(data) = ExponentialFlux::from_data(
+            "exp",
+            channel,
+            &x,
+            &y,
+            *s,
+            *e,
+            self.air_temperature,
+            self.air_pressure,
+            self.chamber,
+        ) {
+            self.fluxes.insert(
+                (*key, FluxKind::Exponential),
+                FluxRecord { model: Box::new(data), is_valid: true },
+            );
+        } else {
+            eprintln!("Exponential regression failed for gas {:?}", key.gas_type);
         }
     }
     pub fn ppb_to_nmol(&mut self) {
