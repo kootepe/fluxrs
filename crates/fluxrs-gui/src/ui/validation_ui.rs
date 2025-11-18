@@ -1734,6 +1734,40 @@ impl ValidationApp {
                         }
                     });
                 }
+                if !self.enabled_exp_p_val.is_empty() {
+                    ui.vertical(|ui| {
+                        let keys: Vec<_> = self.enabled_exp_p_val.iter().copied().collect();
+                        for key in &keys {
+                            let exp_p_val_plot = init_attribute_plot(
+                                "Exponential p-value".to_owned(),
+                                key,
+                                instruments.get(&key.id).unwrap().clone(),
+                                self.flux_plot_w,
+                                self.flux_plot_h,
+                            );
+                            let response = exp_p_val_plot.show(ui, |plot_ui| {
+                                self.render_attribute_plot(
+                                    plot_ui,
+                                    key,
+                                    move |cycle, key| {
+                                        cycle
+                                            .fluxes
+                                            .get(&(*key, FluxKind::Exponential))
+                                            .and_then(|model| model.model.p_value())
+                                            .unwrap_or(0.0)
+                                    },
+                                    &format!("Flux ({})", FluxKind::Exponential.label()),
+                                    None,
+                                );
+                            });
+                            if response.response.hovered() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                                // Hide cursor
+                                // println!("Gas plot is hovered!");
+                            }
+                        }
+                    });
+                }
 
                 // if !self.enabled_aic_diff.is_empty() {
                 //     ui.vertical(|ui| {
