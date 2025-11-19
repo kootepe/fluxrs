@@ -2,6 +2,7 @@
 
 ## v0.4.1
 - Added sanity checks in linear regression and OLS for robust linear
+- Better error handling for cycle processing
 
 ## v0.4.0
 - Performance improvements by removing clones from structs are now copy
