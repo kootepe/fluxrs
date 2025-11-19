@@ -51,7 +51,6 @@ impl Processor {
     pub fn new(project: Project, data: Datasets, infra: Infra) -> Self {
         Self { project, data: Arc::new(data), infra }
     }
-
     pub async fn run_processing_dynamic(&self, times: TimeDataSet) {
         let all_empty = self.data.gas.values().all(|g| g.datetime.is_empty());
         if all_empty {
@@ -72,6 +71,9 @@ impl Processor {
 
         let mut total_inserts = 0;
         let mut total_skips = 0;
+
+        let mut fatal_error: Option<String> = None;
+
         while !time_chunks.is_empty() || !active_tasks.is_empty() {
             while active_tasks.len() < MAX_CONCURRENT_TASKS && !time_chunks.is_empty() {
                 let chunk = time_chunks.pop_front().unwrap();
@@ -96,7 +98,7 @@ impl Processor {
                 let task = tokio::task::spawn_blocking(move || {
                     match process_cycles(
                         &chunk,
-                        &chunk_gas_data, // now holds Arc<GasDay>, not heavy clones
+                        &chunk_gas_data,
                         &meteo,
                         &height,
                         &chambers,
@@ -112,7 +114,7 @@ impl Processor {
                             Ok(result)
                         },
                         Err(e) => {
-                            let _ = progress_sender.send(ProcessEvent::Done(Err(e.to_string())));
+                            // No error sending, just propagate
                             Err(e)
                         },
                     }
@@ -125,6 +127,7 @@ impl Processor {
             active_tasks = remaining_tasks;
 
             match result {
+                // Inner task ok, process_cycles ok
                 Ok(Ok(cycles)) => {
                     if !cycles.is_empty() {
                         let mut conn = self.infra.conn.lock().unwrap();
@@ -138,43 +141,40 @@ impl Processor {
                                 total_skips += skips;
                             },
                             Err(e) => {
-                                let _ = self
-                                    .infra
-                                    .progress
-                                    .send(ProcessEvent::Done(Err(e.to_string())));
+                                fatal_error = Some(format!("Insert error: {e}"));
+                                break;
                             },
-                            // for cycle_opt in cycles.into_iter().flatten() {
-                            //     let cycle_id: i64 = conn.query_row(
-                            //     "SELECT id FROM fluxes
-                            //      WHERE instrument_serial = ?1 AND start_time = ?2 AND project_link = ?3",
-                            //     params![
-                            //         cycle_opt.instrument.serial,
-                            //         cycle_opt.start_time.timestamp(),
-                            //         cycle_opt.project_id
-                            //     ],
-                            //     |row| row.get(0),
-                            // ).unwrap_or(-1);
-                            //
-                            //     if cycle_id >= 0 {
-                            //         if let Err(e) =
-                            //             insert_flux_results(&mut conn, cycle_id, cycle_opt.fluxes)
-                            //         {
-                            //             eprintln!("Error inserting flux results: {}", e);
-                            //         }
-                            //     }
-                            // }
                         }
                     }
                 },
-                Ok(Err(e)) => eprintln!("Cycle error: {e}"),
-                Err(e) => eprintln!("Join error: {e}"),
+
+                // process_cycles returned Err
+                Ok(Err(e)) => {
+                    fatal_error = Some(format!("Cycle processing error: {e}"));
+                    break;
+                },
+
+                // spawn_blocking join error (panic / cancellation)
+                Err(e) => {
+                    fatal_error = Some(format!("Worker join error: {e}"));
+                    break;
+                },
             }
         }
 
         let progress_sender = self.infra.progress.clone();
-        let _ = progress_sender
-            .send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(total_inserts, total_skips)));
-        // Send Done exactly once, here.
-        let _ = self.infra.progress.send(ProcessEvent::Done(Ok(())));
+
+        // Only report inserts/skips if no fatal error
+        if fatal_error.is_none() {
+            let _ = progress_sender
+                .send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(total_inserts, total_skips)));
+        }
+
+        let done_event = match fatal_error {
+            Some(msg) => ProcessEvent::Done(Err(msg)),
+            None => ProcessEvent::Done(Ok(())),
+        };
+
+        let _ = progress_sender.send(done_event);
     }
 }
