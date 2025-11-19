@@ -3198,7 +3198,10 @@ where
 
             cycle_vec.push(Some(cycle));
         } else {
-            let msg = format!("{}, ID: {} {}", start, chamber, cycle.instrument.serial);
+            let dt_loc =
+                DateTime::<Utc>::from_timestamp(*start, 0).unwrap().with_timezone(&project.tz);
+            // let date_str = dt_utc.format("%Y-%m-%d").to_string();
+            let msg = format!("{}, ID: {} {}", dt_loc, chamber, cycle.instrument.serial);
             let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(msg)));
             cycle_vec.push(None);
         }
