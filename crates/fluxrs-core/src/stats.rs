@@ -250,7 +250,20 @@ impl RobReg {
     }
 
     fn trimmed_ols(x: &[f64], y: &[f64], trim_frac: f64) -> Option<(f64, f64)> {
+        use std::cmp::Ordering;
+
+        // Basic sanity checks
         if x.len() != y.len() || x.len() < 3 {
+            return None;
+        }
+
+        // Guard trim fraction: must leave at least 1 point on each side
+        if !(0.0..0.5).contains(&trim_frac) {
+            return None;
+        }
+
+        // Ensure inputs are finite
+        if x.iter().any(|v| !v.is_finite()) || y.iter().any(|v| !v.is_finite()) {
             return None;
         }
 
@@ -269,8 +282,8 @@ impl RobReg {
         let slope = sxy / sxx;
         let intercept = y_mean - slope * x_mean;
 
-        // Compute residuals
-        let mut data: Vec<(f64, f64, f64)> = x
+        // Compute residuals: (x, y, |residual|)
+        let mut residuals: Vec<(f64, f64, f64)> = x
             .iter()
             .zip(y)
             .map(|(&xi, &yi)| {
@@ -280,31 +293,49 @@ impl RobReg {
             })
             .collect();
 
-        // Sort by residuals and trim
-        data.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
+        // Ensure residuals are finite
+        if residuals.iter().any(|&(_, _, r)| !r.is_finite()) {
+            return None;
+        }
+
+        // Sort by residual size, NaN-safe using total_cmp
+        residuals.sort_by(|a, b| a.2.total_cmp(&b.2));
+
         let trim_n = ((n as f64) * trim_frac).floor() as usize;
-        let trimmed = &data[trim_n..n - trim_n];
+
+        // Ensure trimming leaves something
+        if trim_n * 2 >= n {
+            return None;
+        }
+
+        let trimmed = &residuals[trim_n..n - trim_n];
 
         // Recompute OLS on trimmed data
         let x_vals: Vec<f64> = trimmed.iter().map(|t| t.0).collect();
         let y_vals: Vec<f64> = trimmed.iter().map(|t| t.1).collect();
 
-        let x_mean = x_vals.iter().sum::<f64>() / x_vals.len() as f64;
-        let y_mean = y_vals.iter().sum::<f64>() / y_vals.len() as f64;
+        let m = x_vals.len();
+        if m < 2 {
+            return None;
+        }
+
+        let x_mean = x_vals.iter().sum::<f64>() / m as f64;
+        let y_mean = y_vals.iter().sum::<f64>() / m as f64;
 
         let sxx = x_vals.iter().map(|xi| (xi - x_mean).powi(2)).sum::<f64>();
-        let sxy = x_vals
-            .iter()
-            .zip(y_vals.iter())
-            .map(|(xi, yi)| (xi - x_mean) * (yi - y_mean))
-            .sum::<f64>();
+        let sxy =
+            x_vals.iter().zip(&y_vals).map(|(xi, yi)| (xi - x_mean) * (yi - y_mean)).sum::<f64>();
 
         if sxx.abs() < 1e-12 {
             return None;
         }
 
-        Some((sxy / sxx, y_mean - (sxy / sxx) * x_mean))
+        let slope = sxy / sxx;
+        let intercept = y_mean - slope * x_mean;
+
+        Some((slope, intercept))
     }
+
     fn ols(x: &[f64], y: &[f64]) -> Option<(f64, f64)> {
         let n = x.len();
         let x_mean = x.iter().sum::<f64>() / n as f64;

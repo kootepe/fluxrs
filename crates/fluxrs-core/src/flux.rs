@@ -346,16 +346,33 @@ impl LinearFlux {
         let residuals: Vec<f64> = y.iter().zip(&y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
         let rss: f64 = residuals.iter().map(|r| r.powi(2)).sum();
 
-        let sigma = (rss / (n - 2.0)).sqrt();
         let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
         let y_mean = y.iter().copied().sum::<f64>() / n;
         let cv = rmse_val / y_mean;
 
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
         let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
+
+        // no variance in x, no meaningful regression
+        if !ss_xx.is_finite() || ss_xx <= f64::EPSILON {
+            return None;
+        }
+        let sigma = (rss / (n - 2.0)).sqrt();
+        if !sigma.is_finite() {
+            return None;
+        }
+
         let se_slope = sigma / ss_xx.sqrt();
+        if !se_slope.is_finite() || se_slope <= 0.0 {
+            // e.g. perfect fit (sigma = 0) or degenerate
+            // you can decide how to handle this; example: p_value = 0 or 1
+            return None;
+        }
 
         let t_stat = model.slope / se_slope;
+        if !t_stat.is_finite() {
+            return None;
+        }
         let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
         let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
 
