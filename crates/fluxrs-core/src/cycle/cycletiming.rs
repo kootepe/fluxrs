@@ -11,7 +11,7 @@ impl Default for CycleTiming {
 #[derive(Clone, Debug)]
 pub struct CycleTiming {
     /// Absolute start timestamp of the cycle
-    start_time: DateTime<Tz>,
+    start_time: i64,
 
     /// Offsets relative to start_time (seconds or samples)
     close_offset: i64,
@@ -43,7 +43,7 @@ pub struct CycleTiming {
 
 impl CycleTiming {
     pub fn new_from_fields(
-        start: DateTime<Tz>,
+        start: i64,
         close: i64,
         open: i64,
         end: i64,
@@ -85,13 +85,7 @@ impl CycleTiming {
             measurement_dt_v: Vec::new(),
         }
     }
-    pub fn new_from_offsets(
-        start: DateTime<Tz>,
-        close: i64,
-        open: i64,
-        end: i64,
-        min_len: f64,
-    ) -> Self {
+    pub fn new_from_offsets(start: i64, close: i64, open: i64, end: i64, min_len: f64) -> Self {
         Self {
             start_time: start,
             close_offset: close,
@@ -104,8 +98,8 @@ impl CycleTiming {
 
     pub fn new() -> Self {
         let now_utc: DateTime<Utc> = Utc::now();
-        let now_tz: DateTime<Tz> = now_utc.with_timezone(&UTC);
-        let start_time = now_tz - Duration::days(7);
+        let start_time = (now_utc - Duration::days(7)).timestamp();
+
         Self {
             start_time,
             close_offset: 0,
@@ -128,36 +122,37 @@ impl CycleTiming {
     }
 
     pub fn get_start(&self) -> f64 {
-        self.start_time.timestamp() as f64 + self.start_lag_s
+        self.start_time as f64 + self.start_lag_s
     }
-    pub fn get_start_time(&self) -> DateTime<Tz> {
+    pub fn get_start_time(&self) -> i64 {
         self.start_time
     }
-    pub fn get_timezone(&self) -> Tz {
-        self.start_time.timezone()
-    }
+    // pub fn get_timezone(&self) -> Tz {
+    //     self.start_time.timezone()
+    // }
 
     pub fn get_end(&self) -> f64 {
-        self.start_time.timestamp() as f64 + self.end_lag_s + self.end_offset as f64
+        self.start_time as f64 + self.end_lag_s + self.end_offset as f64
     }
 
     pub fn get_start_ts(&self) -> i64 {
-        self.start_time.timestamp()
+        self.start_time
     }
     pub fn get_end_ts(&self) -> i64 {
         self.get_start_ts() + self.end_offset
     }
     pub fn get_start_utc_ts(&self) -> i64 {
-        self.start_time.to_utc().timestamp()
+        println!("{}", self.start_time);
+        self.start_time
     }
     pub fn get_end_utc_ts(&self) -> i64 {
         self.get_start_utc_ts() + self.end_offset
     }
     pub fn get_close(&self) -> f64 {
-        self.start_time.timestamp() as f64 + self.close_offset as f64
+        self.start_time as f64 + self.close_offset as f64
     }
     pub fn get_open(&self) -> f64 {
-        self.start_time.timestamp() as f64 + self.open_offset as f64
+        self.start_time as f64 + self.open_offset as f64
     }
     pub fn get_close_offset(&self) -> i64 {
         self.close_offset
@@ -184,13 +179,10 @@ impl CycleTiming {
         self.min_calc_len
     }
     pub fn get_adjusted_close(&self) -> f64 {
-        self.start_time.timestamp() as f64
-            + self.close_offset as f64
-            + self.open_lag_s
-            + self.close_lag_s
+        self.start_time as f64 + self.close_offset as f64 + self.open_lag_s + self.close_lag_s
     }
     pub fn get_adjusted_open(&self) -> f64 {
-        self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
+        self.start_time as f64 + self.open_offset as f64 + self.open_lag_s
     }
     pub fn get_calc_start(&self, key: &GasKey) -> f64 {
         *self.calc_range_start.get(key).unwrap_or(&0.0)
@@ -201,10 +193,7 @@ impl CycleTiming {
     }
 
     pub fn get_measurement_start(&self) -> f64 {
-        self.start_time.timestamp() as f64
-            + self.close_offset as f64
-            + self.open_lag_s
-            + self.close_lag_s
+        self.start_time as f64 + self.close_offset as f64 + self.open_lag_s + self.close_lag_s
     }
 
     pub fn set_dt_v(&mut self, key: i64, dt_v: &[f64]) {
@@ -217,7 +206,7 @@ impl CycleTiming {
         self.calc_dt_v.insert(*key, dt_v.to_vec());
     }
     pub fn get_measurement_end(&self) -> f64 {
-        self.start_time.timestamp() as f64 + self.open_offset as f64 + self.open_lag_s
+        self.start_time as f64 + self.open_offset as f64 + self.open_lag_s
     }
     pub fn get_start_after_deadband(&self, key: &GasKey) -> f64 {
         self.get_measurement_start() + self.get_deadband(key)

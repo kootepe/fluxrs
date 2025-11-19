@@ -13,6 +13,7 @@ use fluxrs_core::mode::Mode;
 use crate::flux_extension::UiColor;
 use crate::gastype_extension::GasColor;
 use chrono::DateTime;
+use chrono_tz::Tz;
 use ecolor::Hsva;
 use egui::widgets::Label;
 use egui::{Align2, Rgba};
@@ -2052,6 +2053,7 @@ pub fn init_residual_bars(
 pub fn init_gas_plot(
     key: &GasKey,
     instrument: Instrument,
+    tz: Tz,
     start: f64,
     end: f64,
     w: f32,
@@ -2064,7 +2066,10 @@ pub fn init_gas_plot(
         let rounded_timestamp = (timestamp / 300) * 300;
 
         DateTime::from_timestamp(rounded_timestamp, 0)
-            .map(|dt| dt.format("%H:%M").to_string())
+            .map(|dt| {
+                let local = dt.with_timezone(&tz);
+                local.format("%H:%M").to_string()
+            })
             .unwrap_or_else(|| "Invalid".to_string())
     };
     Plot::new(format!("{}{}gas_plot", key.gas_type, key.id))
@@ -2074,8 +2079,8 @@ pub fn init_gas_plot(
                 let timestamp = value.x as i64;
                 let datetime = DateTime::from_timestamp(timestamp, 0)
                     .map(|dt| {
-                        // DateTime::<Utc>::from_utc(dt, Utc)
-                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                        let local = dt.with_timezone(&tz);
+                        local.format("%Y-%m-%d %H:%M:%S").to_string()
                     })
                     .unwrap_or_else(|| format!("{:.1}", value.x));
 
@@ -2088,13 +2093,19 @@ pub fn init_gas_plot(
                 )
             }),
         )
-        .label_formatter(|_, value| {
-            let timestamp = value.x as i64;
-            let datetime = DateTime::from_timestamp(timestamp, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| format!("{:.1}", value.x));
+        .label_formatter({
+            let tz_local = tz;
+            move |_, value| {
+                let timestamp = value.x as i64;
+                let datetime = DateTime::from_timestamp(timestamp, 0)
+                    .map(|dt| {
+                        let local = dt.with_timezone(&tz_local.clone());
+                        local.format("%Y-%m-%d %H:%M:%S").to_string()
+                    })
+                    .unwrap_or_else(|| format!("{:.1}", value.x));
 
-            format!("Time: {}\nConc: {:.3} ppm", datetime, value.y)
+                format!("Time: {}\nConc: {:.3} ppm", datetime, value.y)
+            }
         })
         .x_axis_formatter(format_x_axis)
         .allow_drag(false)

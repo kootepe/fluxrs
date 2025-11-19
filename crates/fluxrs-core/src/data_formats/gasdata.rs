@@ -25,7 +25,7 @@ pub struct GasData {
     // NOTE: Change to InstrumentType
     pub instruments: HashSet<Instrument>,
     pub model_key: FastMap<i64, InstrumentType>,
-    pub datetime: FastMap<i64, Vec<DateTime<Tz>>>,
+    pub datetime: FastMap<i64, Vec<i64>>,
     pub gas: FastMap<GasKey, Vec<Option<f64>>>,
     pub diag: FastMap<i64, Vec<i64>>,
 }
@@ -179,10 +179,6 @@ pub fn query_gas2(
         let instrument_model: Option<String> = row.get(7)?;
         let instrument_id: Option<i64> = row.get(8)?;
 
-        let utc_datetime: DateTime<Utc> =
-            chrono::DateTime::from_timestamp(datetime_unix, 0).unwrap();
-        let local_dt = utc_datetime.with_timezone(&project.tz);
-
         // Collect gas values into a Vec<Option<f64>>
         let gases = vec![
             row.get::<_, Option<f64>>(1)?,
@@ -191,11 +187,14 @@ pub fn query_gas2(
             row.get::<_, Option<f64>>(4)?,
         ];
 
-        Ok((local_dt, gases, diag, instrument_serial, instrument_model, instrument_id))
+        Ok((datetime_unix, gases, diag, instrument_serial, instrument_model, instrument_id))
     })?;
 
+    let mut asd = 0;
     for row in rows {
-        let (datetime, gas_values, diag, instrument_serial, instrument_model, instrument_id) = row?;
+        asd += 1;
+
+        let (dt_unix, gas_values, diag, instrument_serial, instrument_model, instrument_id) = row?;
 
         // Skip rows lacking serial/model (you can choose to error instead)
         let (serial, model) = match (instrument_serial, instrument_model) {
@@ -203,7 +202,8 @@ pub fn query_gas2(
             _ => continue,
         };
 
-        let date_key = datetime.format("%Y-%m-%d").to_string();
+        let dt_utc: DateTime<Utc> = chrono::DateTime::from_timestamp(dt_unix, 0).unwrap();
+        let date_key = dt_utc.format("%Y-%m-%d").to_string();
 
         let instrument_type = match model.parse::<InstrumentType>() {
             Ok(val) => val,
@@ -234,7 +234,7 @@ pub fn query_gas2(
         entry.model_key.insert(instrument_id.unwrap(), instrument_type);
 
         // Time + diag
-        entry.datetime.entry(instrument_id.unwrap()).or_default().push(datetime);
+        entry.datetime.entry(instrument_id.unwrap()).or_default().push(dt_unix);
         entry.diag.entry(instrument_id.unwrap()).or_default().push(diag);
 
         // Gas vectors
@@ -244,6 +244,9 @@ pub fn query_gas2(
             let gas_vec = entry.gas.entry(gas_key).or_default();
 
             if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
+                if asd < 100 && idx == 1 {
+                    println!("{} {}", dt_unix, gas_val);
+                }
                 gas_vec.push(Some(gas_val));
             } else {
                 gas_vec.push(None);
@@ -262,7 +265,6 @@ pub fn query_gas_all(
     conn: &Connection,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
-    tz: Tz,
     project_id: i64,
 ) -> Result<GasData> {
     println!("Querying gas data");
@@ -283,9 +285,6 @@ pub fn query_gas_all(
         let instrument_model: String = row.get(7)?;
         let instrument_id: i64 = row.get(8)?;
 
-        let utc_datetime: DateTime<Utc> =
-            chrono::DateTime::from_timestamp(datetime_unix, 0).unwrap().to_utc();
-        let local_dt = utc_datetime.with_timezone(&tz);
         // Collect gas values into a vector in matching order
         let gas_values = vec![
             row.get::<_, Option<f64>>(1)?, // co2
@@ -302,7 +301,7 @@ pub fn query_gas_all(
             id: Some(instrument_id),
         };
 
-        Ok((local_dt, gas_values, diag, instrument))
+        Ok((datetime_unix, gas_values, diag, instrument))
     })?;
 
     let mut entry = GasData {
@@ -315,7 +314,7 @@ pub fn query_gas_all(
     };
 
     for row in rows {
-        let (datetime, gas_values, diag, instrument) = row?;
+        let (dt_unix, gas_values, diag, instrument) = row?;
         let serial = instrument.serial.clone();
         let model = instrument.model.clone();
 
@@ -337,7 +336,7 @@ pub fn query_gas_all(
         }
 
         // entry.datetime.push(datetime);
-        entry.datetime.entry(instrument.id.unwrap()).or_default().push(datetime);
+        entry.datetime.entry(instrument.id.unwrap()).or_default().push(dt_unix);
         entry.diag.entry(instrument.id.unwrap()).or_default().push(diag);
     }
 

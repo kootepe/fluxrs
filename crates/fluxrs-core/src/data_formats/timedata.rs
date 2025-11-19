@@ -64,7 +64,7 @@ pub trait TimeFormatParser {
 #[derive(Debug)]
 pub struct TimeData {
     pub chamber_id: Vec<String>,
-    pub start_time: Vec<DateTime<Tz>>,
+    pub start_time: Vec<i64>,
     pub close_offset: Vec<i64>,
     pub open_offset: Vec<i64>,
     pub end_offset: Vec<i64>,
@@ -120,7 +120,7 @@ impl OulankaManualFormat {
         let mut measurement_time: i64 = 0;
 
         let mut chamber_id: Vec<String> = Vec::new();
-        let mut start_time: Vec<DateTime<Tz>> = Vec::new();
+        let mut start_time: Vec<i64> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
@@ -203,8 +203,8 @@ impl OulankaManualFormat {
                         },
                     };
 
-                    let dt_utc_hack = dt_utc.with_timezone(&UTC);
-                    start_time.push(dt_utc_hack - Duration::seconds(60));
+                    let dt_unix = dt_utc.timestamp();
+                    start_time.push(dt_unix - 60);
                 },
                 Err(_) => {
                     let row_string = record.iter().collect::<Vec<_>>().join(",");
@@ -292,7 +292,7 @@ impl DefaultFormat {
         let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(reader);
 
         let mut chamber_id: Vec<String> = Vec::new();
-        let mut start_time: Vec<DateTime<Tz>> = Vec::new();
+        let mut start_time: Vec<i64> = Vec::new();
         let mut close_offset: Vec<i64> = Vec::new();
         let mut open_offset: Vec<i64> = Vec::new();
         let mut end_offset: Vec<i64> = Vec::new();
@@ -345,7 +345,7 @@ impl DefaultFormat {
                     ))
                 })?;
 
-            let dt_utc = match Helsinki.from_local_datetime(&naive_dt) {
+            let dt_utc = match tz.from_local_datetime(&naive_dt) {
                 LocalResult::Single(dt) => dt.with_timezone(&UTC),
                 LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&UTC),
                 LocalResult::None => {
@@ -358,10 +358,10 @@ impl DefaultFormat {
                 },
             };
 
-            // let dt_utc_hack = dt_utc.with_timezone(&UTC);
+            let dt_unix = dt_utc.timestamp();
 
             chamber_id.push(record[0].to_owned());
-            start_time.push(dt_utc);
+            start_time.push(dt_unix);
             close_offset.push(record[2].parse::<i64>().unwrap_or(0));
             open_offset.push(record[3].parse::<i64>().unwrap_or(0));
             end_offset.push(record[4].parse::<i64>().unwrap_or(0));
@@ -459,8 +459,7 @@ impl TimeData {
     }
     pub fn iter(
         &self,
-    ) -> impl Iterator<Item = (&String, &DateTime<Tz>, &i64, &i64, &i64, &f64, &i64, &i64, &i64)>
-    {
+    ) -> impl Iterator<Item = (&String, &i64, &i64, &i64, &i64, &f64, &i64, &i64, &i64)> {
         self.chamber_id
             .iter()
             .zip(&self.start_time)
@@ -511,11 +510,8 @@ pub fn query_cycles(
             let instrument_id: i64 = row.get(7)?;
             let project_id: i64 = row.get(8)?;
 
-            let utc_start = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
-            let start_time = utc_start.with_timezone(&project.tz);
-
             times.chamber_id.push(chamber_id);
-            times.start_time.push(start_time);
+            times.start_time.push(start_timestamp);
             times.close_offset.push(close_offset);
             times.open_offset.push(open_offset);
             times.end_offset.push(end_offset);
@@ -567,7 +563,7 @@ pub fn insert_cycles(
     let snow_vec = &cycles.snow_depth;
     let ins_id_vec = &cycles.instrument_id;
     let proj_id_vec = &cycles.project_id;
-    let start_vec = cycles.start_time.iter().map(|dt| dt.timestamp()).collect::<Vec<i64>>();
+    let start_vec = &cycles.start_time;
 
     if !(close_vec.len() == open_vec.len()
         && open_vec.len() == end_vec.len()

@@ -802,6 +802,7 @@ impl ValidationApp {
                             let gas_plot = init_gas_plot(
                                 &key,
                                 instruments.get(&key.id).unwrap().clone(),
+                                self.selected_project.as_ref().unwrap().tz,
                                 self.get_start(),
                                 self.get_end(),
                                 self.gas_plot_w,

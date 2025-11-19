@@ -169,12 +169,12 @@ impl Cycle {
     pub fn get_start(&self) -> f64 {
         self.timing.get_start()
     }
-    pub fn get_start_time(&self) -> DateTime<Tz> {
+    pub fn get_start_time(&self) -> i64 {
         self.timing.get_start_time()
     }
-    pub fn get_timezone(&self) -> Tz {
-        self.timing.get_timezone()
-    }
+    // pub fn get_timezone(&self) -> Tz {
+    //     self.timing.get_timezone()
+    // }
     pub fn get_end(&self) -> f64 {
         self.timing.get_end()
     }
@@ -1450,8 +1450,7 @@ impl Cycle {
             },
         };
 
-        let tz = self.get_timezone();
-        match query_gas_all(&conn, start, end, tz, self.project_id.unwrap()) {
+        match query_gas_all(&conn, start, end, self.project_id.unwrap()) {
             Ok(gasdata) => {
                 self.gas_v = gasdata.gas;
                 self.set_dt_v_all(
@@ -1460,7 +1459,7 @@ impl Cycle {
                         .iter()
                         .map(|(id, dt_list)| {
                             let timestamps =
-                                dt_list.iter().map(|t| t.timestamp() as f64).collect::<Vec<f64>>();
+                                dt_list.iter().map(|t| *t as f64).collect::<Vec<f64>>();
                             (*id, timestamps)
                         })
                         .collect(),
@@ -1542,7 +1541,7 @@ impl Cycle {
 #[derive(Debug, Default, Clone)]
 pub struct CycleBuilder {
     chamber_id: Option<String>,
-    start_time: Option<DateTime<Tz>>,
+    start_time: Option<i64>,
     close_offset: Option<i64>,
     open_offset: Option<i64>,
     end_offset: Option<i64>,
@@ -1580,7 +1579,7 @@ impl CycleBuilder {
     }
 
     /// Set the start time
-    pub fn start_time(mut self, time: DateTime<Tz>) -> Self {
+    pub fn start_time(mut self, time: i64) -> Self {
         self.start_time = Some(time);
         self
     }
@@ -1923,7 +1922,7 @@ fn execute_history_insert(
 
         stmt.execute(params![
             archived_at,
-            cycle.get_start_ts(),
+            cycle.get_start_utc_ts(),
             cycle.chamber_id,
             cycle.main_instrument.id,
             instrument_id,
@@ -2046,7 +2045,7 @@ fn execute_insert(
         let instrument_id = &key.id;
 
         let inserts = stmt.execute(params![
-            cycle.get_start_ts(),
+            cycle.get_start_utc_ts(),
             cycle.chamber_id,
             cycle.main_instrument.id,
             instrument_id,
@@ -2165,7 +2164,7 @@ fn execute_update(
         }
 
         let inserts = stmt.execute(params![
-            cycle.get_start_ts(),
+            cycle.get_start_utc_ts(),
             cycle.chamber_id,
             cycle.main_instrument.id,
             cycle.instrument.id,
@@ -2270,7 +2269,7 @@ pub async fn load_cycles(
     let result = task::spawn_blocking(move || {
         // This closure is sync and runs on a blocking thread
         let conn_guard = conn.lock().expect("DB mutex poisoned");
-        load_cycles_sync(&conn_guard, &project, start, end, progress_sender)
+        load_cycles_sync(&conn_guard, &project, start.timestamp(), end.timestamp(), progress_sender)
     })
     .await;
 
@@ -2285,15 +2284,13 @@ pub async fn load_cycles(
 pub fn load_cycles_sync(
     conn: &Connection,
     project: &Project,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
+    start: i64,
+    end: i64,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Cycle>, AppError> {
     println!("loading cycles");
     let mut date: Option<String> = None;
-    let start_ts = start.timestamp();
-    let end_ts = end.timestamp();
-    let gas_data = query_gas2(conn, start_ts, end_ts, project.to_owned())?;
+    let gas_data = query_gas2(conn, start, end, project.to_owned())?;
     let chamber_metadata = query_chambers(conn, project.id.unwrap())?;
     let instruments = get_instruments_by_project_map(conn, project.id.unwrap())?;
     let mut stmt = conn.prepare(
@@ -2323,14 +2320,18 @@ pub fn load_cycles_sync(
     let column_index: FastMap<String, usize> =
         column_names.iter().enumerate().map(|(i, name)| (name.clone(), i)).collect();
     let mut serials: HashSet<String> = HashSet::new();
-
+    let utc_start = chrono::DateTime::<Utc>::from_timestamp(start, 0).unwrap();
+    let utc_end = chrono::DateTime::<Utc>::from_timestamp(end, 0).unwrap();
+    let local_start = utc_start.with_timezone(&project.tz);
+    let local_end = utc_end.with_timezone(&project.tz);
+    let date_str = local_start.format("%Y-%m-%d").to_string();
     println!(
         "Running query for project_id={}, start={}, end={}",
         project.id.unwrap(),
-        start.with_timezone(&project.tz),
-        end.with_timezone(&project.tz),
+        local_start,
+        local_end,
     );
-    let mut rows = stmt.query(params![project.id.unwrap(), start_ts, end_ts])?;
+    let mut rows = stmt.query(params![project.id.unwrap(), start, end])?;
 
     while let Some(row) = rows.next()? {
         let deadband = row.get(*column_index.get("deadband").unwrap())?;
@@ -2381,9 +2382,12 @@ pub fn load_cycles_sync(
         let main_gas = GasType::from_int(main_gas_i).unwrap();
         let gas_i = row.get(*column_index.get("gas").unwrap())?;
         let gas = GasType::from_int(gas_i).unwrap();
-        let utc_start = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
-        let start_time = utc_start.with_timezone(&project.tz);
-        let day = start_time.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
+        // let utc_start = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+        let utc_start = start_timestamp;
+        let utc_dt = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
+        let start_local = utc_dt.with_timezone(&project.tz);
+        println!("{}", start_local);
+        let day = utc_dt.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
         if let Some(prev_date) = date.clone() {
             if prev_date != day {
                 progress_sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
@@ -2406,7 +2410,7 @@ pub fn load_cycles_sync(
         let snow_depth_m: f64 = row.get(*column_index.get("snow_depth_m").unwrap())?;
         chamber.set_snow_height(snow_depth_m);
 
-        let end_time = start_time + TimeDelta::seconds(end_offset);
+        let end_time = utc_start + end_offset;
 
         let error_code_u16: u16 = row.get(*column_index.get("error_code").unwrap())?;
         let error_code = ErrorMask::from_u16(error_code_u16);
@@ -2435,9 +2439,9 @@ pub fn load_cycles_sync(
         let t0_concentration = FastMap::default();
         let measurement_r2 = FastMap::default();
         let measurement_range_start =
-            start_time.timestamp() as f64 + close_offset as f64 + close_lag_s + open_lag_s;
+            utc_start as f64 + close_offset as f64 + close_lag_s + open_lag_s;
         let measurement_range_end =
-            start_time.timestamp() as f64 + open_offset as f64 + close_lag_s + open_lag_s;
+            utc_start as f64 + open_offset as f64 + close_lag_s + open_lag_s;
 
         let mut gas_channels = FastMap::default();
         for (_, instrument) in instruments.clone() {
@@ -2477,7 +2481,7 @@ pub fn load_cycles_sync(
                 id: Some(instrument_id),
             };
             let timing = CycleTiming::new_from_fields(
-                start_time,
+                start_timestamp,
                 close_offset,
                 open_offset,
                 end_offset,
@@ -2529,13 +2533,13 @@ pub fn load_cycles_sync(
                 timing,
             });
             if let Some(g_values) = gas_data_day.gas.get(&gas_key) {
-                let start_target = start_time.timestamp() + start_lag_s as i64;
-                let end_target = end_time.timestamp() + end_lag_s as i64;
+                let start_target = utc_start + start_lag_s as i64;
+                let end_target = end_time + end_lag_s as i64;
 
                 let matching_indices: Vec<usize> = dt_values
                     .iter()
                     .enumerate()
-                    .filter(|(_, &t)| t.timestamp() >= start_target && t.timestamp() < end_target)
+                    .filter(|(_, &t)| t >= start_target && t < end_target)
                     .map(|(i, _)| i)
                     .collect();
                 let (meas_dt, meas_vals) = filter_data_in_range(
@@ -2560,7 +2564,7 @@ pub fn load_cycles_sync(
                 let gas_slice: Vec<Option<f64>> =
                     matching_indices.iter().filter_map(|&i| g_values.get(i).copied()).collect();
                 let dt_slice: Vec<f64> =
-                    matching_indices.iter().map(|&i| dt_values[i].timestamp() as f64).collect();
+                    matching_indices.iter().map(|&i| dt_values[i] as f64).collect();
 
                 if meas_vals.is_empty() {
                     continue;
@@ -2569,9 +2573,10 @@ pub fn load_cycles_sync(
                 let target = dt_values
                     .iter()
                     .enumerate()
-                    .find(|(_, &t)| t.timestamp() as f64 >= measurement_range_start)
+                    .find(|(_, &t)| t as f64 >= measurement_range_start)
                     .map(|(i, _)| i);
 
+                println!("load: {:?} {:?}", dt_slice.first(), gas_slice.first());
                 cycle.set_dt_v(instrument_id, &dt_slice);
 
                 cycle.gas_v.insert(gas_key, gas_slice.clone());
@@ -2817,11 +2822,7 @@ pub fn load_cycles_sync(
     let mut cycles: Vec<Cycle> = cycle_map.into_values().collect();
     cycles.sort_by_key(|c| c.get_start_ts());
     if cycles.is_empty() {
-        let msg = format!(
-            "No cycles found between {} and {}",
-            start.with_timezone(&project.tz),
-            end.with_timezone(&project.tz)
-        );
+        let msg = format!("No cycles found between {} and {}", local_start, local_end,);
         return Err(AppError::NoRows(msg));
     }
 
@@ -2829,7 +2830,7 @@ pub fn load_cycles_sync(
 }
 
 fn filter_data_in_range(
-    datetimes: &[DateTime<Tz>],
+    datetimes: &[i64],
     values: &[Option<f64>],
     range_start: f64,
     range_end: f64,
@@ -2840,10 +2841,10 @@ fn filter_data_in_range(
         .iter()
         .zip(values.iter())
         .filter(|(dt, _)| {
-            let t = dt.timestamp() as f64;
+            let t = **dt as f64;
             t >= range_start && t <= range_end
         })
-        .map(|(dt, &v)| (dt.timestamp() as f64, v))
+        .map(|(dt, &v)| (*dt as f64, v))
         .unzip()
 }
 fn filter_diag_data(
@@ -2997,7 +2998,8 @@ where
     for (chamber, start, close, open, end, snow_depth, id, project_id, instrument_id) in
         timev.iter()
     {
-        let day = start.format("%Y-%m-%d").to_string();
+        let dt_utc = DateTime::<Utc>::from_timestamp(*start, 0).unwrap();
+        let day = dt_utc.format("%Y-%m-%d").to_string();
 
         let mut cycle = CycleBuilder::new()
             .chamber_id(chamber.to_owned())
@@ -3023,14 +3025,16 @@ where
         // Iterate only the serials that actually exist that day
         for (ser, datetimes) in &cur_data.datetime {
             // Skip serials that don’t cover the start time
-            if datetimes.is_empty() || *start < datetimes[0] || *start > *datetimes.last().unwrap()
+            if datetimes.is_empty()
+                || start < &datetimes.first().unwrap()
+                || start > datetimes.last().unwrap()
             {
                 continue;
             }
 
             // Use binary search instead of linear find to align start index exactly
             // (avoids the equality “hack” later).
-            let si_idx = match datetimes.binary_search(start) {
+            let si_idx = match datetimes.binary_search(&start) {
                 Ok(i) => i,
                 Err(i) => {
                     // first >= start; if start isn’t exactly present, we still align to the window
@@ -3041,7 +3045,7 @@ where
                 },
             };
 
-            let si_time = datetimes[si_idx].timestamp();
+            let si_time = datetimes[si_idx];
             let ei_time = si_time + *end;
 
             // Find end index (first index with ts >= ei_time). This emulates
@@ -3050,7 +3054,7 @@ where
             let mut hi = datetimes.len();
             while lo < hi {
                 let mid = (lo + hi) / 2;
-                if datetimes[mid].timestamp() < ei_time {
+                if datetimes[mid] < ei_time {
                     lo = mid + 1;
                 } else {
                     hi = mid;
@@ -3066,10 +3070,8 @@ where
             let idx_range = si_idx..end_idx;
 
             // Timestamp vector (keep as i64 where possible; only cast when storing if required)
-            let dt_slice: Vec<f64> = datetimes[idx_range.clone()]
-                .iter()
-                .map(|t: &DateTime<_>| t.timestamp() as f64)
-                .collect();
+            let dt_slice: Vec<f64> =
+                datetimes[idx_range.clone()].iter().map(|t| *t as f64).collect();
 
             // If you still want to enforce exact start alignment, compare to seconds (no FP issues)
             if cycle.get_start_ts() != si_time {
@@ -3158,10 +3160,10 @@ where
             cycle.main_gas = project.main_gas.unwrap();
             cycle.main_instrument = project.instrument.clone();
 
-            let target = (*start + chrono::TimeDelta::seconds(*close)).timestamp();
+            let target = *start + *close;
 
             // Meteo
-            let (temp, pressure) = meteo_data.get_nearest(target).unwrap_or((10.0, 1000.0));
+            let (temp, pressure) = meteo_data.get_nearest(target).unwrap_or((10.0, 980.0));
             cycle.air_temperature = temp;
             cycle.air_pressure = pressure;
 

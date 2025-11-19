@@ -66,8 +66,8 @@ impl ValidationApp {
                         Ok(conn) => load_cycles_sync(
                             &conn,
                             &project,
-                            start_date.to_utc(),
-                            end_date.to_utc(),
+                            start_date.timestamp(),
+                            end_date.timestamp(),
                             progress_sender.clone(),
                         ),
 

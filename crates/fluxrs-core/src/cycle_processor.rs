@@ -16,6 +16,7 @@ use crate::processevent::{
 };
 use crate::project::Project;
 
+use chrono::{DateTime, Utc};
 use std::collections::VecDeque;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -78,7 +79,8 @@ impl Processor {
                 // Build a lightweight map of ARC references (no deep clone)
                 let mut chunk_gas_data = HashMap::new();
                 for dt in &chunk.start_time {
-                    let date_str = dt.format("%Y-%m-%d").to_string();
+                    let dt_utc = DateTime::<Utc>::from_timestamp(*dt, 0).unwrap();
+                    let date_str = dt_utc.format("%Y-%m-%d").to_string();
                     if let Some(data) = gas_data_arc.get(&date_str) {
                         chunk_gas_data.insert(date_str, Arc::clone(data)); // bump refcount only
                     }

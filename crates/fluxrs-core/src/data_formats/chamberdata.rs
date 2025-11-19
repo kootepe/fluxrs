@@ -272,7 +272,8 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
     path: P,
 ) -> Result<HashMap<String, ChamberShape>, Box<dyn Error>> {
     let content = ensure_utf8(&path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
+    let mut rdr =
+        csv::ReaderBuilder::new().has_headers(true).flexible(true).from_reader(content.as_bytes());
 
     let mut chambers = HashMap::new();
 
