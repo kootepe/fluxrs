@@ -1,5 +1,8 @@
 # Release Notes
 
+## v0.4.1
+- Added sanity checks in linear regression and OLS for robust linear
+
 ## v0.4.0
 - Performance improvements by removing clones from structs are now copy
 - Add chamber metadata pushing to cmd mode
