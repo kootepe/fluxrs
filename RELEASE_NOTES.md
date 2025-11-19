@@ -1,6 +1,6 @@
 # Release Notes
 
-# v0.4.0
+## v0.4.0
 - Performance improvements by removing clones from structs are now copy
 - Add chamber metadata pushing to cmd mode
 - Fixed a bug in the linear model, y deviation was being calculated by using
