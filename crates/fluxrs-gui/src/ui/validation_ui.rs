@@ -2972,6 +2972,12 @@ impl ValidationApp {
                         ui.label("Chamber height:");
                         ui.label(format!("{}", cycle.chamber_height));
                         ui.end_row();
+                        ui.label("Chamber volume:");
+                        ui.label(format!("{} cm3", cycle.chamber.volume_m3() * 1e+6));
+                        ui.end_row();
+                        ui.label("Chamber area:");
+                        ui.label(format!("{} cm2", cycle.chamber.area_m2() * 1e+4));
+                        ui.end_row();
                         ui.label("Chamber dimensions:");
                         ui.label(format!("{}", cycle.chamber));
                         ui.end_row();
@@ -3079,6 +3085,7 @@ impl ValidationApp {
                             ui.label("Sigma");
                             ui.label("RMSE");
                             ui.label("AIC");
+                            ui.label("c0");
                             ui.end_row();
 
                             for gas in &self.enabled_gases {
@@ -3106,6 +3113,10 @@ impl ValidationApp {
                                 let aic = cycle
                                     .get_aic(gas, *model)
                                     .map_or("N/A".to_string(), |v| format!("{:.6}", v));
+                                let c0 = cycle
+                                    .t0_concentration
+                                    .get(gas)
+                                    .map_or("N/A".to_string(), |v| format!("{:.6}", v));
 
                                 ui.label(format!("{}", gas.gas_type));
                                 ui.label(flux);
@@ -3114,6 +3125,7 @@ impl ValidationApp {
                                 ui.label(sigma);
                                 ui.label(rmse);
                                 ui.label(aic);
+                                ui.label(c0);
                                 ui.end_row();
                             }
                         },
