@@ -1,7 +1,19 @@
 # Release Notes
 
-# Next release
+# v0.4.0
 - Performance improvements by removing clones from structs are now copy
+- Add chamber metadata pushing to cmd mode
+- Fixed a bug in the linear model, y deviation was being calculated by using
+x_avg
+  - There since 0.2.0
+- Added ExponentialFlux and ExpReg for exponential flux calculation
+- Further optimizing by removing doubled function runs in validation
+- Remove model specific calc ranges from db
+  - Calc range is the same for each model, it can only wary per gas
+- Residual plots were missing proper y axis titles
+- All data is also now processed as unix time and displayed in the selected
+timezone
+- Add chamber volume and area, and concentration at t0 to details window
 
 ## v0.3.1
 **BREAKING CHANGES**
