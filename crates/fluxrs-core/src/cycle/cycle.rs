@@ -3026,7 +3026,7 @@ where
         for (ser, datetimes) in &cur_data.datetime {
             // Skip serials that don’t cover the start time
             if datetimes.is_empty()
-                || start < &datetimes.first().unwrap()
+                || start < datetimes.first().unwrap()
                 || start > datetimes.last().unwrap()
             {
                 continue;
@@ -3034,7 +3034,7 @@ where
 
             // Use binary search instead of linear find to align start index exactly
             // (avoids the equality “hack” later).
-            let si_idx = match datetimes.binary_search(&start) {
+            let si_idx = match datetimes.binary_search(start) {
                 Ok(i) => i,
                 Err(i) => {
                     // first >= start; if start isn’t exactly present, we still align to the window
