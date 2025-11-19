@@ -28,6 +28,9 @@ pub enum FluxUnit {
     MmolM2H,
     MgM2S,
     MgM2H,
+
+    NmolM2S,
+    NmolM2H,
 }
 
 impl std::fmt::Display for FluxUnit {
@@ -39,6 +42,8 @@ impl std::fmt::Display for FluxUnit {
             FluxUnit::MmolM2H => write!(f, "mmol/m2/h"),
             FluxUnit::MgM2S => write!(f, "mg/m2/s"),
             FluxUnit::MgM2H => write!(f, "mg/m2/h"),
+            FluxUnit::NmolM2S => write!(f, "nmol/m2/s"),
+            FluxUnit::NmolM2H => write!(f, "nmol/m2/h"),
         }
     }
 }
@@ -54,36 +59,44 @@ impl FromStr for FluxUnit {
             "mmol/m2/h" => Ok(FluxUnit::MmolM2H),
             "mg/m2/s" => Ok(FluxUnit::MgM2S),
             "mg/m2/h" => Ok(FluxUnit::MgM2H),
+            "nmol/m2/s" => Ok(FluxUnit::NmolM2S),
+            "nmol/m2/h" => Ok(FluxUnit::NmolM2H),
+
             other => Err(ParseFluxUnitError(format!("Invalid unit: {other}"))),
         }
     }
 }
+
 impl FluxUnit {
     pub fn all() -> &'static [FluxUnit] {
         use FluxUnit::*;
-        &[UmolM2S, UmolM2H, MmolM2S, MmolM2H, MgM2S, MgM2H]
+        &[UmolM2S, UmolM2H, MmolM2S, MmolM2H, MgM2S, MgM2H, NmolM2S, NmolM2H]
     }
+
     pub fn from_umol_m2_s(&self, value_umol_m2_s: f64, gas: GasType) -> f64 {
         match self {
-            // base unit, unchanged
+            // nmol/m²/s = µmol * 1000
+            FluxUnit::NmolM2S => value_umol_m2_s * 1000.0,
+
+            // nmol/m²/h = µmol * 1000 * 3600
+            FluxUnit::NmolM2H => value_umol_m2_s * 1000.0 * 3600.0,
+
+            // base
             FluxUnit::UmolM2S => value_umol_m2_s,
 
-            // µmol/m²/h = multiply by 3600 (seconds → hours)
+            // µmol → hours
             FluxUnit::UmolM2H => value_umol_m2_s * 3600.0,
 
-            // mmol/m²/s = divide by 1000
+            // mmol
             FluxUnit::MmolM2S => value_umol_m2_s / 1000.0,
-
-            // mmol/m²/h = divide by 1000, then multiply by 3600
             FluxUnit::MmolM2H => value_umol_m2_s / 1000.0 * 3600.0,
 
-            // mg/m²/s = µmol * mol_mass(mg/mmol) / 1000 (to convert µmol→mmol)
+            // mg
             FluxUnit::MgM2S => value_umol_m2_s * gas.mol_mass() / 1000.0,
-
-            // mg/m²/h = same as above, * 3600 for seconds → hours
             FluxUnit::MgM2H => value_umol_m2_s * gas.mol_mass() / 1000.0 * 3600.0,
         }
     }
+
     pub fn suffix(&self) -> &'static str {
         match self {
             FluxUnit::UmolM2S => "umol_m2_s",
@@ -92,6 +105,8 @@ impl FluxUnit {
             FluxUnit::MmolM2H => "mmol_m2_h",
             FluxUnit::MgM2S => "mg_m2_s",
             FluxUnit::MgM2H => "mg_m2_h",
+            FluxUnit::NmolM2S => "nmol_m2_s",
+            FluxUnit::NmolM2H => "nmol_m2_h",
         }
     }
 }
