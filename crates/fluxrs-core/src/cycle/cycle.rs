@@ -1698,7 +1698,7 @@ impl CycleBuilder {
         let end = self.end_offset.ok_or("End offset is required")?;
         // FIX: snow_depth is unused
         let snow_depth_m = self.snow_depth.ok_or("Snow depth is required")?;
-        let instrument_id = self.instrument_id.ok_or("Instrument id is required")?;
+        let _ = self.instrument_id.ok_or("Instrument id is required")?;
         let project = self.project.ok_or("Project is required")?;
         let min_calc_len = self.min_calc_len.ok_or("Project is required")?;
 
