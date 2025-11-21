@@ -2983,7 +2983,12 @@ impl ValidationApp {
                         ui.label(format!("{}", cycle.chamber));
                         ui.end_row();
                         ui.label("Start Time:");
-                        ui.label(cycle.get_start().to_string());
+                        ui.label(
+                            DateTime::from_timestamp(cycle.get_start() as i64, 0)
+                                .unwrap()
+                                .with_timezone(&self.selected_project.as_ref().unwrap().tz)
+                                .to_string(),
+                        );
                         ui.end_row();
                         ui.label("Epoch:");
                         ui.label(cycle.get_start_ts().to_string());
