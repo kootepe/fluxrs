@@ -1,5 +1,11 @@
 # Release Notes
 
+## Next release
+- Fix bad SQL in project loading
+  - instrument was being linked via the wrong id
+- Minor optimization from remove unnecessary db queries
+- Add cycle start timestamp to display window
+
 ## v0.4.1
 - Added sanity checks in linear regression and OLS for robust linear
 - Better error handling for cycle processing
