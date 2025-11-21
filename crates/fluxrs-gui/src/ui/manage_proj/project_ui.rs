@@ -288,7 +288,7 @@ impl ProjectApp {
                         p.mode,
                         p.tz
                     FROM projects p
-                    LEFT JOIN instruments i ON i.project_link = p.id
+                    LEFT JOIN instruments i ON p.main_instrument_link = i.id
                     WHERE p.current = 1",
                 [],
                 |row| {
