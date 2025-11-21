@@ -213,8 +213,6 @@ pub fn query_gas2(
             },
         };
         let available_gases = instrument_type.available_gases();
-        let instrument =
-            Instrument { model: instrument_type, serial: serial.clone(), id: instrument_id };
 
         let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
             header: StringRecord::new(),

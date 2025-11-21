@@ -9,6 +9,7 @@ use rusqlite::Connection;
 impl ValidationApp {
     pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
         self.handle_progress_messages();
+
         if self.task_done_receiver.try_recv().is_ok() {
             self.init_in_progress = false;
             self.init_enabled = true;
