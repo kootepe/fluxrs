@@ -1,6 +1,6 @@
 # Release Notes
 
-## Next release
+## v0.4.2
 - Fix bad SQL in project loading
   - instrument was being linked via the wrong id
 - Minor optimization from remove unnecessary db queries
