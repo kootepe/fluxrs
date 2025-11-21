@@ -2576,7 +2576,6 @@ pub fn load_cycles_sync(
                     .find(|(_, &t)| t as f64 >= measurement_range_start)
                     .map(|(i, _)| i);
 
-                println!("load: {:?} {:?}", dt_slice.first(), gas_slice.first());
                 cycle.set_dt_v(instrument_id, &dt_slice);
 
                 cycle.gas_v.insert(gas_key, gas_slice.clone());
@@ -3093,25 +3092,6 @@ where
             //     serial: *ser,
             //     id: None,
             // };
-            for item in &cur_data.instruments {
-                if item.id.unwrap() == *ser {
-                    cycle.instrument = item.clone();
-                }
-            }
-
-            let tx = Connection::open("fluxrs.db").expect("Failed to open database");
-            let instrument_id = get_instrument_id_by_project_and_serial(
-                &tx,
-                project.id.unwrap(),
-                &cycle.instrument.serial,
-            )
-            .expect("Failure");
-
-            cycle.instrument.id = instrument_id;
-            // let cfg = cycle.instrument.model.get_config();
-            // for ch in cfg.channels {
-            //     for ins in cur_data.instruments {}
-            // }
 
             // Gas values for this serial only
             for (key, gas_values) in &cur_data.gas {
