@@ -55,11 +55,12 @@ impl fmt::Display for Project {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{}, {}, {}, {}, {}, {}, {} {}",
+            "{}, {}, {}, {}, {}, {}, {}, {} {}",
             self.id.unwrap_or(96969696),
             self.name,
             self.instrument.model,
             self.instrument.serial,
+            self.instrument.id.map_or("None".to_string(), |id| id.to_string()),
             self.main_gas
                 .as_ref()
                 .map(|g| format!("{:?}", g))
