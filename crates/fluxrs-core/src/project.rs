@@ -56,7 +56,7 @@ impl fmt::Display for Project {
         write!(
             f,
             "{}, {}, {}, {}, {}, {}, {}, {} {}",
-            self.id.unwrap_or(96969696),
+            self.id.map_or("None".to_string(), |id| id.to_string()),
             self.name,
             self.instrument.model,
             self.instrument.serial,
