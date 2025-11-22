@@ -6,6 +6,7 @@ pub mod load_ui;
 pub mod main_app;
 pub mod main_frame;
 pub mod manage_proj;
+pub mod plot_width;
 pub mod plotting_ui;
 pub mod recalc;
 pub mod table_ui;
