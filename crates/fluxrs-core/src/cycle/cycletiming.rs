@@ -142,7 +142,6 @@ impl CycleTiming {
         self.get_start_ts() + self.end_offset
     }
     pub fn get_start_utc_ts(&self) -> i64 {
-        println!("{}", self.start_time);
         self.start_time
     }
     pub fn get_end_utc_ts(&self) -> i64 {

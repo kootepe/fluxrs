@@ -242,9 +242,6 @@ pub fn query_gas2(
             let gas_vec = entry.gas.entry(gas_key).or_default();
 
             if let Some(gas_val) = gas_values.get(idx).copied().flatten() {
-                if asd < 100 && idx == 1 {
-                    println!("{} {}", dt_unix, gas_val);
-                }
                 gas_vec.push(Some(gas_val));
             } else {
                 gas_vec.push(None);
