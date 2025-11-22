@@ -732,6 +732,48 @@ impl Cycle {
         }
     }
 
+    // alternative that gets the max only from points where diag is 0
+    pub fn _calculate_max_y(&mut self) {
+        for (key, gas_v) in &self.gas_v {
+            if let Some(diag_vec) = self.diag_v.get(&key.id) {
+                let max_value = gas_v
+                    .iter()
+                    .zip(diag_vec.iter())
+                    .filter_map(|(&gas_val, &diag_val)| {
+                        if diag_val == 0 {
+                            gas_val // Option<f64> passes through
+                        } else {
+                            None
+                        }
+                    })
+                    .filter(|v| !v.is_nan())
+                    .fold(f64::NEG_INFINITY, f64::max);
+
+                self.max_y.insert(*key, max_value);
+            }
+        }
+    }
+    // alternative that gets the min only from points where diag is 0
+    pub fn _calculate_min_y(&mut self) {
+        for (key, gas_v) in &self.gas_v {
+            if let Some(diag_vec) = self.diag_v.get(&key.id) {
+                let min_value = gas_v
+                    .iter()
+                    .zip(diag_vec.iter())
+                    .filter_map(|(&gas_val, &diag_val)| {
+                        if diag_val == 0 {
+                            gas_val // Option<f64> passes through
+                        } else {
+                            None
+                        }
+                    })
+                    .filter(|v| !v.is_nan())
+                    .fold(f64::NEG_INFINITY, f64::min);
+
+                self.min_y.insert(*key, min_value);
+            }
+        }
+    }
     pub fn calculate_calc_r(&mut self, key: &GasKey) {
         // let dt = self.get_calc_dt2(&key);
         // let gas = self.get_calc_gas_v(key);
@@ -2386,7 +2428,6 @@ pub fn load_cycles_sync(
         let utc_start = start_timestamp;
         let utc_dt = chrono::DateTime::from_timestamp(start_timestamp, 0).unwrap();
         let start_local = utc_dt.with_timezone(&project.tz);
-        println!("{}", start_local);
         let day = utc_dt.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
         if let Some(prev_date) = date.clone() {
             if prev_date != day {
@@ -2589,6 +2630,8 @@ pub fn load_cycles_sync(
                     // println!("pushed : {:?}", gas_key);
                 }
 
+                // cycle.calculate_max_y();
+                // cycle.calculate_min_y();
                 cycle.max_y.insert(gas_key, calculate_max_y_from_vec(&meas_vals));
                 cycle.min_y.insert(gas_key, calculate_min_y_from_vec(&meas_vals));
                 cycle.measurement_r2.insert(gas_key, m_r2);
@@ -2628,7 +2671,7 @@ pub fn load_cycles_sync(
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.set_calc_start(&gk, calc_range_start);
-                cycle.set_calc_end(&gk, calc_range_end + 1.);
+                cycle.set_calc_end(&gk, calc_range_end);
                 let lin = LinearFlux {
                     fit_id: "linear".to_string(),
                     gas_channel,
@@ -2685,7 +2728,7 @@ pub fn load_cycles_sync(
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
 
                 cycle.set_calc_start(&gk, calc_range_start);
-                cycle.set_calc_end(&gk, calc_range_end + 1.);
+                cycle.set_calc_end(&gk, calc_range_end);
 
                 let exp = ExponentialFlux {
                     fit_id: "exp".to_string(),
@@ -2741,7 +2784,7 @@ pub fn load_cycles_sync(
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.set_calc_start(&gk, calc_range_start);
-                cycle.set_calc_end(&gk, calc_range_end + 1.);
+                cycle.set_calc_end(&gk, calc_range_end);
                 let roblin = RobustFlux {
                     fit_id: "roblin".to_string(),
                     gas_channel,
@@ -2795,7 +2838,7 @@ pub fn load_cycles_sync(
                 let key: GasKey = GasKey::from((&gas_type, &instrument_id));
                 let gas_channel = gas_channels.get(&key).unwrap().clone();
                 cycle.set_calc_start(&gk, calc_range_start);
-                cycle.set_calc_end(&gk, calc_range_end + 1.);
+                cycle.set_calc_end(&gk, calc_range_end);
                 let poly = PolyFlux {
                     fit_id: "poly".to_string(),
                     gas_channel,
