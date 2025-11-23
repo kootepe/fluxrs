@@ -498,7 +498,11 @@ impl Cycle {
     }
 
     pub fn increment_open_lag(&mut self, delta: f64) {
-        self.timing.increment_open_lag(delta);
+        if (self.get_adjusted_open() + delta) <= self.get_end()
+            && (self.get_adjusted_close() + delta) >= self.get_start()
+        {
+            self.timing.increment_open_lag(delta);
+        }
         self.adjust_calc_range_all();
         self.check_errors();
         self.calculate_measurement_rs();
@@ -507,7 +511,11 @@ impl Cycle {
     }
 
     pub fn increment_close_lag(&mut self, delta: f64) {
-        self.timing.increment_close_lag(delta);
+        if (self.get_adjusted_close() + delta) >= self.get_start()
+            && (self.get_adjusted_open() + delta) <= self.get_end()
+        {
+            self.timing.increment_close_lag(delta);
+        }
         self.adjust_calc_range_all();
         self.check_errors();
         self.calculate_measurement_rs();

@@ -499,14 +499,14 @@ impl ValidationApp {
                     let delta = 1.0;
 
                     match self.zoom_to_measurement {
+                        0 => {
+                            self.increment_open_lag(delta);
+                        },
                         1 => {
                             self.increment_open_lag(delta);
                         },
                         2 => {
                             self.increment_close_lag(delta);
-                        },
-                        0 => {
-                            self.increment_open_lag(delta);
                         },
                         _ => {},
                     }
