@@ -1,4 +1,5 @@
 pub mod dl_ui;
+pub mod enable_plots;
 pub mod file_ui;
 pub mod gasmetrics;
 pub mod init_ui;
