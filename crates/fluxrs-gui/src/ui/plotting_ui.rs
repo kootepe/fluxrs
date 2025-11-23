@@ -433,16 +433,16 @@ impl ValidationApp {
                     );
                 }
 
-                if self.show_linfit {
+                if self.show_fits.show_linfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::Linear);
                 }
-                if self.show_roblinfit {
+                if self.show_fits.show_roblinfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::RobLin);
                 }
-                if self.show_polyfit {
+                if self.show_fits.show_polyfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::Poly);
                 }
-                if self.show_expfit {
+                if self.show_fits.show_expfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::Exponential);
                 }
 

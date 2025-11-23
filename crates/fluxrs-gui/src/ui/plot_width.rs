@@ -1,15 +1,20 @@
 pub struct PlotAdjust {
-    // TODO: Either make the fields tuples or make a struct for each plot width
+    // TODO: Either make the fields tuples or make a struct for each plot
     pub lag_plot_w: f32,
     pub lag_plot_h: f32,
+
     pub gas_plot_w: f32,
     pub gas_plot_h: f32,
+
     pub flux_plot_w: f32,
     pub flux_plot_h: f32,
+
     pub measurement_r_plot_w: f32,
     pub measurement_r_plot_h: f32,
+
     pub calc_r_plot_w: f32,
     pub calc_r_plot_h: f32,
+
     pub conc_t0_plot_w: f32,
     pub conc_t0_plot_h: f32,
 }

@@ -1,5 +1,6 @@
 use crate::appview::AppState;
 use crate::ui::enable_plots::EnabledPlots;
+use crate::ui::plot_fits::EnableFit;
 use crate::ui::plot_width::PlotAdjust;
 use crate::ui::plotting_ui::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
@@ -95,7 +96,6 @@ pub struct ValidationApp {
     pub load_result: LoadResult,
     pub task_done_sender: Sender<()>,
     pub task_done_receiver: Receiver<()>,
-
     pub plot_enabler: EnabledPlots,
 
     pub p_val_thresh: f32,
@@ -126,10 +126,7 @@ pub struct ValidationApp {
     pub show_bad: bool,
     pub keep_calc_constant_deadband: bool,
     pub selected_project: Option<Project>,
-    pub show_linfit: bool,
-    pub show_polyfit: bool,
-    pub show_roblinfit: bool,
-    pub show_expfit: bool,
+    pub show_fits: EnableFit,
     pub calc_area_color: Color32,
     pub calc_area_adjust_color: Color32,
     pub calc_area_stroke_color: Color32,
@@ -198,10 +195,7 @@ impl Default for ValidationApp {
             show_valids: true,
             show_bad: false,
             selected_project: None,
-            show_linfit: true,
-            show_polyfit: true,
-            show_roblinfit: true,
-            show_expfit: true,
+            show_fits: EnableFit::new(),
             keep_calc_constant_deadband: true,
             calc_area_color: Color32::BLACK,
             calc_area_adjust_color: Color32::BLACK,
