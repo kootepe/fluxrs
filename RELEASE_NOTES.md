@@ -1,12 +1,15 @@
 # Release Notes
 
+## 0.4.4
+- Temperature and pressure are now looked for independently
+  - before, they had share the same timestamp
+  - now looks for nearest non-nan value within 30minutes
+
 ## v0.4.3
 - Cleaning up the validation app struct
   - move plot toggling to separate struct
   - move model fit toggling to separate struct
-
 - Lag times can't be adjusted beyond the plot bounds anymore
-
 - Fixed parsing of null values in meteodata
   - Meteodata now knows if it's a default value
     - Added pressure_source and temperature_source columns
