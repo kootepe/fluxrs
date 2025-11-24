@@ -1,7 +1,9 @@
 use crate::cycle::cycle::{update_fluxes, Cycle};
 use crate::data_formats::chamberdata::ChamberShape;
 use crate::data_formats::heightdata::HeightData;
-use crate::data_formats::meteodata::{MeteoData, MeteoPoint, MeteoSource};
+use crate::data_formats::meteodata::{
+    MeteoData, MeteoPoint, MeteoSource, DEFAULT_PRESSURE, DEFAULT_TEMP,
+};
 use crate::processevent::{ProcessEvent, ProgressEvent};
 use crate::project::Project;
 
@@ -56,16 +58,27 @@ impl Recalcer {
 
             let nearest = self.data.meteo.get_nearest(c.get_start_ts());
 
-            let (temp_point, press_point) = nearest.unwrap_or((
-                MeteoPoint { value: Some(10.0), source: MeteoSource::Default },
-                MeteoPoint { value: Some(980.0), source: MeteoSource::Default },
+            let (mut temp_point, mut press_point) = nearest.unwrap_or((
+                MeteoPoint {
+                    value: Some(DEFAULT_TEMP),
+                    source: MeteoSource::Default,
+                    distance_from_target: Some(0), // Default originates at ts=0 away
+                },
+                MeteoPoint {
+                    value: Some(DEFAULT_PRESSURE),
+                    source: MeteoSource::Default,
+                    distance_from_target: Some(0),
+                },
             ));
 
-            let temp = temp_point.value.unwrap_or(10.0);
-            let pressure = press_point.value.unwrap_or(980.0);
+            // Make sure Missing never leaks into pipeline:
+            temp_point = temp_point.or_default(DEFAULT_TEMP);
+            press_point = press_point.or_default(DEFAULT_PRESSURE);
 
+            // Assign final values to cycle
             c.air_temperature = temp_point;
             c.air_pressure = press_point;
+
             if let Some(chamber) = self.data.chambers.get(&c.chamber_id) {
                 c.chamber = *chamber
             }
