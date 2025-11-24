@@ -1,7 +1,5 @@
 use rusqlite::{Connection, OptionalExtension, Result};
 
-const DB_VERSION: i32 = 2;
-
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
     pub const CHAMBER_ID: usize = 1;
@@ -517,24 +515,42 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     conn.query_row(&sql, [column], |_| Ok(true)).optional().map(|opt| opt.unwrap_or(false))
 }
 
-pub fn migrate_db() -> Result<i32> {
-    let conn = Connection::open("fluxrs.db")?;
-    // user_version is 0 by default
-    let version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
-    let mut migrated = 0;
+pub const DB_VERSION: i32 = 3; // latest schema version
 
+pub fn migrate_db() -> Result<()> {
+    let conn = Connection::open("fluxrs.db")?;
+
+    // user_version is 0 by default in SQLite
+    let mut version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
+    let mut migrated_steps = 0;
+
+    // --- Migration 2: add *_source columns ---
     if version < 2 {
-        let has_pressure_src = column_exists(&conn, "fluxes", "pressure_source")?;
-        if !has_pressure_src {
-            println!("Applying migration: add fluxes.pressure_source");
+        // fluxes.pressure_source
+        let has_pressure_src_fluxes = column_exists(&conn, "fluxes", "pressure_source")?;
+        if !has_pressure_src_fluxes {
+            println!("Applying migration v2: add fluxes.pressure_source");
             conn.execute("ALTER TABLE fluxes ADD COLUMN pressure_source INTEGER;", [])?;
+        }
+
+        // flux_history.pressure_source
+        let has_pressure_src_hist = column_exists(&conn, "flux_history", "pressure_source")?;
+        if !has_pressure_src_hist {
+            println!("Applying migration v2: add flux_history.pressure_source");
             conn.execute("ALTER TABLE flux_history ADD COLUMN pressure_source INTEGER;", [])?;
         }
 
-        let has_temp_src = column_exists(&conn, "fluxes", "temperature_source")?;
-        if !has_temp_src {
-            println!("Applying migration: add fluxes.temperature_source");
+        // fluxes.temperature_source
+        let has_temp_src_fluxes = column_exists(&conn, "fluxes", "temperature_source")?;
+        if !has_temp_src_fluxes {
+            println!("Applying migration v2: add fluxes.temperature_source");
             conn.execute("ALTER TABLE fluxes ADD COLUMN temperature_source INTEGER;", [])?;
+        }
+
+        // flux_history.temperature_source
+        let has_temp_src_hist = column_exists(&conn, "flux_history", "temperature_source")?;
+        if !has_temp_src_hist {
+            println!("Applying migration v2: add flux_history.temperature_source");
             conn.execute("ALTER TABLE flux_history ADD COLUMN temperature_source INTEGER;", [])?;
         }
 
@@ -543,18 +559,18 @@ pub fn migrate_db() -> Result<i32> {
         // Raw     = 0  otherwise
         conn.execute(
             "UPDATE fluxes
-         SET pressure_source = CASE
-             WHEN air_pressure = 980.0 THEN 1
-             ELSE 0
-         END;",
+             SET pressure_source = CASE
+                 WHEN air_pressure = 980.0 THEN 1
+                 ELSE 0
+             END;",
             [],
         )?;
         conn.execute(
             "UPDATE flux_history
-         SET pressure_source = CASE
-             WHEN air_pressure = 980.0 THEN 1
-             ELSE 0
-         END;",
+             SET pressure_source = CASE
+                 WHEN air_pressure = 980.0 THEN 1
+                 ELSE 0
+             END;",
             [],
         )?;
 
@@ -563,26 +579,108 @@ pub fn migrate_db() -> Result<i32> {
         // Raw     = 0  otherwise
         conn.execute(
             "UPDATE fluxes
-         SET temperature_source = CASE
-             WHEN air_temperature = 10.0 THEN 1
-             ELSE 0
-         END;",
+             SET temperature_source = CASE
+                 WHEN air_temperature = 10.0 THEN 1
+                 ELSE 0
+             END;",
             [],
         )?;
         conn.execute(
             "UPDATE flux_history
-         SET temperature_source = CASE
-             WHEN air_temperature = 10.0 THEN 1
-             ELSE 0
-         END;",
+             SET temperature_source = CASE
+                 WHEN air_temperature = 10.0 THEN 1
+                 ELSE 0
+             END;",
             [],
         )?;
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
 
-        migrated = 2;
+        version = 2;
+        migrated_steps += 1;
     }
-    Ok(migrated)
+
+    // --- Migration 3: add *_dist columns ---
+    if version < 3 {
+        // fluxes.pressure_dist
+        let has_pressure_dist_fluxes = column_exists(&conn, "fluxes", "pressure_dist")?;
+        if !has_pressure_dist_fluxes {
+            println!("Applying migration v3: add fluxes.pressure_dist");
+            conn.execute("ALTER TABLE fluxes ADD COLUMN pressure_dist INTEGER;", [])?;
+        }
+
+        // flux_history.pressure_dist
+        let has_pressure_dist_hist = column_exists(&conn, "flux_history", "pressure_dist")?;
+        if !has_pressure_dist_hist {
+            println!("Applying migration v3: add flux_history.pressure_dist");
+            conn.execute("ALTER TABLE flux_history ADD COLUMN pressure_dist INTEGER;", [])?;
+        }
+
+        // fluxes.temperature_dist
+        let has_temp_dist_fluxes = column_exists(&conn, "fluxes", "temperature_dist")?;
+        if !has_temp_dist_fluxes {
+            println!("Applying migration v3: add fluxes.temperature_dist");
+            conn.execute("ALTER TABLE fluxes ADD COLUMN temperature_dist INTEGER;", [])?;
+        }
+
+        // flux_history.temperature_dist
+        let has_temp_dist_hist = column_exists(&conn, "flux_history", "temperature_dist")?;
+        if !has_temp_dist_hist {
+            println!("Applying migration v3: add flux_history.temperature_dist");
+            conn.execute("ALTER TABLE flux_history ADD COLUMN temperature_dist INTEGER;", [])?;
+        }
+
+        // Backfill pressure_dist:
+        // NULL if old default 980.0
+        // 0    otherwise (treated as "0 seconds away")
+        conn.execute(
+            "UPDATE fluxes
+             SET pressure_dist = CASE
+                 WHEN air_pressure = 980.0 THEN NULL
+                 ELSE 0
+             END;",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE flux_history
+             SET pressure_dist = CASE
+                 WHEN air_pressure = 980.0 THEN NULL
+                 ELSE 0
+             END;",
+            [],
+        )?;
+
+        // Backfill temperature_dist:
+        // NULL if old default 10.0
+        // 0    otherwise
+        conn.execute(
+            "UPDATE fluxes
+             SET temperature_dist = CASE
+                 WHEN air_temperature = 10.0 THEN NULL
+                 ELSE 0
+             END;",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE flux_history
+             SET temperature_dist = CASE
+                 WHEN air_temperature = 10.0 THEN NULL
+                 ELSE 0
+             END;",
+            [],
+        )?;
+
+        version = 3;
+        migrated_steps += 1;
+    }
+
+    // Only bump user_version once, at the end, to the *latest* schema version
+    if migrated_steps > 0 {
+        println!("Setting PRAGMA user_version = {}", DB_VERSION);
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+    }
+
+    Ok(())
 }
+
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open("fluxrs.db")?;
     // conn.execute("PRAGMA journal_mode=WAL;", [])?;

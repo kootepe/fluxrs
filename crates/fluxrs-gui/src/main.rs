@@ -72,17 +72,9 @@ fn main() -> eframe::Result {
                 process::exit(1)
             },
         }
-    } else {
-        match fluxes_schema::migrate_db() {
-            Ok(0) => (),
-            Ok(1) => println!("Successfully migrated db tables."),
-            Ok(2) => println!("Successfully added new columns"),
-            Ok(_) => println!("Unknown success code."),
-            Err(e) => {
-                println!("Err:\n {}", e);
-                process::exit(1)
-            },
-        }
+    } else if let Err(e) = fluxes_schema::migrate_db() {
+        eprintln!("Migration failed: {}", e);
+        process::exit(1);
     }
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 {
