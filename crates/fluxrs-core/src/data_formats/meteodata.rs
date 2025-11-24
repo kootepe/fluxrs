@@ -117,75 +117,52 @@ impl MeteoData {
             return None;
         }
 
-        let mut left = 0;
-        let mut right = self.datetime.len() - 1;
+        // (index, diff)
+        let mut best_temp: Option<(usize, i64)> = None;
+        let mut best_press: Option<(usize, i64)> = None;
 
-        while left < right {
-            let mid = (left + right) / 2;
-            match self.datetime[mid].cmp(&target_timestamp) {
-                Ordering::Less => left = mid + 1,
-                Ordering::Greater => {
-                    if mid > 0 {
-                        right = mid - 1;
-                    } else {
-                        break;
-                    }
-                },
-                Ordering::Equal => {
-                    // exact timestamp: preserve original sources
-                    return Some((self.temperature[mid].clone(), self.pressure[mid].clone()));
-                },
+        for (idx, &ts) in self.datetime.iter().enumerate() {
+            let diff = (ts - target_timestamp).abs();
+
+            // respect ±30 minutes window
+            if diff > 1800 {
+                continue;
+            }
+
+            // check temperature at this timestamp
+            let t = &self.temperature[idx];
+            if t.value.is_some() {
+                match best_temp {
+                    None => best_temp = Some((idx, diff)),
+                    Some((_, best_diff)) if diff < best_diff => best_temp = Some((idx, diff)),
+                    _ => {},
+                }
+            }
+
+            // check pressure at this timestamp
+            let p = &self.pressure[idx];
+            if p.value.is_some() {
+                match best_press {
+                    None => best_press = Some((idx, diff)),
+                    Some((_, best_diff)) if diff < best_diff => best_press = Some((idx, diff)),
+                    _ => {},
+                }
             }
         }
 
-        // Now we have "left" as the best candidate index or boundary.
-        match left {
-            0 => {
-                let diff = (self.datetime[0] - target_timestamp).abs();
-                if diff <= 1800 {
-                    // nearest but not necessarily exact -> Interpolated
-                    Some((
-                        Self::make_point_for_nearest(&self.temperature[0]),
-                        Self::make_point_for_nearest(&self.pressure[0]),
-                    ))
-                } else {
-                    None
-                }
-            },
+        // Build result based on what we found
+        match (best_temp, best_press) {
+            (None, None) => None, // nothing usable within window
+            (t_opt, p_opt) => {
+                let temp_point = t_opt
+                    .map(|(i, _)| self.temperature[i].clone())
+                    .unwrap_or(MeteoPoint { value: None, source: MeteoSource::Missing });
 
-            _ if left >= self.datetime.len() => {
-                let diff = (self.datetime[right] - target_timestamp).abs();
-                if diff <= 1800 {
-                    Some((
-                        Self::make_point_for_nearest(&self.temperature[right]),
-                        Self::make_point_for_nearest(&self.pressure[right]),
-                    ))
-                } else {
-                    None
-                }
-            },
+                let press_point = p_opt
+                    .map(|(i, _)| self.pressure[i].clone())
+                    .unwrap_or(MeteoPoint { value: None, source: MeteoSource::Missing });
 
-            _ => {
-                let prev_idx = left - 1;
-                let next_idx = left;
-
-                let prev_diff = (self.datetime[prev_idx] - target_timestamp).abs();
-                let next_diff = (self.datetime[next_idx] - target_timestamp).abs();
-
-                let (nearest_idx, nearest_diff) = if prev_diff <= next_diff {
-                    (prev_idx, prev_diff)
-                } else {
-                    (next_idx, next_diff)
-                };
-
-                if nearest_diff <= 1800 {
-                    Some((
-                        Self::make_point_for_nearest(&self.temperature[nearest_idx]),
-                        Self::make_point_for_nearest(&self.pressure[nearest_idx]),
-                    ))
-                } else {
-                    None
-                }
+                Some((temp_point, press_point))
             },
         }
     }
