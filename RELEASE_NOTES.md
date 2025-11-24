@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.4.3
+- Cleaning up the validation app struct
+  - move plot toggling to separate struct
+  - move model fit toggling to separate struct
+
+- Lag times can't be adjusted beyond the plot bounds anymore
+
+- Fixed parsing of null values in meteodata
+  - Meteodata now knows if it's a default value
+    - Added pressure_source and temperature_source columns
+      - default means it's a default value by the program
+      - raw means it's a data value from db
+    - Added pressure and temperature to cycle details
+      - highlighted as orange when it's a default value
+
+
 ## v0.4.2
 - Fix bad SQL in project loading
   - instrument was being linked via the wrong id
