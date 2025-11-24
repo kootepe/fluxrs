@@ -1,7 +1,7 @@
 use crate::cycle::cycle::{update_fluxes, Cycle};
 use crate::data_formats::chamberdata::ChamberShape;
 use crate::data_formats::heightdata::HeightData;
-use crate::data_formats::meteodata::MeteoData;
+use crate::data_formats::meteodata::{MeteoData, MeteoPoint, MeteoSource};
 use crate::processevent::{ProcessEvent, ProgressEvent};
 use crate::project::Project;
 
@@ -54,11 +54,18 @@ impl Recalcer {
                     .unwrap_or(old_height),
             );
 
-            if let Some((temp, press)) = self.data.meteo.get_nearest(c.get_start_ts()) {
-                c.air_temperature = temp;
-                c.air_pressure = press;
-            }
+            let nearest = self.data.meteo.get_nearest(c.get_start_ts());
 
+            let (temp_point, press_point) = nearest.unwrap_or((
+                MeteoPoint { value: Some(10.0), source: MeteoSource::Default },
+                MeteoPoint { value: Some(980.0), source: MeteoSource::Default },
+            ));
+
+            let temp = temp_point.value.unwrap_or(10.0);
+            let pressure = press_point.value.unwrap_or(980.0);
+
+            c.air_temperature = temp_point;
+            c.air_pressure = press_point;
             if let Some(chamber) = self.data.chambers.get(&c.chamber_id) {
                 c.chamber = *chamber
             }
