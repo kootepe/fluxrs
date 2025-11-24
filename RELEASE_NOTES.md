@@ -1,5 +1,12 @@
 # Release Notes
 
+## 0.4.5
+- Temperature and pressure now have a "distance from target"
+  - eg. they report how far from the target timestamp they were
+  - can be used for validation
+  - for now still enforces that temperature and pressure must be within
+  30minutes of the target
+
 ## 0.4.4
 - Temperature and pressure are now looked for independently
   - before, they had share the same timestamp

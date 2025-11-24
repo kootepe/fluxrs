@@ -5,7 +5,7 @@ resolver = "2"
 
 [workspace.package]
 documentation = "https://kootepe.github.io/fluxrs/"
-version = "0.4.3"
+version = "0.4.5"
 edition = "2021"
 
 [workspace.dependencies]
