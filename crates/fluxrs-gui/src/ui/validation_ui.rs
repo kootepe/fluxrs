@@ -14,6 +14,7 @@ use crate::keybinds::{Action, KeyBindings};
 use fluxrs_core::cycle::cycle::{AppError, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;
 use fluxrs_core::cycle_navigator::CycleNavigator;
+use fluxrs_core::data_formats::meteodata::MeteoSource;
 use fluxrs_core::datatype::DataType;
 use fluxrs_core::errorcode::ErrorCode;
 use fluxrs_core::flux::{FluxKind, FluxUnit};
@@ -2861,6 +2862,24 @@ impl ValidationApp {
                         ui.end_row();
                         ui.label("Chamber dimensions:");
                         ui.label(format!("{}", cycle.chamber));
+                        ui.end_row();
+
+                        ui.label("Air temperature");
+                        let temp_text = format!("{}", cycle.air_temperature);
+                        if cycle.air_temperature.source != MeteoSource::Raw {
+                            ui.colored_label(Color32::ORANGE, temp_text);
+                        } else {
+                            ui.label(temp_text);
+                        }
+                        ui.end_row();
+
+                        ui.label("Air pressure");
+                        let press_text = format!("{}", cycle.air_pressure);
+                        if cycle.air_pressure.source != MeteoSource::Raw {
+                            ui.colored_label(Color32::ORANGE, press_text);
+                        } else {
+                            ui.label(press_text);
+                        }
                         ui.end_row();
                         ui.label("Start Time:");
                         ui.label(
