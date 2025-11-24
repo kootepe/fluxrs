@@ -1,6 +1,6 @@
 use rusqlite::{Connection, OptionalExtension, Result};
 
-const DB_VERSION: i32 = 1;
+const DB_VERSION: i32 = 2;
 
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
@@ -508,17 +508,67 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
 pub fn migrate_db() -> Result<i32> {
     let conn = Connection::open("fluxrs.db")?;
     // user_version is 0 by default
-    let current_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
+    let version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
     let mut migrated = 0;
 
-    let has_col = column_exists(&conn, "projects", "tz")?;
-    if current_version == 7 && !has_col {
-        println!("Applying migration 1: Setting user_version to 1");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute("ALTER TABLE projects ADD COLUMN tz TEXT NOT NULL DEFAULT 'UTC';", [])?;
-        migrated = 1
-    }
+    if version < 2 {
+        let has_pressure_src = column_exists(&conn, "fluxes", "pressure_source")?;
+        if !has_pressure_src {
+            println!("Applying migration: add fluxes.pressure_source");
+            conn.execute("ALTER TABLE fluxes ADD COLUMN pressure_source INTEGER;", [])?;
+            conn.execute("ALTER TABLE flux_history ADD COLUMN pressure_source INTEGER;", [])?;
+        }
 
+        let has_temp_src = column_exists(&conn, "fluxes", "temperature_source")?;
+        if !has_temp_src {
+            println!("Applying migration: add fluxes.temperature_source");
+            conn.execute("ALTER TABLE fluxes ADD COLUMN temperature_source INTEGER;", [])?;
+            conn.execute("ALTER TABLE flux_history ADD COLUMN temperature_source INTEGER;", [])?;
+        }
+
+        // Backfill pressure_source:
+        // Default = 1  if value == 980.0
+        // Raw     = 0  otherwise
+        conn.execute(
+            "UPDATE fluxes
+         SET pressure_source = CASE
+             WHEN air_pressure = 980.0 THEN 1
+             ELSE 0
+         END;",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE flux_history
+         SET pressure_source = CASE
+             WHEN air_pressure = 980.0 THEN 1
+             ELSE 0
+         END;",
+            [],
+        )?;
+
+        // Backfill temperature_source:
+        // Default = 1  if value == 10.0
+        // Raw     = 0  otherwise
+        conn.execute(
+            "UPDATE fluxes
+         SET temperature_source = CASE
+             WHEN air_temperature = 10.0 THEN 1
+             ELSE 0
+         END;",
+            [],
+        )?;
+        conn.execute(
+            "UPDATE flux_history
+         SET temperature_source = CASE
+             WHEN air_temperature = 10.0 THEN 1
+             ELSE 0
+         END;",
+            [],
+        )?;
+        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
+
+        migrated = 2;
+    }
     Ok(migrated)
 }
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {

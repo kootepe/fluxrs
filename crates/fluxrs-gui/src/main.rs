@@ -76,6 +76,7 @@ fn main() -> eframe::Result {
         match fluxes_schema::migrate_db() {
             Ok(0) => (),
             Ok(1) => println!("Successfully migrated db tables."),
+            Ok(2) => println!("Successfully added new columns"),
             Ok(_) => println!("Unknown success code."),
             Err(e) => {
                 println!("Err:\n {}", e);
