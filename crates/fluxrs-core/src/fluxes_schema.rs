@@ -20,21 +20,23 @@ pub mod fluxes_col {
     pub const MIN_CALC_LEN: usize = 14;
     pub const AIR_PRESSURE: usize = 15;
     pub const PRESSURE_SOURCE: usize = 16;
-    pub const AIR_TEMPERATURE: usize = 17;
-    pub const TEMPERATURE_SOURCE: usize = 18;
-    pub const CHAMBER_HEIGHT: usize = 19;
-    pub const ERROR_CODE: usize = 20;
-    pub const IS_VALID: usize = 21;
-    pub const MANUAL_ADJUSTED: usize = 22;
-    pub const MANUAL_VALID: usize = 23;
-    pub const T0_CONC: usize = 24;
-    pub const MEASUREMENT_R2: usize = 25;
-    pub const FLUX: usize = 26;
-    pub const R2: usize = 27;
-    pub const INTERCEPT: usize = 28;
-    pub const SLOPE: usize = 29;
-    pub const CALC_START: usize = 30;
-    pub const CALC_END: usize = 31;
+    pub const PRESSURE_DIST: usize = 17;
+    pub const AIR_TEMPERATURE: usize = 18;
+    pub const TEMPERATURE_SOURCE: usize = 19;
+    pub const TEMPERATURE_DIST: usize = 20;
+    pub const CHAMBER_HEIGHT: usize = 21;
+    pub const ERROR_CODE: usize = 22;
+    pub const IS_VALID: usize = 23;
+    pub const MANUAL_ADJUSTED: usize = 24;
+    pub const MANUAL_VALID: usize = 25;
+    pub const T0_CONC: usize = 26;
+    pub const MEASUREMENT_R2: usize = 27;
+    pub const FLUX: usize = 28;
+    pub const R2: usize = 29;
+    pub const INTERCEPT: usize = 30;
+    pub const SLOPE: usize = 31;
+    pub const CALC_START: usize = 32;
+    pub const CALC_END: usize = 33;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -51,8 +53,10 @@ pub const OTHER_COLS: &[&str] = &[
     "start_lag_s",
     "air_pressure",
     "pressure_source",
+    "pressure_dist",
     "air_temperature",
     "temperature_source",
+    "temperature_dist",
     "chamber_height",
     "error_code",
     "is_valid",
@@ -80,8 +84,10 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "min_calc_len",
     "air_pressure",
     "pressure_source",
+    "pressure_dist",
     "air_temperature",
     "temperature_source",
+    "temperature_dist",
     "chamber_height",
     "snow_depth_m",
     "error_code",
@@ -151,8 +157,10 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "min_calc_len",
     "air_pressure",
     "pressure_source",
+    "pressure_dist",
     "air_temperature",
     "temperature_source",
+    "temperature_dist",
     "chamber_height",
     "snow_depth_m",
     "error_code",
@@ -331,8 +339,10 @@ pub fn create_flux_table() -> String {
             min_calc_len			INTEGER NOT NULL,
             air_pressure			FLOAT,
             pressure_source         INTEGER,
+            pressure_dist           INTEGER,
             air_temperature			FLOAT,
             temperature_source      INTEGER,
+            temperature_dist        INTEGER,
             chamber_height			FLOAT,
             snow_depth_m			FLOAT,
 
@@ -425,8 +435,10 @@ pub fn create_flux_history_table() -> String {
             min_calc_len			INTEGER NOT NULL,
             air_pressure			FLOAT,
             pressure_source         INTEGER,
+            pressure_dist           INTEGER,
             air_temperature			FLOAT,
             temperature_source      INTEGER,
+            temperature_dist        INTEGER,
             chamber_height			FLOAT,
             snow_depth_m			FLOAT,
 
