@@ -61,24 +61,63 @@ impl MeteoSource {
 pub struct MeteoPoint {
     pub value: Option<f64>,
     pub source: MeteoSource,
+    /// Distance (in seconds) from the target timestamp used in nearest lookup.
+    /// - For raw DB/CSV data: None
+    /// - For results of get_nearest / get_nearest_meteo_data: Some(abs(dt - target))
+    pub distance_from_target: Option<i64>,
 }
+
 impl fmt::Display for MeteoPoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let dist_text = match self.distance_from_target {
+            None => String::new(), // don't show distance
+
+            Some(0) => " — exact".to_string(),
+
+            Some(sec_total) => {
+                let days = sec_total / 86_400;
+                let hours = (sec_total % 86_400) / 3600;
+                let minutes = (sec_total % 3600) / 60;
+                let seconds = sec_total % 60;
+
+                let mut parts = Vec::new();
+
+                if days > 0 {
+                    parts.push(format!("{} day{}", days, if days == 1 { "" } else { "s" }));
+                }
+                if hours > 0 {
+                    parts.push(format!("{} h", hours));
+                }
+                if minutes > 0 {
+                    parts.push(format!("{} min", minutes));
+                }
+
+                // Always show seconds if total < 1 minute or if it's the only component left
+                if seconds > 0 || (days == 0 && hours == 0 && minutes == 0) {
+                    parts.push(format!("{} sec", seconds));
+                }
+
+                format!(" — {} away", parts.join(" "))
+            },
+        };
+
         match self.value {
-            Some(v) => write!(f, "{:.2} ({})", v, self.source),
-            None => write!(f, "None ({})", self.source),
+            Some(v) => write!(f, "{:.2} ({}){}", v, self.source, dist_text),
+            None => write!(f, "None ({}){}", self.source, dist_text),
         }
     }
 }
 
 impl MeteoPoint {
     fn new(val: f64) -> Self {
-        Self { value: Some(val), source: MeteoSource::Default }
+        Self { value: Some(val), source: MeteoSource::Default, distance_from_target: None }
     }
     pub fn or_default(self, default: f64) -> MeteoPoint {
         match self.source {
-            MeteoSource::Missing => {
-                MeteoPoint { value: Some(default), source: MeteoSource::Default }
+            MeteoSource::Missing => MeteoPoint {
+                value: Some(default),
+                source: MeteoSource::Default,
+                distance_from_target: None,
             },
             _ => self,
         }
@@ -87,7 +126,7 @@ impl MeteoPoint {
 
 impl Default for MeteoPoint {
     fn default() -> Self {
-        MeteoPoint { value: None, source: MeteoSource::Default }
+        MeteoPoint { value: None, source: MeteoSource::Default, distance_from_target: None }
     }
 }
 
@@ -99,19 +138,12 @@ pub struct MeteoData {
 }
 
 impl MeteoData {
-    fn make_point_for_nearest(src: &MeteoPoint) -> MeteoPoint {
-        // Always return the source unchanged.
-        // All DB data stays Raw or Missing.
-        MeteoPoint {
-            value: src.value,
-            source: src.source, // keep original source
-        }
-    }
-
-    /// Returns the nearest meteo values within ±30 minutes of `target_timestamp`.
+    /// Returns the nearest meteo values within ±30 minutes of `target_timestamp`,
+    /// independently for temperature and pressure.
     ///
-    /// - `Ok(Some((temp, press)))` when something within 30 minutes is found
-    /// - `Ok(None)` when no nearby measurement is found
+    /// - If nothing usable is found for both, returns None.
+    /// - Otherwise returns Some((temp_point, press_point)), where each point has
+    ///   distance_from_target = Some(diff_seconds) if it was found by this lookup.
     pub fn get_nearest(&self, target_timestamp: i64) -> Option<(MeteoPoint, MeteoPoint)> {
         if self.datetime.is_empty() {
             return None;
@@ -150,20 +182,50 @@ impl MeteoData {
             }
         }
 
-        // Build result based on what we found
         match (best_temp, best_press) {
-            (None, None) => None, // nothing usable within window
+            (None, None) => None,
             (t_opt, p_opt) => {
                 let temp_point = t_opt
-                    .map(|(i, _)| self.temperature[i].clone())
-                    .unwrap_or(MeteoPoint { value: None, source: MeteoSource::Missing });
+                    .map(|(i, diff)| {
+                        let base = &self.temperature[i];
+                        MeteoPoint {
+                            value: base.value,
+                            source: base.source,
+                            distance_from_target: Some(diff),
+                        }
+                    })
+                    .unwrap_or(MeteoPoint {
+                        value: None,
+                        source: MeteoSource::Missing,
+                        distance_from_target: None,
+                    });
 
                 let press_point = p_opt
-                    .map(|(i, _)| self.pressure[i].clone())
-                    .unwrap_or(MeteoPoint { value: None, source: MeteoSource::Missing });
+                    .map(|(i, diff)| {
+                        let base = &self.pressure[i];
+                        MeteoPoint {
+                            value: base.value,
+                            source: base.source,
+                            distance_from_target: Some(diff),
+                        }
+                    })
+                    .unwrap_or(MeteoPoint {
+                        value: None,
+                        source: MeteoSource::Missing,
+                        distance_from_target: None,
+                    });
 
                 Some((temp_point, press_point))
             },
+        }
+    }
+    fn make_point_for_nearest(src: &MeteoPoint) -> MeteoPoint {
+        // Always return the source unchanged.
+        // All DB data stays Raw or Missing.
+        MeteoPoint {
+            value: src.value,
+            source: src.source,
+            distance_from_target: src.distance_from_target,
         }
     }
 }
@@ -182,7 +244,7 @@ pub fn insert_meteo_data(
         return Err(rusqlite::Error::InvalidQuery); // length mismatch
     }
 
-    // NOTE: DB keeps only raw value (NULL or REAL). The "source" is in-memory metadata.
+    // NOTE: DB keeps only raw value (NULL or REAL). The "source" and distance are in-memory metadata.
     let mut stmt = tx.prepare(
         "INSERT INTO meteo (project_link, datetime, temperature, pressure, file_link)
          VALUES (?1, ?2, ?3, ?4, ?5)
@@ -214,7 +276,7 @@ pub fn get_nearest_meteo_data(
     time: i64,
 ) -> Result<(MeteoPoint, MeteoPoint)> {
     let mut stmt = conn.prepare(
-        "SELECT temperature, pressure
+        "SELECT datetime, temperature, pressure
          FROM meteo
          WHERE project_link = ?1
          ORDER BY ABS(datetime - ?2)
@@ -222,31 +284,37 @@ pub fn get_nearest_meteo_data(
     )?;
 
     let result = stmt.query_row(params![project_id, time], |row| {
-        let t: Option<f64> = row.get(0)?;
-        let p: Option<f64> = row.get(1)?;
-        Ok((t, p))
+        let dt: i64 = row.get(0)?;
+        let t: Option<f64> = row.get(1)?;
+        let p: Option<f64> = row.get(2)?;
+        Ok((dt, t, p))
     });
 
     match result {
-        Ok((t, p)) => Ok((
-            MeteoPoint {
-                value: t,
-                source: match t {
-                    Some(_) => MeteoSource::Raw,
-                    None => MeteoSource::Missing,
+        Ok((dt, t, p)) => {
+            let diff = (dt - time).abs();
+            Ok((
+                MeteoPoint {
+                    value: t,
+                    source: match t {
+                        Some(_) => MeteoSource::Raw,
+                        None => MeteoSource::Missing,
+                    },
+                    distance_from_target: Some(diff),
                 },
-            },
-            MeteoPoint {
-                value: p,
-                source: match p {
-                    Some(_) => MeteoSource::Raw,
-                    None => MeteoSource::Missing,
+                MeteoPoint {
+                    value: p,
+                    source: match p {
+                        Some(_) => MeteoSource::Raw,
+                        None => MeteoSource::Missing,
+                    },
+                    distance_from_target: Some(diff),
                 },
-            },
-        )),
+            ))
+        },
         Err(_) => Ok((
-            MeteoPoint { value: None, source: MeteoSource::Missing },
-            MeteoPoint { value: None, source: MeteoSource::Missing },
+            MeteoPoint { value: None, source: MeteoSource::Missing, distance_from_target: None },
+            MeteoPoint { value: None, source: MeteoSource::Missing, distance_from_target: None },
         )),
     }
 }
@@ -273,7 +341,6 @@ pub fn query_meteo(
             let datetime_unix: i64 = row.get(0)?;
             let temp: Option<f64> = row.get(1)?;
             let press: Option<f64> = row.get(2)?;
-
             Ok((datetime_unix, temp, press))
         },
     )?;
@@ -289,6 +356,7 @@ pub fn query_meteo(
                 Some(_) => MeteoSource::Raw,
                 None => MeteoSource::Missing,
             },
+            distance_from_target: None,
         });
         meteos.pressure.push(MeteoPoint {
             value: press,
@@ -296,6 +364,7 @@ pub fn query_meteo(
                 Some(_) => MeteoSource::Raw,
                 None => MeteoSource::Missing,
             },
+            distance_from_target: None,
         });
     }
 
@@ -334,17 +403,25 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<MeteoData,
         let timestamp = parse_datetime(datetime_str, tz)?;
 
         let temp_point = match record.get(1) {
-            Some(s) if !s.trim().is_empty() => {
-                MeteoPoint { value: Some(s.parse()?), source: MeteoSource::Raw }
+            Some(s) if !s.trim().is_empty() => MeteoPoint {
+                value: Some(s.parse()?),
+                source: MeteoSource::Raw,
+                distance_from_target: None,
             },
-            _ => MeteoPoint { value: None, source: MeteoSource::Missing },
+            _ => {
+                MeteoPoint { value: None, source: MeteoSource::Missing, distance_from_target: None }
+            },
         };
 
         let press_point = match record.get(2) {
-            Some(s) if !s.trim().is_empty() => {
-                MeteoPoint { value: Some(s.parse()?), source: MeteoSource::Raw }
+            Some(s) if !s.trim().is_empty() => MeteoPoint {
+                value: Some(s.parse()?),
+                source: MeteoSource::Raw,
+                distance_from_target: None,
             },
-            _ => MeteoPoint { value: None, source: MeteoSource::Missing },
+            _ => {
+                MeteoPoint { value: None, source: MeteoSource::Missing, distance_from_target: None }
+            },
         };
 
         datetime.push(timestamp);
