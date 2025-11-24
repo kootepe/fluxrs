@@ -22,7 +22,9 @@ use chrono_tz::{Tz, UTC};
 use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
 use crate::data_formats::gasdata::GasData;
 use crate::data_formats::heightdata::HeightData;
-use crate::data_formats::meteodata::MeteoData;
+use crate::data_formats::meteodata::{
+    MeteoData, MeteoPoint, MeteoSource, DEFAULT_PRESSURE, DEFAULT_TEMP,
+};
 use crate::data_formats::timedata::{get_instrument_by_project_and_id, TimeData};
 use crate::types::FastMap;
 
@@ -76,8 +78,8 @@ pub struct Cycle {
     pub chamber: ChamberShape,
     pub project_id: Option<i64>,
     // pub start_time: chrono::DateTime<Tz>,
-    pub air_temperature: f64,
-    pub air_pressure: f64,
+    pub air_temperature: MeteoPoint,
+    pub air_pressure: MeteoPoint,
     pub chamber_height: f64,
     pub snow_depth_m: f64,
     pub error_code: ErrorMask,
@@ -498,6 +500,7 @@ impl Cycle {
     }
 
     pub fn increment_open_lag(&mut self, delta: f64) {
+        // only increment the lag if its within the start and end time
         if (self.get_adjusted_open() + delta) <= self.get_end()
             && (self.get_adjusted_close() + delta) >= self.get_start()
         {
@@ -511,6 +514,7 @@ impl Cycle {
     }
 
     pub fn increment_close_lag(&mut self, delta: f64) {
+        // only increment the lag if its within the start and end time
         if (self.get_adjusted_close() + delta) >= self.get_start()
             && (self.get_adjusted_open() + delta) <= self.get_end()
         {
@@ -1314,8 +1318,8 @@ impl Cycle {
             &y,
             *s,
             *e,
-            self.air_temperature,
-            self.air_pressure,
+            self.air_temperature.value.unwrap(),
+            self.air_pressure.value.unwrap(),
             self.chamber,
         ) {
             self.fluxes.insert(
@@ -1355,8 +1359,8 @@ impl Cycle {
             &y,
             *s,
             *e,
-            self.air_temperature,
-            self.air_pressure,
+            self.air_temperature.value.unwrap(),
+            self.air_pressure.value.unwrap(),
             self.chamber,
         ) {
             self.fluxes.insert(
@@ -1384,8 +1388,8 @@ impl Cycle {
             &y,
             *s,
             *e,
-            self.air_temperature,
-            self.air_pressure,
+            self.air_temperature.value.unwrap(),
+            self.air_pressure.value.unwrap(),
             self.chamber,
         ) {
             self.fluxes.insert(
@@ -1430,8 +1434,8 @@ impl Cycle {
             &y,
             *s,
             *e,
-            self.air_temperature,
-            self.air_pressure,
+            self.air_temperature.value.unwrap(),
+            self.air_pressure.value.unwrap(),
             self.chamber,
         ) {
             self.fluxes.insert(
@@ -1446,8 +1450,8 @@ impl Cycle {
         // Constants
         const R: f64 = 8.314462618; // J/mol·K
 
-        let pressure_pa = self.air_pressure * 100.0; // Convert hPa to Pa
-        let temperature_k = self.air_temperature + 273.15; // Convert °C to K
+        let pressure_pa = self.air_pressure.value.unwrap() * 100.0; // Convert hPa to Pa
+        let temperature_k = self.air_temperature.value.unwrap() + 273.15; // Convert °C to K
         let volume_m3 = self.chamber_height / 1000.0; // Convert L to m³
 
         let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
@@ -1794,8 +1798,8 @@ impl CycleBuilder {
             measurement_gas_v: FastMap::default(),
             measurement_diag_v: FastMap::default(),
             gases: vec![],
-            air_pressure: 1000.,
-            air_temperature: 10.,
+            air_pressure: MeteoPoint::default(),
+            air_temperature: MeteoPoint::default(),
             chamber_height: 1.,
             is_valid: true,
             gas_is_valid: FastMap::default(),
@@ -1988,8 +1992,10 @@ fn execute_history_insert(
             cycle.get_end_lag() as i64,
             cycle.get_start_lag() as i64,
             cycle.get_min_calc_len(),
-            cycle.air_pressure,
-            cycle.air_temperature,
+            cycle.air_pressure.value.unwrap(),
+            cycle.air_pressure.source.as_int(),
+            cycle.air_temperature.value.unwrap(),
+            cycle.air_temperature.source.as_int(),
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2111,8 +2117,10 @@ fn execute_insert(
             cycle.get_end_lag() as i64,
             cycle.get_start_lag() as i64,
             cycle.get_min_calc_len(),
-            cycle.air_pressure,
-            cycle.air_temperature,
+            cycle.air_pressure.value.unwrap(),
+            cycle.air_pressure.source.as_int(),
+            cycle.air_temperature.value.unwrap(),
+            cycle.air_temperature.source.as_int(),
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2230,8 +2238,10 @@ fn execute_update(
             cycle.get_end_lag() as i64,
             cycle.get_start_lag() as i64,
             cycle.get_min_calc_len(),
-            cycle.air_pressure,
-            cycle.air_temperature,
+            cycle.air_pressure.value.unwrap(),
+            cycle.air_pressure.source.as_int(),
+            cycle.air_temperature.value.unwrap(),
+            cycle.air_temperature.source.as_int(),
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2454,7 +2464,9 @@ pub fn load_cycles_sync(
         let start_lag_s: f64 = row.get(*column_index.get("start_lag_s").unwrap())?;
 
         let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
+        let pressure_source: i32 = row.get(*column_index.get("pressure_source").unwrap())?;
         let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
+        let temperature_source: i32 = row.get(*column_index.get("temperature_source").unwrap())?;
         let chamber_height: f64 = row.get(*column_index.get("chamber_height").unwrap())?;
         let snow_depth_m: f64 = row.get(*column_index.get("snow_depth_m").unwrap())?;
         chamber.set_snow_height(snow_depth_m);
@@ -2529,6 +2541,12 @@ pub fn load_cycles_sync(
                 serial: instrument_serial,
                 id: Some(instrument_id),
             };
+            let mut temp_point = MeteoPoint::default();
+            let mut pressure_point = MeteoPoint::default();
+            temp_point.value = Some(air_temperature);
+            temp_point.source = MeteoSource::from_int(temperature_source).unwrap();
+            pressure_point.value = Some(air_pressure);
+            pressure_point.source = MeteoSource::from_int(pressure_source).unwrap();
             let timing = CycleTiming::new_from_fields(
                 start_timestamp,
                 close_offset,
@@ -2551,8 +2569,8 @@ pub fn load_cycles_sync(
                 instruments: instruments.clone(),
                 chamber,
                 project_id: Some(project.id.unwrap()),
-                air_temperature,
-                air_pressure,
+                air_temperature: temp_point,
+                air_pressure: pressure_point,
                 chamber_height,
                 snow_depth_m,
                 error_code,
@@ -3194,9 +3212,15 @@ where
             let target = *start + *close;
 
             // Meteo
-            let (temp, pressure) = meteo_data.get_nearest(target).unwrap_or((10.0, 980.0));
-            cycle.air_temperature = temp;
-            cycle.air_pressure = pressure;
+            let nearest = meteo_data.get_nearest(target);
+
+            let (temp_point, press_point) = nearest.unwrap_or((
+                MeteoPoint { value: Some(10.0), source: MeteoSource::Default },
+                MeteoPoint { value: Some(980.0), source: MeteoSource::Default },
+            ));
+
+            cycle.air_temperature = temp_point.or_default(DEFAULT_TEMP);
+            cycle.air_pressure = press_point.or_default(DEFAULT_PRESSURE);
 
             // Height
             let maybe_height = height_data.get_nearest_previous_height(target, &cycle.chamber_id);
