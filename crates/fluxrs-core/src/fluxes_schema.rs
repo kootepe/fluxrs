@@ -19,20 +19,22 @@ pub mod fluxes_col {
     pub const START_LAG_S: usize = 13;
     pub const MIN_CALC_LEN: usize = 14;
     pub const AIR_PRESSURE: usize = 15;
-    pub const AIR_TEMPERATURE: usize = 16;
-    pub const CHAMBER_HEIGHT: usize = 17;
-    pub const ERROR_CODE: usize = 18;
-    pub const IS_VALID: usize = 19;
-    pub const MANUAL_ADJUSTED: usize = 20;
-    pub const MANUAL_VALID: usize = 21;
-    pub const T0_CONC: usize = 22;
-    pub const MEASUREMENT_R2: usize = 23;
-    pub const FLUX: usize = 24;
-    pub const R2: usize = 25;
-    pub const INTERCEPT: usize = 26;
-    pub const SLOPE: usize = 27;
-    pub const CALC_START: usize = 28;
-    pub const CALC_END: usize = 29;
+    pub const PRESSURE_SOURCE: usize = 16;
+    pub const AIR_TEMPERATURE: usize = 17;
+    pub const TEMPERATURE_SOURCE: usize = 18;
+    pub const CHAMBER_HEIGHT: usize = 19;
+    pub const ERROR_CODE: usize = 20;
+    pub const IS_VALID: usize = 21;
+    pub const MANUAL_ADJUSTED: usize = 22;
+    pub const MANUAL_VALID: usize = 23;
+    pub const T0_CONC: usize = 24;
+    pub const MEASUREMENT_R2: usize = 25;
+    pub const FLUX: usize = 26;
+    pub const R2: usize = 27;
+    pub const INTERCEPT: usize = 28;
+    pub const SLOPE: usize = 29;
+    pub const CALC_START: usize = 30;
+    pub const CALC_END: usize = 31;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -48,7 +50,9 @@ pub const OTHER_COLS: &[&str] = &[
     "end_lag_s",
     "start_lag_s",
     "air_pressure",
+    "pressure_source",
     "air_temperature",
+    "temperature_source",
     "chamber_height",
     "error_code",
     "is_valid",
@@ -75,7 +79,9 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "start_lag_s",
     "min_calc_len",
     "air_pressure",
+    "pressure_source",
     "air_temperature",
+    "temperature_source",
     "chamber_height",
     "snow_depth_m",
     "error_code",
@@ -144,7 +150,9 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "start_lag_s",
     "min_calc_len",
     "air_pressure",
+    "pressure_source",
     "air_temperature",
+    "temperature_source",
     "chamber_height",
     "snow_depth_m",
     "error_code",
@@ -322,7 +330,9 @@ pub fn create_flux_table() -> String {
             start_lag_s				INTEGER NOT NULL,
             min_calc_len			INTEGER NOT NULL,
             air_pressure			FLOAT,
+            pressure_source         INTEGER,
             air_temperature			FLOAT,
+            temperature_source      INTEGER,
             chamber_height			FLOAT,
             snow_depth_m			FLOAT,
 
@@ -414,7 +424,9 @@ pub fn create_flux_history_table() -> String {
             start_lag_s				INTEGER NOT NULL,
             min_calc_len			INTEGER NOT NULL,
             air_pressure			FLOAT,
+            pressure_source         INTEGER,
             air_temperature			FLOAT,
+            temperature_source      INTEGER,
             chamber_height			FLOAT,
             snow_depth_m			FLOAT,
 
@@ -500,7 +512,6 @@ pub fn migrate_db() -> Result<i32> {
     let mut migrated = 0;
 
     let has_col = column_exists(&conn, "projects", "tz")?;
-    // this is a migration needed for couple of the first users... remove later
     if current_version == 7 && !has_col {
         println!("Applying migration 1: Setting user_version to 1");
         conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
