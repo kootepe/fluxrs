@@ -3,6 +3,7 @@ use chrono::offset::LocalResult;
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 use csv::Writer;
+use fluxrs_core::data_formats::meteodata::MeteoSource;
 use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
 use fluxrs_core::gastype::GasType;
@@ -359,6 +360,18 @@ impl DownloadApp {
             if let Some(i) = record.get("main_gas").and_then(|s| s.parse::<usize>().ok()) {
                 if let Some(gas_enum) = GasType::from_int(i) {
                     record.insert("main_gas".to_string(), gas_enum.to_string());
+                }
+            }
+
+            if let Some(i) = record.get("temperature_source").and_then(|s| s.parse::<i32>().ok()) {
+                if let Some(temp_s) = MeteoSource::from_int(i) {
+                    record.insert("temperature_source".to_string(), temp_s.to_string());
+                }
+            }
+
+            if let Some(i) = record.get("pressure_source").and_then(|s| s.parse::<i32>().ok()) {
+                if let Some(press_s) = MeteoSource::from_int(i) {
+                    record.insert("pressure_source".to_string(), press_s.to_string());
                 }
             }
 
