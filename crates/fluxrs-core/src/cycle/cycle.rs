@@ -1994,8 +1994,10 @@ fn execute_history_insert(
             cycle.get_min_calc_len(),
             cycle.air_pressure.value.unwrap(),
             cycle.air_pressure.source.as_int(),
+            cycle.air_pressure.distance_from_target,
             cycle.air_temperature.value.unwrap(),
             cycle.air_temperature.source.as_int(),
+            cycle.air_temperature.distance_from_target,
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2119,8 +2121,10 @@ fn execute_insert(
             cycle.get_min_calc_len(),
             cycle.air_pressure.value.unwrap(),
             cycle.air_pressure.source.as_int(),
+            cycle.air_pressure.distance_from_target,
             cycle.air_temperature.value.unwrap(),
             cycle.air_temperature.source.as_int(),
+            cycle.air_temperature.distance_from_target,
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2240,8 +2244,10 @@ fn execute_update(
             cycle.get_min_calc_len(),
             cycle.air_pressure.value.unwrap(),
             cycle.air_pressure.source.as_int(),
+            cycle.air_pressure.distance_from_target,
             cycle.air_temperature.value.unwrap(),
             cycle.air_temperature.source.as_int(),
+            cycle.air_temperature.distance_from_target,
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2465,8 +2471,11 @@ pub fn load_cycles_sync(
 
         let air_pressure: f64 = row.get(*column_index.get("air_pressure").unwrap())?;
         let pressure_source: i32 = row.get(*column_index.get("pressure_source").unwrap())?;
+        let pressure_dist: Option<i64> = row.get(*column_index.get("pressure_dist").unwrap())?;
         let air_temperature: f64 = row.get(*column_index.get("air_temperature").unwrap())?;
         let temperature_source: i32 = row.get(*column_index.get("temperature_source").unwrap())?;
+        let temperature_dist: Option<i64> =
+            row.get(*column_index.get("temperature_dist").unwrap())?;
         let chamber_height: f64 = row.get(*column_index.get("chamber_height").unwrap())?;
         let snow_depth_m: f64 = row.get(*column_index.get("snow_depth_m").unwrap())?;
         chamber.set_snow_height(snow_depth_m);
@@ -2545,8 +2554,12 @@ pub fn load_cycles_sync(
             let mut pressure_point = MeteoPoint::default();
             temp_point.value = Some(air_temperature);
             temp_point.source = MeteoSource::from_int(temperature_source).unwrap();
+            temp_point.distance_from_target = temperature_dist;
+
             pressure_point.value = Some(air_pressure);
             pressure_point.source = MeteoSource::from_int(pressure_source).unwrap();
+            pressure_point.distance_from_target = pressure_dist;
+
             let timing = CycleTiming::new_from_fields(
                 start_timestamp,
                 close_offset,
@@ -3212,11 +3225,20 @@ where
             let target = *start + *close;
 
             // Meteo
+
             let nearest = meteo_data.get_nearest(target);
 
             let (temp_point, press_point) = nearest.unwrap_or((
-                MeteoPoint { value: Some(10.0), source: MeteoSource::Default },
-                MeteoPoint { value: Some(980.0), source: MeteoSource::Default },
+                MeteoPoint {
+                    value: Some(DEFAULT_TEMP),
+                    source: MeteoSource::Default,
+                    distance_from_target: None, // or Some(0) if you want to treat defaults as “0s away”
+                },
+                MeteoPoint {
+                    value: Some(DEFAULT_PRESSURE),
+                    source: MeteoSource::Default,
+                    distance_from_target: None,
+                },
             ));
 
             cycle.air_temperature = temp_point.or_default(DEFAULT_TEMP);
