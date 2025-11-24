@@ -8,22 +8,113 @@ use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
 use std::cmp::Ordering;
 use std::error::Error;
+use std::fmt;
 use std::path::Path;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::task;
 
+pub const DEFAULT_TEMP: f64 = 10.0;
+pub const DEFAULT_PRESSURE: f64 = 980.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeteoSource {
+    /// Directly read from CSV or DB
+    Raw,
+    /// Caller-supplied default value
+    Default,
+    /// No value is available
+    Missing,
+}
+
+impl fmt::Display for MeteoSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MeteoSource::Raw => write!(f, "Raw"),
+            MeteoSource::Default => write!(f, "Default"),
+            MeteoSource::Missing => write!(f, "Missing"),
+        }
+    }
+}
+impl MeteoSource {
+    pub fn as_int(self) -> i32 {
+        match self {
+            MeteoSource::Raw => 0,
+            MeteoSource::Default => 1,
+            MeteoSource::Missing => 2,
+        }
+    }
+
+    pub fn from_int(v: i32) -> Option<MeteoSource> {
+        match v {
+            0 => Some(MeteoSource::Raw),
+            1 => Some(MeteoSource::Default),
+            2 => Some(MeteoSource::Missing),
+            _ => None, // safe fallback
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MeteoPoint {
+    pub value: Option<f64>,
+    pub source: MeteoSource,
+}
+impl fmt::Display for MeteoPoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.value {
+            Some(v) => write!(f, "{:.2} ({})", v, self.source),
+            None => write!(f, "None ({})", self.source),
+        }
+    }
+}
+
+impl MeteoPoint {
+    fn new(val: f64) -> Self {
+        Self { value: Some(val), source: MeteoSource::Default }
+    }
+    pub fn or_default(self, default: f64) -> MeteoPoint {
+        match self.source {
+            MeteoSource::Missing => {
+                MeteoPoint { value: Some(default), source: MeteoSource::Default }
+            },
+            _ => self,
+        }
+    }
+}
+
+impl Default for MeteoPoint {
+    fn default() -> Self {
+        MeteoPoint { value: None, source: MeteoSource::Default }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct MeteoData {
     pub datetime: Vec<i64>,
-    pub temperature: Vec<f64>,
-    pub pressure: Vec<f64>,
+    pub temperature: Vec<MeteoPoint>,
+    pub pressure: Vec<MeteoPoint>,
 }
+
 impl MeteoData {
-    pub fn get_nearest(&self, target_timestamp: i64) -> Option<(f64, f64)> {
+    fn make_point_for_nearest(src: &MeteoPoint) -> MeteoPoint {
+        // Always return the source unchanged.
+        // All DB data stays Raw or Missing.
+        MeteoPoint {
+            value: src.value,
+            source: src.source, // keep original source
+        }
+    }
+
+    /// Returns the nearest meteo values within ±30 minutes of `target_timestamp`.
+    ///
+    /// - `Ok(Some((temp, press)))` when something within 30 minutes is found
+    /// - `Ok(None)` when no nearby measurement is found
+    pub fn get_nearest(&self, target_timestamp: i64) -> Option<(MeteoPoint, MeteoPoint)> {
         if self.datetime.is_empty() {
-            return None; // No data available
+            return None;
         }
 
         let mut left = 0;
@@ -40,27 +131,40 @@ impl MeteoData {
                         break;
                     }
                 },
-                Ordering::Equal => return Some((self.temperature[mid], self.pressure[mid])),
+                Ordering::Equal => {
+                    // exact timestamp: preserve original sources
+                    return Some((self.temperature[mid].clone(), self.pressure[mid].clone()));
+                },
             }
         }
 
+        // Now we have "left" as the best candidate index or boundary.
         match left {
             0 => {
                 let diff = (self.datetime[0] - target_timestamp).abs();
                 if diff <= 1800 {
-                    Some((self.temperature[0], self.pressure[0]))
+                    // nearest but not necessarily exact -> Interpolated
+                    Some((
+                        Self::make_point_for_nearest(&self.temperature[0]),
+                        Self::make_point_for_nearest(&self.pressure[0]),
+                    ))
                 } else {
                     None
                 }
             },
+
             _ if left >= self.datetime.len() => {
                 let diff = (self.datetime[right] - target_timestamp).abs();
                 if diff <= 1800 {
-                    Some((self.temperature[right], self.pressure[right]))
+                    Some((
+                        Self::make_point_for_nearest(&self.temperature[right]),
+                        Self::make_point_for_nearest(&self.pressure[right]),
+                    ))
                 } else {
                     None
                 }
             },
+
             _ => {
                 let prev_idx = left - 1;
                 let next_idx = left;
@@ -75,14 +179,18 @@ impl MeteoData {
                 };
 
                 if nearest_diff <= 1800 {
-                    Some((self.temperature[nearest_idx], self.pressure[nearest_idx]))
+                    Some((
+                        Self::make_point_for_nearest(&self.temperature[nearest_idx]),
+                        Self::make_point_for_nearest(&self.pressure[nearest_idx]),
+                    ))
                 } else {
-                    None // No valid data within 30 min
+                    None
                 }
             },
         }
     }
 }
+
 pub fn insert_meteo_data(
     tx: &Connection,
     file_id: &i64,
@@ -90,49 +198,82 @@ pub fn insert_meteo_data(
     meteo_data: &MeteoData,
 ) -> Result<usize> {
     let mut inserted = 0;
+
     if meteo_data.datetime.len() != meteo_data.temperature.len()
         || meteo_data.datetime.len() != meteo_data.pressure.len()
     {
-        return Err(rusqlite::Error::InvalidQuery); // Ensure all arrays have the same length
+        return Err(rusqlite::Error::InvalidQuery); // length mismatch
     }
 
-    {
-        // BUG: BAD SQL
-        let mut stmt = tx.prepare(
-            "INSERT INTO meteo (project_link, datetime, temperature, pressure, file_link)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(datetime, project_link)
-             DO UPDATE SET temperature = excluded.temperature, pressure = excluded.pressure",
-        )?;
+    // NOTE: DB keeps only raw value (NULL or REAL). The "source" is in-memory metadata.
+    let mut stmt = tx.prepare(
+        "INSERT INTO meteo (project_link, datetime, temperature, pressure, file_link)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(datetime, project_link)
+         DO UPDATE SET temperature = excluded.temperature,
+                       pressure = excluded.pressure",
+    )?;
 
-        for i in 0..meteo_data.datetime.len() {
-            let datetime = meteo_data.datetime[i];
-            let temperature = meteo_data.temperature[i];
-            let pressure = meteo_data.pressure[i];
-            inserted += 1;
+    for i in 0..meteo_data.datetime.len() {
+        let datetime = meteo_data.datetime[i];
+        let temp_val = meteo_data.temperature[i].value;
+        let press_val = meteo_data.pressure[i].value;
 
-            stmt.execute(params![project_id, datetime, temperature, pressure, file_id])?;
-        }
+        inserted += 1;
+
+        stmt.execute(params![
+            project_id, datetime, temp_val,  // Option<f64> -> NULL or REAL
+            press_val, // Option<f64> -> NULL or REAL
+            file_id
+        ])?;
     }
+
     Ok(inserted)
 }
 
-pub fn get_nearest_meteo_data(conn: &Connection, project_id: i64, time: i64) -> Result<(f64, f64)> {
+pub fn get_nearest_meteo_data(
+    conn: &Connection,
+    project_id: i64,
+    time: i64,
+) -> Result<(MeteoPoint, MeteoPoint)> {
     let mut stmt = conn.prepare(
         "SELECT temperature, pressure
-             FROM meteo
-             WHERE project_link = ?1
-             ORDER BY ABS(datetime - ?2)
-             LIMIT 1",
+         FROM meteo
+         WHERE project_link = ?1
+         ORDER BY ABS(datetime - ?2)
+         LIMIT 1",
     )?;
 
-    let result = stmt.query_row(params![&project_id, time], |row| Ok((row.get(0)?, row.get(1)?)));
+    let result = stmt.query_row(params![project_id, time], |row| {
+        let t: Option<f64> = row.get(0)?;
+        let p: Option<f64> = row.get(1)?;
+        Ok((t, p))
+    });
 
     match result {
-        Ok((temperature, pressure)) => Ok((temperature, pressure)),
-        Err(_) => Ok((0.0, 0.0)), // Return defaults if no data is found
+        Ok((t, p)) => Ok((
+            MeteoPoint {
+                value: t,
+                source: match t {
+                    Some(_) => MeteoSource::Raw,
+                    None => MeteoSource::Missing,
+                },
+            },
+            MeteoPoint {
+                value: p,
+                source: match p {
+                    Some(_) => MeteoSource::Raw,
+                    None => MeteoSource::Missing,
+                },
+            },
+        )),
+        Err(_) => Ok((
+            MeteoPoint { value: None, source: MeteoSource::Missing },
+            MeteoPoint { value: None, source: MeteoSource::Missing },
+        )),
     }
 }
+
 pub fn query_meteo(
     conn: &Connection,
     start: DateTime<Utc>,
@@ -140,62 +281,68 @@ pub fn query_meteo(
     project_id: i64,
 ) -> Result<MeteoData> {
     println!("Querying meteo data");
-    // let mut data = HashMap::new();
 
     let mut stmt = conn.prepare(
         "SELECT datetime, temperature, pressure
-             FROM meteo m
-             WHERE datetime BETWEEN ?1 AND ?2
-             and project_link = ?3
-             ORDER BY datetime",
+         FROM meteo
+         WHERE datetime BETWEEN ?1 AND ?2
+           AND project_link = ?3
+         ORDER BY datetime",
     )?;
 
     let rows = stmt.query_map(
         params![start.timestamp() - 86400, end.timestamp() + 86400, project_id],
         |row| {
             let datetime_unix: i64 = row.get(0)?;
-            let temp: f64 = row.get(1)?;
-            let press: f64 = row.get(2)?;
+            let temp: Option<f64> = row.get(1)?;
+            let press: Option<f64> = row.get(2)?;
 
             Ok((datetime_unix, temp, press))
         },
     )?;
 
     let mut meteos = MeteoData::default();
+
     for row in rows {
         let (time, temp, press) = row?;
         meteos.datetime.push(time);
-        meteos.temperature.push(temp);
-        meteos.pressure.push(press);
+        meteos.temperature.push(MeteoPoint {
+            value: temp,
+            source: match temp {
+                Some(_) => MeteoSource::Raw,
+                None => MeteoSource::Missing,
+            },
+        });
+        meteos.pressure.push(MeteoPoint {
+            value: press,
+            source: match press {
+                Some(_) => MeteoSource::Raw,
+                None => MeteoSource::Missing,
+            },
+        });
     }
+
     Ok(meteos)
 }
+
 pub async fn query_meteo_async(
-    conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
+    conn: Arc<Mutex<Connection>>,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     project: Project,
 ) -> Result<MeteoData> {
-    // let start_ts = start.timestamp();
-    // let end_ts = end.timestamp();
-
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
         query_meteo(&conn, start, end, project.id.unwrap())
     })
     .await;
+
     match result {
         Ok(inner) => inner,
-        Err(_) => {
-            // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
-            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
-        },
+        Err(_) => Err(rusqlite::Error::ExecuteReturnedResults),
     }
-    // match result {
-    //     Ok(inst) => inst,
-    //     Err(_) => Ok(MeteoData::default()),
-    // }
 }
+
 pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<MeteoData, Box<dyn Error>> {
     let content = ensure_utf8(&file_path)?;
     let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
@@ -208,16 +355,29 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<MeteoData,
         let record = result?;
         let datetime_str = record.get(0).ok_or("Missing datetime field")?;
         let timestamp = parse_datetime(datetime_str, tz)?;
-        let temp: f64 = record.get(1).ok_or("Missing temperature field")?.parse()?;
-        let press: f64 = record.get(2).ok_or("Missing pressure field")?.parse()?;
+
+        let temp_point = match record.get(1) {
+            Some(s) if !s.trim().is_empty() => {
+                MeteoPoint { value: Some(s.parse()?), source: MeteoSource::Raw }
+            },
+            _ => MeteoPoint { value: None, source: MeteoSource::Missing },
+        };
+
+        let press_point = match record.get(2) {
+            Some(s) if !s.trim().is_empty() => {
+                MeteoPoint { value: Some(s.parse()?), source: MeteoSource::Raw }
+            },
+            _ => MeteoPoint { value: None, source: MeteoSource::Missing },
+        };
 
         datetime.push(timestamp);
-        temperature.push(temp);
-        pressure.push(press);
+        temperature.push(temp_point);
+        pressure.push(press_point);
     }
 
     Ok(MeteoData { datetime, temperature, pressure })
 }
+
 pub fn upload_meteo_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
@@ -225,7 +385,6 @@ pub fn upload_meteo_data_async(
     tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
-    let mut meteos = MeteoData::default();
     for path in &selected_paths {
         let project_id = project.id.unwrap();
 
@@ -233,14 +392,14 @@ pub fn upload_meteo_data_async(
             Some(name) => name,
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
-                // Optionally notify UI:
                 let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
-                return (); // or `continue` if this is in a loop
+                return;
             },
         };
+
         let tx = match conn.transaction() {
             Ok(tx) => tx,
             Err(e) => {
@@ -252,20 +411,20 @@ pub fn upload_meteo_data_async(
                 continue;
             },
         };
+
         let file_id = match get_or_insert_data_file(&tx, DataType::Meteo, file_name, project_id) {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
-                // Optionally notify UI
                 let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
                     "File '{}' skipped: {}",
                     file_name, e
                 ))));
-                continue; // or return if not inside a loop
+                continue;
             },
         };
+
         match read_meteo_csv(path, tz) {
-            //   Pass `path` directly
             Ok(res) => match insert_meteo_data(&tx, &file_id, &project.id.unwrap(), &res) {
                 Ok(row_count) => {
                     let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
@@ -277,12 +436,11 @@ pub fn upload_meteo_data_async(
                         let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
                             format!("Commit failed for file '{}': {}", file_name, e),
                         )));
-                        // no commit = rollback
                         continue;
                     }
                 },
                 Err(e) => {
-                    let msg = format!("Failed to insert cycle data to db.Error {}", e);
+                    let msg = format!("Failed to insert meteo data to db. Error {}", e);
                     let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(msg)));
                 },
             },
@@ -293,6 +451,7 @@ pub fn upload_meteo_data_async(
                 )));
             },
         }
+
         let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
     }
 }
