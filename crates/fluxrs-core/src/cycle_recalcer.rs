@@ -1,5 +1,5 @@
 use crate::cycle::cycle::{update_fluxes, Cycle};
-use crate::data_formats::chamberdata::ChamberShape;
+use crate::data_formats::chamberdata::Chamber;
 use crate::data_formats::heightdata::HeightData;
 use crate::data_formats::meteodata::{
     MeteoData, MeteoPoint, MeteoSource, DEFAULT_PRESSURE, DEFAULT_TEMP,
@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::UnboundedSender;
 
 type HeightDataSet = HeightData;
-type ChamberDataSet = HashMap<String, ChamberShape>;
+type ChamberDataSet = HashMap<String, Chamber>;
 type MeteoDataSet = MeteoData;
 
 pub struct Datasets {

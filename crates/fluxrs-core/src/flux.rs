@@ -1,4 +1,4 @@
-use crate::data_formats::chamberdata::ChamberShape;
+use crate::data_formats::chamberdata::Chamber;
 use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
 use crate::stats::{ExpReg, LinReg, PolyReg, RobReg};
@@ -328,7 +328,7 @@ impl LinearFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -562,7 +562,7 @@ impl ExponentialFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -688,7 +688,7 @@ impl ExponentialFlux {
         y: Vec<f64>,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) {
         if x.len() != y.len() || x.len() < 2 || !y.iter().all(|v| *v > 0.0) {
             return;
@@ -802,7 +802,7 @@ impl PolyFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -955,7 +955,7 @@ impl RobustFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -1006,7 +1006,7 @@ fn flux_umol_m2_s_core(
     slope_x_per_s: f64, // instrument slope (whatever that is)
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     // phys constants + env
     let p_pa = air_pressure_hpa * 100.0; // hPa -> Pa
@@ -1042,7 +1042,7 @@ pub fn flux_umol_m2_s(
     slope_x_per_s: f64,
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber)
 }
@@ -1053,7 +1053,7 @@ pub fn flux_mg_m2_s(
     slope_x_per_s: f64,
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     let flux_umol =
         flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
@@ -1075,7 +1075,7 @@ pub fn flux_mg_m2_h(
     slope_x_per_s: f64,
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     // start from mg m⁻² s⁻¹ then scale by 3600
     let flux_mg_s =
@@ -1139,7 +1139,7 @@ mod tests {
         let end = x[x.len() - 1];
         let temperature = 20.0; // °C
         let pressure = 1013.25; // hPa
-        let chamber = ChamberShape::default();
+        let chamber = Chamber::default();
         let channel =
             GasChannel::new(gas, concentrationunit::ConcentrationUnit::Ppb, fit_id.to_owned());
 

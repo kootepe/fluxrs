@@ -19,7 +19,7 @@ use crate::project::Project;
 use crate::stats::{self, ExpReg, LinReg, PolyReg, RobReg};
 use chrono_tz::{Tz, UTC};
 
-use crate::data_formats::chamberdata::{query_chambers, ChamberShape};
+use crate::data_formats::chamberdata::{query_chambers, Chamber, ChamberOrigin, ChamberShape};
 use crate::data_formats::gasdata::GasData;
 use crate::data_formats::heightdata::HeightData;
 use crate::data_formats::meteodata::{
@@ -70,14 +70,18 @@ struct CycleKey {
 
 #[derive(Clone)]
 pub struct Cycle {
+    /// same as the id of a cycle in the db
     pub id: i64,
+    /// id of the chamber / plot
     pub chamber_id: String,
+    /// the main instrument, if there are multiple instruments in a cycle, linearity and error
+    /// checking are evaulated from this onr
     pub main_instrument: Instrument,
+    /// the instrumet this cycles data is from
     pub instrument: Instrument,
     pub instruments: FastMap<i64, Instrument>,
-    pub chamber: ChamberShape,
+    pub chamber: Chamber,
     pub project_id: Option<i64>,
-    // pub start_time: chrono::DateTime<Tz>,
     pub air_temperature: MeteoPoint,
     pub air_pressure: MeteoPoint,
     pub chamber_height: f64,
@@ -88,47 +92,26 @@ pub struct Cycle {
     pub override_valid: Option<bool>,
     pub manual_valid: bool,
     pub main_gas: GasType,
-    // pub close_offset: i64,
-    // pub open_offset: i64,
-    // pub end_offset: i64,
-    // pub open_lag_s: f64,
-    // pub close_lag_s: f64,
-    // pub end_lag_s: f64,
-    // pub start_lag_s: f64,
     pub max_idx: f64,
     pub gases: Vec<GasKey>,
-    // pub calc_range_start: FastMap<GasKey, f64>,
-    // pub calc_range_end: FastMap<GasKey, f64>,
     pub manual_adjusted: bool,
     pub min_y: FastMap<GasKey, f64>,
     pub max_y: FastMap<GasKey, f64>,
     pub flux: FastMap<GasKey, f64>,
-    pub linfit: FastMap<GasKey, LinReg>,
-    // pub measurement_range_start: f64,
-    // pub measurement_range_end: f64,
-    // pub deadbands: FastMap<GasKey, f64>,
     pub fluxes: FastMap<(GasKey, FluxKind), FluxRecord>,
     pub measurement_r2: FastMap<GasKey, f64>,
     pub calc_r2: FastMap<GasKey, f64>,
-
-    // datetime vectors
-    // pub dt_v: Vec<chrono::DateTime<chrono::Utc>>,
-    // pub dt_v: Vec<f64>,
-    // pub dt_v: FastMap<i64, Vec<f64>>,
-    // pub dt_v_f: Vec<f64>,
-    // pub calc_dt_v: FastMap<GasKey, Vec<f64>>,
-    // pub measurement_dt_v: Vec<f64>,
+    pub t0_concentration: FastMap<GasKey, f64>,
 
     // gas vectors
     pub gas_v: FastMap<GasKey, Vec<Option<f64>>>,
     pub gas_v_mole: FastMap<GasKey, Vec<Option<f64>>>,
     pub calc_gas_v: FastMap<GasKey, Vec<Option<f64>>>,
     pub measurement_gas_v: FastMap<GasKey, Vec<Option<f64>>>,
-    pub t0_concentration: FastMap<GasKey, f64>,
 
     pub diag_v: FastMap<i64, Vec<i64>>,
     pub measurement_diag_v: FastMap<i64, Vec<i64>>,
-    // pub min_calc_len: f64,
+
     pub gas_channels: FastMap<GasKey, GasChannel>,
     pub timing: CycleTiming,
 }
@@ -1163,57 +1146,6 @@ impl Cycle {
 
         (filtered_dt, filtered_gas)
     }
-    // pub fn get_measurement_data(&mut self, key: &GasKey) {
-    //     if let Some(gas_v) = self.gas_v.get(&key) {
-    //         let close_time = self.get_adjusted_close();
-    //         let open_time = self.get_adjusted_open();
-    //
-    //         let s = close_time;
-    //         let e = open_time;
-    //         // let e = s + 150.;
-    //         // Clear previous results
-    //         self.measurement_gas_v.insert(key, Vec::new());
-    //         self.measurement_dt_v.clear();
-    //
-    //         // Filter and store results in separate vectors
-    //         self.dt_v
-    //             .iter()
-    //             .zip(gas_v.iter()) // Pair timestamps with gas values
-    //             .filter(|(t, _)| (t.timestamp() as f64) >= s && (t.timestamp() as f64) <= e) // Filter by time range
-    //             .for_each(|(t, d)| {
-    //                 self.measurement_dt_v.push(*t);
-    //                 self.measurement_gas_v.get_mut(&key).unwrap().push(*d);
-    //             });
-    //     } else {
-    //         println!("No gas data found for {}", key);
-    //     }
-    // }
-
-    // pub fn calculate_slope(&mut self, key: GasType) {
-    //     if let Some(gas_v) = self.calc_gas_v.get(&key) {
-    //         let time_vec: Vec<f64> = self
-    //             .calc_dt_v
-    //             .get(&key)
-    //             .unwrap()
-    //             .iter()
-    //             .map(|dt| dt.timestamp() as f64)
-    //             .collect();
-    //
-    //         // Filter (x, y) pairs where y is Some
-    //         let filtered: Vec<(f64, f64)> = time_vec
-    //             .iter()
-    //             .zip(gas_v.iter())
-    //             .filter_map(|(&t, &v)| v.map(|val| (t, val)))
-    //             .collect();
-    //
-    //         let (x_vals, y_vals): (Vec<f64>, Vec<f64>) = filtered.into_iter().unzip();
-    //
-    //         let linreg = stats::LinReg::train(&x_vals, &y_vals);
-    //         self.linfit.insert(key, linreg);
-    //     } else {
-    //         self.linfit.insert(key, LinReg::default());
-    //     }
-    // }
 
     pub fn compute_all_fluxes(&mut self) {
         let keys = self.gases.to_vec();
@@ -1684,66 +1616,6 @@ impl CycleBuilder {
         self
     }
 
-    /// Build the Cycle struct
-    // pub fn build_db(self) -> Result<Cycle, Error> {
-    //     let start =
-    //         self.start_time.ok_or(Error::InvalidColumnName("Start time is required".to_owned()))?;
-    //     let chamber =
-    //         self.chamber_id.ok_or(Error::InvalidColumnName("Chamber ID is required".to_owned()))?;
-    //     let close = self
-    //         .close_offset
-    //         .ok_or(Error::InvalidColumnName("Close offset is required".to_owned()))?;
-    //     let open = self
-    //         .open_offset
-    //         .ok_or(Error::InvalidColumnName("Open offset is required".to_owned()))?;
-    //     let end =
-    //         self.end_offset.ok_or(Error::InvalidColumnName("End offset is required".to_owned()))?;
-    //
-    //     let timing = CycleTiming::new_from_offsets(start, close, open, end);
-    //     Ok(Cycle {
-    //         id: 0,
-    //         chamber_id: chamber,
-    //         main_instrument: Instrument::default(),
-    //         instrument: Instrument::default(),
-    //         instruments: FastMap::default(),
-    //         chamber: ChamberShape::Box {
-    //             width_m: 1.,
-    //             length_m: 1.,
-    //             height_m: 1.,
-    //             snow_height_m: 0.,
-    //         },
-    //         snow_depth_m: 0.,
-    //         project_id: None,
-    //         main_gas: GasType::CH4,
-    //         error_code: ErrorMask(0),
-    //         manual_adjusted: false,
-    //         min_y: FastMap::default(),
-    //         max_y: FastMap::default(),
-    //         t0_concentration: FastMap::default(),
-    //         max_idx: 0.,
-    //         flux: FastMap::default(),
-    //         fluxes: FastMap::default(),
-    //         linfit: FastMap::default(),
-    //         calc_r2: FastMap::default(),
-    //         measurement_r2: FastMap::default(),
-    //         diag_v: FastMap::default(),
-    //         gas_v: FastMap::default(),
-    //         gas_v_mole: FastMap::default(),
-    //         calc_gas_v: FastMap::default(),
-    //         measurement_gas_v: FastMap::default(),
-    //         measurement_diag_v: FastMap::default(),
-    //         gases: vec![],
-    //         air_pressure: 1000.,
-    //         air_temperature: 10.,
-    //         chamber_height: 1.,
-    //         is_valid: true,
-    //         gas_is_valid: FastMap::default(),
-    //         override_valid: None,
-    //         manual_valid: false,
-    //         gas_channels: FastMap::default(),
-    //         timing,
-    //     })
-    // }
     pub fn build(self) -> Result<Cycle, Box<dyn std::error::Error + Send + Sync>> {
         let start = self.start_time.ok_or("Start time is required")?;
         let chamber = self.chamber_id.ok_or("Chamber ID is required")?;
@@ -1771,12 +1643,7 @@ impl CycleBuilder {
             main_instrument: instrument.clone().unwrap(),
             instrument: instrument.unwrap(),
             instruments: FastMap::default(),
-            chamber: ChamberShape::Box {
-                width_m: 1.,
-                length_m: 1.,
-                height_m: 1.,
-                snow_height_m: 0.,
-            },
+            chamber: Chamber::default(),
             snow_depth_m,
             project_id: project.id,
             error_code: ErrorMask(0),
@@ -1788,7 +1655,6 @@ impl CycleBuilder {
             max_idx: 0.,
             flux: FastMap::default(),
             fluxes: FastMap::default(),
-            linfit: FastMap::default(),
             calc_r2: FastMap::default(),
             measurement_r2: FastMap::default(),
             diag_v: FastMap::default(),
@@ -2598,7 +2464,6 @@ pub fn load_cycles_sync(
                 min_y,
                 max_y,
                 flux: FastMap::default(),
-                linfit: FastMap::default(),
                 fluxes: FastMap::default(),
                 measurement_r2,
                 calc_r2: FastMap::default(),
@@ -3067,7 +2932,7 @@ pub fn process_cycles<V>(
     gas_by_day: &HashMap<String, V>,
     meteo_data: &MeteoData,
     height_data: &HeightData,
-    chamber_data: &HashMap<String, ChamberShape>,
+    chamber_data: &HashMap<String, Chamber>,
     project: Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>>
@@ -3246,15 +3111,14 @@ where
 
             // Height
             let maybe_height = height_data.get_nearest_previous_height(target, &cycle.chamber_id);
+
             cycle.chamber = chamber_data.get(chamber).cloned().unwrap_or_default();
+
             if let Some(h) = maybe_height {
                 cycle.chamber_height = h;
-                match &mut cycle.chamber {
-                    ChamberShape::Cylinder { height_m, .. }
-                    | ChamberShape::Box { height_m, .. } => *height_m = h,
-                }
+                cycle.chamber.set_height(h);
             } else {
-                cycle.chamber_height = match &cycle.chamber {
+                cycle.chamber_height = match &cycle.chamber.shape {
                     ChamberShape::Cylinder { height_m, .. }
                     | ChamberShape::Box { height_m, .. } => *height_m,
                 };

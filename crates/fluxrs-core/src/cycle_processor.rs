@@ -2,9 +2,7 @@ use crate::cycle::cycle::{
     insert_flux_results, insert_fluxes_ignore_duplicates, load_cycles, process_cycles,
     update_fluxes, Cycle,
 };
-use crate::data_formats::chamberdata::{
-    insert_chamber_metadata, read_chamber_metadata, ChamberShape,
-};
+use crate::data_formats::chamberdata::{insert_chamber_metadata, read_chamber_metadata, Chamber};
 use crate::data_formats::gasdata::{insert_measurements, GasData};
 use crate::data_formats::heightdata::{
     insert_height_data, query_height, read_height_csv, HeightData,
@@ -25,7 +23,7 @@ use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender}
 const MAX_CONCURRENT_TASKS: usize = 10;
 type GasDataSet = HashMap<String, Arc<GasData>>;
 type HeightDataSet = HeightData;
-type ChamberDataSet = HashMap<String, ChamberShape>;
+type ChamberDataSet = HashMap<String, Chamber>;
 type MeteoDataSet = MeteoData;
 type TimeDataSet = TimeData;
 type CycleDataSet = Vec<Cycle>;
