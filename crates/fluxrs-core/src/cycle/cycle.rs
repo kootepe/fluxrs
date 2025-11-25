@@ -2,13 +2,13 @@ use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::cycle::cycletiming::CycleTiming;
 use crate::cycle::gaskey::GasKey;
 use crate::data_formats::gasdata::{query_gas2, query_gas_all};
+use crate::db::fluxes_schema::{
+    make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
+    make_update_fluxes,
+};
 use crate::errorcode::{ErrorCode, ErrorMask};
 use crate::flux::{
     ExponentialFlux, FluxKind, FluxModel, FluxRecord, LinearFlux, PolyFlux, RobustFlux,
-};
-use crate::fluxes_schema::{
-    make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
-    make_update_fluxes,
 };
 use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
