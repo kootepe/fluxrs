@@ -9,12 +9,14 @@ mod utils;
 use crate::ui::main_frame::FluxApp;
 use fluxrs_core::cmd::cli::Cli;
 use fluxrs_core::cmd::config::Config;
-use fluxrs_core::fluxes_schema;
+use fluxrs_core::db::fluxes_schema;
+use fluxrs_core::db::migrate::migrate_db;
 
 use clap::Parser;
 use std::env;
 use std::path::Path;
 use std::process;
+
 #[cfg(windows)]
 fn attach_to_parent_console_if_present() {
     use std::fs::OpenOptions;
@@ -72,7 +74,7 @@ fn main() -> eframe::Result {
                 process::exit(1)
             },
         }
-    } else if let Err(e) = fluxes_schema::migrate_db() {
+    } else if let Err(e) = migrate_db() {
         eprintln!("Migration failed: {}", e);
         process::exit(1);
     }
