@@ -2056,21 +2056,9 @@ impl ValidationApp {
                         }
                     });
                 });
-                // ui.group(|ui| {
-                //     ui.set_min_width(min_width); // Enforce group width here
-                //     ui.vertical(|ui| {
-                //         ui.label("AIC diff");
-                //         for (gas, mut is_enabled) in &aic_diff_gases {
-                //             if ui.checkbox(&mut is_enabled, format!("{}", gas)).changed() {
-                //                 if is_enabled {
-                //                     self.plot_enabler.aic_diff.insert(gas);
-                //                 } else {
-                //                     self.plot_enabler.aic_diff.remove(gas);
-                //                 }
-                //             }
-                //         }
-                //     });
-                // });
+            });
+            ui.group(|ui| {
+                ui.checkbox(&mut self.show_lag_plot, "Show lag plot");
             });
         } else {
             ui.label("Load data ");
