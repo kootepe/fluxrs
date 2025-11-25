@@ -74,7 +74,10 @@ impl fmt::Display for MeteoPoint {
 
             Some(0) => " — exact".to_string(),
 
-            Some(sec_total) => {
+            Some(sec_total_signed) => {
+                let sign = if sec_total_signed < 0 { -1 } else { 1 };
+                let sec_total = sec_total_signed.abs(); // work with positive for components
+
                 let days = sec_total / 86_400;
                 let hours = (sec_total % 86_400) / 3600;
                 let minutes = (sec_total % 3600) / 60;
@@ -97,7 +100,9 @@ impl fmt::Display for MeteoPoint {
                     parts.push(format!("{} sec", seconds));
                 }
 
-                format!(" — {} away", parts.join(" "))
+                let direction = if sign < 0 { "+" } else { "-" };
+
+                format!(" — {}{}", direction, parts.join(" "))
             },
         };
 
@@ -154,29 +159,34 @@ impl MeteoData {
         let mut best_press: Option<(usize, i64)> = None;
 
         for (idx, &ts) in self.datetime.iter().enumerate() {
-            let diff = (ts - target_timestamp).abs();
+            let signed_diff = ts - target_timestamp; // preserve sign
+            let diff = signed_diff.abs(); // for nearest comparison
 
             // respect ±30 minutes window
             if diff > 1800 {
                 continue;
             }
 
-            // check temperature at this timestamp
+            // temperature
             let t = &self.temperature[idx];
             if t.value.is_some() {
                 match best_temp {
-                    None => best_temp = Some((idx, diff)),
-                    Some((_, best_diff)) if diff < best_diff => best_temp = Some((idx, diff)),
+                    None => best_temp = Some((idx, signed_diff)),
+                    Some((_, best_diff)) if diff < best_diff.abs() => {
+                        best_temp = Some((idx, signed_diff))
+                    },
                     _ => {},
                 }
             }
 
-            // check pressure at this timestamp
+            // pressure
             let p = &self.pressure[idx];
             if p.value.is_some() {
                 match best_press {
-                    None => best_press = Some((idx, diff)),
-                    Some((_, best_diff)) if diff < best_diff => best_press = Some((idx, diff)),
+                    None => best_press = Some((idx, signed_diff)),
+                    Some((_, best_diff)) if diff < best_diff.abs() => {
+                        best_press = Some((idx, signed_diff))
+                    },
                     _ => {},
                 }
             }
