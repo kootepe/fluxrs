@@ -1518,7 +1518,7 @@ checksum = "8ce81f49ae8a0482e4c55ea62ebbd7e5a686af544c00b9d090bba3ff9be97b3d"
 
 [[package]]
 name = "fluxrs"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1543,7 +1543,7 @@ dependencies = [
 
 [[package]]
 name = "fluxrs-core"
-version = "0.4.5"
+version = "0.4.6"
 dependencies = [
  "chrono",
  "chrono-tz",

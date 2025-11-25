@@ -1,5 +1,17 @@
 # Release Notes
 
+## v0.4.6
+- Fix close lag adjusting
+  - previously close lag wouldnt move if open lag was at the bound
+- Lag plot is now toggleable via settings or keybind
+- Chamber now knows if its a default value or actual data
+- Moved chamber dimensions and meteodata to be visible by default in cycle
+details
+- Meteodata distance from target now has a sign, eg. can be negative or positive
+  instead of just positive
+  - Shown in cycle details
+- Moved db logic to module
+
 ## v0.4.5
 - Temperature and pressure now have a "distance from target"
   - eg. they report how far from the target timestamp they were
