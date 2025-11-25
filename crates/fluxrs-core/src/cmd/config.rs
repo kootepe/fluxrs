@@ -427,11 +427,19 @@ impl ProcessEventSink for Config {
             InsertEvent::Ok(msg, rows) => {
                 println!("{}{}", rows, msg);
             },
-            InsertEvent::OkSkip(rows, duplicates) => {
-                println!("Inserted {} rows, skipped {} duplicates.", rows, duplicates);
+            InsertEvent::OkSkip(rows, skips) => {
+                println!("Inserted {} rows, skipped {} duplicates.", rows, skips);
             },
-            InsertEvent::CycleOkSkip(rows, duplicates) => {
-                println!("Inserted {} cycles, skipped {} entries. Either they failed during calculation or are already in the db..", rows, duplicates);
+            InsertEvent::CycleOkSkip(rows, skips) => {
+                println!("Inserted {} cycles, skipped {} entries. Either they failed during calculation or are already in the db..", rows, skips);
+                if skips == &0 {
+                    println!("Inserted {} cycles.", rows);
+                } else {
+                    println!(
+                        "Inserted {} cycles, skipped {} entries. Either something went wrong with the calculation or the cycles already exist in the db.",
+                        rows, skips
+                    );
+                }
             },
             InsertEvent::Fail(e) => {
                 println!("Failed to insert rows: {}", e);
