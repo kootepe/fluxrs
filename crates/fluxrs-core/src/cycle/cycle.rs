@@ -498,9 +498,7 @@ impl Cycle {
 
     pub fn increment_close_lag(&mut self, delta: f64) {
         // only increment the lag if its within the start and end time
-        if (self.get_adjusted_close() + delta) >= self.get_start()
-            && (self.get_adjusted_open() + delta) <= self.get_end()
-        {
+        if (self.get_adjusted_close() + delta) >= self.get_start() {
             self.timing.increment_close_lag(delta);
         }
         self.adjust_calc_range_all();
