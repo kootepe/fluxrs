@@ -138,6 +138,7 @@ pub struct ValidationApp {
     pub show_cycle_details: bool,
     pub show_residuals: bool,
     pub show_standardized_residuals: bool,
+    pub show_lag_plot: bool,
     pub show_legend: bool,
     pub show_plot_widths: bool,
     pub toggled_gas: Option<GasKey>,
@@ -207,6 +208,7 @@ impl Default for ValidationApp {
             awaiting_rebind: None,
             show_residuals: false,
             show_standardized_residuals: false,
+            show_lag_plot: true,
             show_legend: true,
             show_cycle_details: true,
             show_plot_widths: true,
@@ -436,6 +438,9 @@ impl ValidationApp {
                 }
                 if self.keybinds.action_triggered(Action::ToggleShowResiduals, i) {
                     self.show_residuals = !self.show_residuals
+                }
+                if self.keybinds.action_triggered(Action::ToggleShowLag, i) {
+                    self.show_lag_plot = !self.show_lag_plot
                 }
                 if self.keybinds.action_triggered(Action::ToggleShowStandResiduals, i) {
                     self.show_standardized_residuals = !self.show_standardized_residuals
@@ -1681,42 +1686,6 @@ impl ValidationApp {
                         }
                     });
                 }
-
-                // if !self.plot_enabler.aic_diff.is_empty() {
-                //     ui.vertical(|ui| {
-                //         let keys: Vec<_> = self.plot_enabler.aic_diff.iter().copied().collect(); for key in &keys {
-                //             let aic_diff_plot = init_attribute_plot(
-                //                 "".to_owned(),
-                //                 key,
-                //                 self.flux_plot_w,
-                //                 self.flux_plot_h,
-                //             );
-                //             let response = aic_diff_plot.show(ui, |plot_ui| {
-                //                 self.render_attribute_plot(
-                //                     plot_ui,
-                //                     &key,
-                //                     move |cycle, key| {
-                //                         cycle
-                //                             .fluxes
-                //                             .get(&(*key, FluxKind::RobLin))
-                //                             .and_then(|model| model.model.aic())
-                //                             .unwrap_or(0.0)
-                //                             - cycle
-                //                                 .fluxes
-                //                                 .get(&(*key, FluxKind::Linear))
-                //                                 .and_then(|model| model.model.aic())
-                //                                 .unwrap_or(0.0)
-                //                     },
-                //                     &format!("Flux ({})", FluxKind::Poly.label()),
-                //                     None,
-                //                 );
-                //             });
-                //             if response.response.hovered() {
-                //                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-                //             }
-                //         }
-                //     });
-                // }
             });
         });
         let mut main_instrument = Instrument::default();
@@ -1725,15 +1694,20 @@ impl ValidationApp {
         }
         ui.with_layout(egui::Layout::left_to_right(egui::Align::TOP), |ui| {
             ui.horizontal(|ui| {
-                let lag_plot = init_lag_plot(
-                    &main_key,
-                    main_instrument.clone(),
-                    self.plot_w.lag_plot_w,
-                    self.plot_w.lag_plot_h,
-                );
-                let response = lag_plot.show(ui, |plot_ui| {
-                    self.render_lag_plot(plot_ui);
-                });
+                if self.show_lag_plot {
+                    let lag_plot = init_lag_plot(
+                        &main_key,
+                        main_instrument.clone(),
+                        self.plot_w.lag_plot_w,
+                        self.plot_w.lag_plot_h,
+                    );
+                    let response = lag_plot.show(ui, |plot_ui| {
+                        self.render_lag_plot(plot_ui);
+                    });
+                    if response.response.hovered() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+                    }
+                }
                 let flux_unit = self.flux_unit;
                 let keys: Vec<_> = self.plot_enabler.gases.iter().copied().collect();
                 for key in &keys {
@@ -1750,9 +1724,6 @@ impl ValidationApp {
                             flux_unit.from_umol_m2_s(umol_m2_s, gas.gas_type)
                         });
                     });
-                    if response.response.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-                    }
                     if response2.response.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                     }
@@ -2030,6 +2001,31 @@ impl ValidationApp {
                                     self.plot_enabler.measurement_rs.insert(*gas);
                                 } else {
                                     self.plot_enabler.measurement_rs.remove(gas);
+                                }
+                            }
+                        }
+                    });
+                });
+                ui.group(|ui| {
+                    ui.set_min_width(min_width); // Enforce group width here
+                    ui.vertical(|ui| {
+                        ui.label("t0 concentration");
+                        for (gas, mut is_enabled) in &conc_t0_gases {
+                            if ui
+                                .checkbox(
+                                    &mut is_enabled,
+                                    format!(
+                                        "{} {}",
+                                        gas.gas_type,
+                                        cycle.instruments.get(&gas.id).unwrap().serial
+                                    ),
+                                )
+                                .changed()
+                            {
+                                if is_enabled {
+                                    self.plot_enabler.conc_t0.insert(*gas);
+                                } else {
+                                    self.plot_enabler.conc_t0.remove(gas);
                                 }
                             }
                         }

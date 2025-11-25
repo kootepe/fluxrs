@@ -324,6 +324,7 @@ impl MainApp {
                     Action::TogglePlotWidthsWindow,
                     Action::ToggleShowResiduals,
                     Action::ToggleShowStandResiduals,
+                    Action::ToggleShowLag,
                 ] {
                     let mut rebind_text = "Rebind";
                     if let Some(pending) = self.validation_panel.awaiting_rebind {
