@@ -14,6 +14,7 @@ use crate::keybinds::{Action, KeyBindings};
 use fluxrs_core::cycle::cycle::{AppError, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;
 use fluxrs_core::cycle_navigator::CycleNavigator;
+use fluxrs_core::data_formats::chamberdata::ChamberOrigin;
 use fluxrs_core::data_formats::meteodata::MeteoSource;
 use fluxrs_core::datatype::DataType;
 use fluxrs_core::errorcode::ErrorCode;
@@ -2851,36 +2852,6 @@ impl ValidationApp {
                         ui.label("Chamber:");
                         ui.label(cycle.chamber_id.to_string());
                         ui.end_row();
-                        ui.label("Chamber height:");
-                        ui.label(format!("{}", cycle.chamber_height));
-                        ui.end_row();
-                        ui.label("Chamber volume:");
-                        ui.label(format!("{} cm3", cycle.chamber.volume_m3() * 1e+6));
-                        ui.end_row();
-                        ui.label("Chamber area:");
-                        ui.label(format!("{} cm2", cycle.chamber.area_m2() * 1e+4));
-                        ui.end_row();
-                        ui.label("Chamber dimensions:");
-                        ui.label(format!("{}", cycle.chamber));
-                        ui.end_row();
-
-                        ui.label("Air temperature");
-                        let temp_text = format!("{}", cycle.air_temperature);
-                        if cycle.air_temperature.source != MeteoSource::Raw {
-                            ui.colored_label(Color32::ORANGE, temp_text);
-                        } else {
-                            ui.label(temp_text);
-                        }
-                        ui.end_row();
-
-                        ui.label("Air pressure");
-                        let press_text = format!("{}", cycle.air_pressure);
-                        if cycle.air_pressure.source != MeteoSource::Raw {
-                            ui.colored_label(Color32::ORANGE, press_text);
-                        } else {
-                            ui.label(press_text);
-                        }
-                        ui.end_row();
                         ui.label("Start Time:");
                         ui.label(
                             DateTime::from_timestamp(cycle.get_start() as i64, 0)
@@ -2974,6 +2945,45 @@ impl ValidationApp {
                             ui.end_row();
                         }
                     });
+                });
+                ui.separator();
+
+                egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
+                    ui.label("Chamber height:");
+                    ui.label(format!("{:.2}", cycle.chamber_height));
+                    ui.end_row();
+                    ui.label("Chamber volume:");
+                    ui.label(format!("{:.2} cm3", cycle.chamber.volume_m3() * 1e+6));
+                    ui.end_row();
+                    ui.label("Chamber area:");
+                    ui.label(format!("{:.2} cm2", cycle.chamber.area_m2() * 1e+4));
+                    ui.end_row();
+                    ui.label("Chamber dimensions:");
+                    let cham_txt = format!("{}", cycle.chamber);
+                    if cycle.chamber.origin != ChamberOrigin::Raw {
+                        ui.colored_label(Color32::ORANGE, cham_txt);
+                    } else {
+                        ui.label(cham_txt);
+                    }
+                    ui.end_row();
+
+                    ui.label("Air temperature");
+                    let temp_text = format!("{}", cycle.air_temperature);
+                    if cycle.air_temperature.source != MeteoSource::Raw {
+                        ui.colored_label(Color32::ORANGE, temp_text);
+                    } else {
+                        ui.label(temp_text);
+                    }
+                    ui.end_row();
+
+                    ui.label("Air pressure");
+                    let press_text = format!("{}", cycle.air_pressure);
+                    if cycle.air_pressure.source != MeteoSource::Raw {
+                        ui.colored_label(Color32::ORANGE, press_text);
+                    } else {
+                        ui.label(press_text);
+                    }
+                    ui.end_row();
                 });
                 ui.separator();
 
