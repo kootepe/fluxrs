@@ -73,25 +73,28 @@ jobs:
           set -e
           mkdir -p dist
 
-          # Copy both binaries into dist
+          cd dist
+
+          # Copy both binaries into dist and remember their names
+          BIN_FILES=()
           for BIN in $BIN_NAMES; do
             FILE="${BIN}${{ matrix.ext }}"
-            cp "target/${{ matrix.target }}/release-fast/${FILE}" dist/
+            cp "../target/${{ matrix.target }}/release-fast/${FILE}" .
+            BIN_FILES+=("$FILE")
           done
-
-          cd dist
 
           ARCHIVE_BASE="${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.target }}"
 
           # For Windows → zip; others → tar.gz
           if [[ "${{ matrix.target }}" == *"windows-gnu" ]]; then
-            zip "${ARCHIVE_BASE}.zip" ./*
+            zip "${ARCHIVE_BASE}.zip" "${BIN_FILES[@]}"
           else
-            tar czf "${ARCHIVE_BASE}.tar.gz" ./*
+            tar czf "${ARCHIVE_BASE}.tar.gz" "${BIN_FILES[@]}"
           fi
 
-          # Remove binaries so they are only inside the archive
-          rm ./*
+          # Remove only the raw binaries; leave the archive(s) in dist
+          rm "${BIN_FILES[@]}"
+
 
 
       - name: Upload build artifact
