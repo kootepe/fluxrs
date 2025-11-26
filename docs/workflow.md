@@ -10,6 +10,7 @@ to starting processing.
   - Give the project a name
 - Timezone
   - Select a timezone for your project
+  - Format is IANA / tz database format e.g, Europe/Helsinki
   - data will be displayed in this timezone
   - Will also be the default timezone for all timezone prompts when uploading
   files
@@ -41,7 +42,13 @@ to starting processing.
 # Upload files to db tab
 Here you can upload different data files into the DB. Only files that are
 __REQUIRED__ are the instrument data files and cycle file(s). Default values
-will be used for chamber dimensions, air pressure and air temperature.
+will be used for chamber dimensions, air pressure and air temperature. So you
+can do check all of your measurements and worry about chamber dimensions and
+meteo data later.
+
+In the `Initiate measurements` tab there is a `Recalculate` button. Clicking it
+trigger a recalculation for all measurements, but it will not change any of your
+manual changes. It will only look for new chambers, height and meteodata.
 
 __Do not upload height files for manual measurements.__
 
@@ -54,8 +61,8 @@ This will automatically calculate all of your fluxes.
 Pick a start date and an end date for the range which you want to calculate
 fluxes from and hit __Initiate measurements__.
 
-If you selected Best pearson's R in as the flux finding mode in the project
-initiation and you have a lot of long measurements with a short minimum
+If you selected `Best pearson's R` in as the flux finding mode in the `Initiate
+project` and you have a lot of long measurements with a short minimum
 calculation data length, this can take quite long as the program goes through
 each measurement second by second.
 
@@ -71,8 +78,8 @@ Hitting recalculate will recalculate all of your fluxes that have new height/met
 
 # Load measurements
 This just loads measurements into memory for processing. My PC can handle 5000~
-15 minute measurements pretty well. If the program feels laggy, load less data
-from here.
+15 minute measurements (roughly 2 months of 24/7 data) pretty well. If the
+program feels laggy, load less data from here.
 
 
 # Validate measurements
