@@ -1,9 +1,7 @@
-use crate::concentrationunit::ConcentrationUnit;
-use crate::data_formats::chamberdata::ChamberShape;
-use crate::gaschannel::{self, GasChannel};
+use crate::data_formats::chamberdata::Chamber;
+use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
-use crate::stats::{pearson_correlation, LinReg, PolyReg, RobReg};
-use crate::Flux;
+use crate::stats::{ExpReg, LinReg, PolyReg, RobReg};
 use dyn_clone::DynClone;
 use statrs::distribution::{ContinuousCDF, StudentsT};
 use std::any::Any;
@@ -30,6 +28,9 @@ pub enum FluxUnit {
     MmolM2H,
     MgM2S,
     MgM2H,
+
+    NmolM2S,
+    NmolM2H,
 }
 
 impl std::fmt::Display for FluxUnit {
@@ -41,6 +42,8 @@ impl std::fmt::Display for FluxUnit {
             FluxUnit::MmolM2H => write!(f, "mmol/m2/h"),
             FluxUnit::MgM2S => write!(f, "mg/m2/s"),
             FluxUnit::MgM2H => write!(f, "mg/m2/h"),
+            FluxUnit::NmolM2S => write!(f, "nmol/m2/s"),
+            FluxUnit::NmolM2H => write!(f, "nmol/m2/h"),
         }
     }
 }
@@ -56,36 +59,44 @@ impl FromStr for FluxUnit {
             "mmol/m2/h" => Ok(FluxUnit::MmolM2H),
             "mg/m2/s" => Ok(FluxUnit::MgM2S),
             "mg/m2/h" => Ok(FluxUnit::MgM2H),
+            "nmol/m2/s" => Ok(FluxUnit::NmolM2S),
+            "nmol/m2/h" => Ok(FluxUnit::NmolM2H),
+
             other => Err(ParseFluxUnitError(format!("Invalid unit: {other}"))),
         }
     }
 }
+
 impl FluxUnit {
     pub fn all() -> &'static [FluxUnit] {
         use FluxUnit::*;
-        &[UmolM2S, UmolM2H, MmolM2S, MmolM2H, MgM2S, MgM2H]
+        &[UmolM2S, UmolM2H, MmolM2S, MmolM2H, MgM2S, MgM2H, NmolM2S, NmolM2H]
     }
+
     pub fn from_umol_m2_s(&self, value_umol_m2_s: f64, gas: GasType) -> f64 {
         match self {
-            // base unit, unchanged
+            // nmol/m²/s = µmol * 1000
+            FluxUnit::NmolM2S => value_umol_m2_s * 1000.0,
+
+            // nmol/m²/h = µmol * 1000 * 3600
+            FluxUnit::NmolM2H => value_umol_m2_s * 1000.0 * 3600.0,
+
+            // base
             FluxUnit::UmolM2S => value_umol_m2_s,
 
-            // µmol/m²/h = multiply by 3600 (seconds → hours)
+            // µmol → hours
             FluxUnit::UmolM2H => value_umol_m2_s * 3600.0,
 
-            // mmol/m²/s = divide by 1000
+            // mmol
             FluxUnit::MmolM2S => value_umol_m2_s / 1000.0,
-
-            // mmol/m²/h = divide by 1000, then multiply by 3600
             FluxUnit::MmolM2H => value_umol_m2_s / 1000.0 * 3600.0,
 
-            // mg/m²/s = µmol * mol_mass(mg/mmol) / 1000 (to convert µmol→mmol)
+            // mg
             FluxUnit::MgM2S => value_umol_m2_s * gas.mol_mass() / 1000.0,
-
-            // mg/m²/h = same as above, * 3600 for seconds → hours
             FluxUnit::MgM2H => value_umol_m2_s * gas.mol_mass() / 1000.0 * 3600.0,
         }
     }
+
     pub fn suffix(&self) -> &'static str {
         match self {
             FluxUnit::UmolM2S => "umol_m2_s",
@@ -94,6 +105,8 @@ impl FluxUnit {
             FluxUnit::MmolM2H => "mmol_m2_h",
             FluxUnit::MgM2S => "mg_m2_s",
             FluxUnit::MgM2H => "mg_m2_h",
+            FluxUnit::NmolM2S => "nmol_m2_s",
+            FluxUnit::NmolM2H => "nmol_m2_h",
         }
     }
 }
@@ -107,6 +120,7 @@ pub struct FluxRecord {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FluxKind {
     Linear,
+    Exponential,
     RobLin,
     Poly,
 }
@@ -115,6 +129,7 @@ impl std::fmt::Display for FluxKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FluxKind::Linear => write!(f, "Linear"),
+            FluxKind::Exponential => write!(f, "Exponential"),
             FluxKind::RobLin => write!(f, "Robust linear"),
             FluxKind::Poly => write!(f, "Polynomial"),
         }
@@ -125,6 +140,7 @@ impl FluxKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             FluxKind::Linear => "linear",
+            FluxKind::Exponential => "exponential",
             FluxKind::RobLin => "roblin",
             FluxKind::Poly => "poly",
         }
@@ -132,13 +148,14 @@ impl FluxKind {
     pub fn label(&self) -> &'static str {
         match self {
             FluxKind::Linear => "linear",
+            FluxKind::Exponential => "exponential",
             FluxKind::RobLin => "roblin",
             FluxKind::Poly => "poly",
         }
     }
     pub fn all() -> &'static [FluxKind] {
         use FluxKind::*;
-        &[Linear, Poly, RobLin]
+        &[Linear, Exponential, RobLin, Poly]
     }
 }
 
@@ -311,7 +328,7 @@ impl LinearFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -329,16 +346,33 @@ impl LinearFlux {
         let residuals: Vec<f64> = y.iter().zip(&y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
         let rss: f64 = residuals.iter().map(|r| r.powi(2)).sum();
 
-        let sigma = (rss / (n - 2.0)).sqrt();
         let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
         let y_mean = y.iter().copied().sum::<f64>() / n;
         let cv = rmse_val / y_mean;
 
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
         let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
+
+        // no variance in x, no meaningful regression
+        if !ss_xx.is_finite() || ss_xx <= f64::EPSILON {
+            return None;
+        }
+        let sigma = (rss / (n - 2.0)).sqrt();
+        if !sigma.is_finite() {
+            return None;
+        }
+
         let se_slope = sigma / ss_xx.sqrt();
+        if !se_slope.is_finite() || se_slope <= 0.0 {
+            // e.g. perfect fit (sigma = 0) or degenerate
+            // you can decide how to handle this; example: p_value = 0 or 1
+            return None;
+        }
 
         let t_stat = model.slope / se_slope;
+        if !t_stat.is_finite() {
+            return None;
+        }
         let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
         let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
 
@@ -419,6 +453,255 @@ impl LinearFlux {
     }
 }
 
+#[derive(Clone)]
+pub struct ExponentialFlux {
+    pub fit_id: String,
+    pub gas_channel: GasChannel,
+    pub flux: f64,
+    pub r2: f64,
+    pub adjusted_r2: f64,
+    pub model: ExpReg,
+    pub p_value: f64,
+    pub sigma: f64,
+    pub aic: f64,
+    pub rmse: f64,
+    pub cv: f64,
+    pub range_start: f64,
+    pub range_end: f64,
+}
+
+impl FluxModel for ExponentialFlux {
+    fn flux(&self) -> Option<f64> {
+        Some(self.flux)
+    }
+
+    fn r2(&self) -> Option<f64> {
+        Some(self.r2)
+    }
+
+    fn adj_r2(&self) -> Option<f64> {
+        Some(self.adjusted_r2)
+    }
+
+    fn fit_id(&self) -> FluxKind {
+        FluxKind::Exponential // you’ll need to add this variant
+    }
+
+    fn gas_channel(&self) -> GasChannel {
+        self.gas_channel.clone()
+    }
+
+    fn predict(&self, x: f64) -> Option<f64> {
+        // normalize like LinearFlux: prediction on (x - range_start)
+        Some(self.model.calculate(x - self.range_start))
+    }
+
+    fn set_range_start(&mut self, value: f64) {
+        self.range_start = value;
+    }
+
+    fn set_range_end(&mut self, value: f64) {
+        self.range_end = value;
+    }
+
+    fn range_start(&self) -> Option<f64> {
+        Some(self.range_start)
+    }
+
+    fn range_end(&self) -> Option<f64> {
+        Some(self.range_end)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
+    /// Intercept here is y(0) = a (with time normalized to 0 at start).
+    fn intercept(&self) -> Option<f64> {
+        Some(self.model.a)
+    }
+
+    /// "Slope" is the initial derivative f0 = dy/dx at t0:
+    /// For y = a * exp(b x), dy/dx|_{x=0} = a * b
+    fn slope(&self) -> Option<f64> {
+        Some(self.model.a * self.model.b)
+    }
+
+    fn sigma(&self) -> Option<f64> {
+        Some(self.sigma)
+    }
+
+    fn p_value(&self) -> Option<f64> {
+        Some(self.p_value)
+    }
+
+    fn aic(&self) -> Option<f64> {
+        Some(self.aic)
+    }
+
+    fn rmse(&self) -> Option<f64> {
+        Some(self.rmse)
+    }
+
+    fn cv(&self) -> Option<f64> {
+        Some(self.cv)
+    }
+}
+
+impl ExponentialFlux {
+    pub fn from_data(
+        fit_id: &str,
+        channel: GasChannel,
+        x: &[f64],
+        y: &[f64],
+        start: f64,
+        end: f64,
+        air_temperature: f64,
+        air_pressure: f64,
+        chamber: Chamber,
+    ) -> Option<Self> {
+        if x.len() != y.len() || x.len() < 3 {
+            return None;
+        }
+
+        if !y.iter().all(|&v| v > 0.0) {
+            // exponential model requires positive y
+            return None;
+        }
+
+        let n = x.len() as f64;
+
+        // Normalize time so that t0 = 0 (like in LinearFlux)
+        let x0 = x[0];
+        let x_norm: Vec<f64> = x.iter().map(|&t| t - x0).collect();
+
+        // --- Fit exponential model y = a * exp(b * x) ---
+
+        let model = ExpReg::train(&x_norm, y);
+
+        // Predictions in original space
+        let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
+        let residuals: Vec<f64> = y.iter().zip(&y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
+
+        let rss: f64 = residuals.iter().map(|r| r.powi(2)).sum();
+        let sigma = (rss / (n - 2.0)).sqrt();
+
+        let rmse_val = rmse(y, &y_hat).unwrap_or(0.0);
+        let y_mean = y.iter().copied().sum::<f64>() / n;
+        let cv = rmse_val / y_mean;
+
+        // R² and adjusted R² based on original y
+        let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
+        let adjusted_r2 = adjusted_r2(r2, n as usize, 2); // a and b
+
+        // AIC based on RSS in original space
+        let aic = aic_from_rss(rss, n as usize, 2);
+
+        // --- p-value for b from log-linear fit ln(y) = ln(a) + b x ---
+
+        let ln_y: Vec<f64> = y.iter().map(|v| v.ln()).collect();
+        let ln_model = LinReg::train(&x_norm, &ln_y);
+
+        let ln_y_hat: Vec<f64> = x_norm.iter().map(|&xi| ln_model.calculate(xi)).collect();
+
+        let ln_residuals: Vec<f64> =
+            ln_y.iter().zip(&ln_y_hat).map(|(&yi, &yhi)| yi - yhi).collect();
+
+        let rss_ln: f64 = ln_residuals.iter().map(|r| r.powi(2)).sum();
+        let sigma_ln = (rss_ln / (n - 2.0)).sqrt();
+
+        let x_mean = x_norm.iter().copied().sum::<f64>() / n;
+        let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
+        let se_b = sigma_ln / ss_xx.sqrt();
+
+        let t_stat = ln_model.slope / se_b;
+        let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
+        let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
+
+        // --- Flux calculation ---
+        //
+        // For y = a * exp(b t), with t normalized so t0 = 0:
+        // f0 = dC/dt |_{t=0} = a * b
+        let f0 = model.a * model.b;
+
+        // Reuse your existing flux helper
+        let flux = flux_umol_m2_s(&channel, f0, air_temperature, air_pressure, &chamber);
+
+        Some(Self {
+            fit_id: fit_id.to_string(),
+            gas_channel: channel,
+            flux,
+            adjusted_r2,
+            r2,
+            model,
+            p_value,
+            sigma,
+            aic,
+            rmse: rmse_val,
+            cv,
+            range_start: start,
+            range_end: end,
+        })
+    }
+
+    pub fn from_values(
+        fit_id: &str,
+        gas_channel: GasChannel,
+        flux: f64,
+        r2: f64,
+        adjusted_r2: f64,
+        model: ExpReg,
+        range_start: f64,
+        range_end: f64,
+        sigma: f64,
+        p_value: f64,
+        aic: f64,
+        rmse: f64,
+        cv: f64,
+    ) -> Option<Self> {
+        Some(Self {
+            fit_id: fit_id.to_string(),
+            gas_channel,
+            flux,
+            r2,
+            adjusted_r2,
+            model,
+            range_start,
+            range_end,
+            sigma,
+            p_value,
+            aic,
+            rmse,
+            cv,
+        })
+    }
+
+    /// Simple alternative "update" like your LinearFlux::flux_from_vec;
+    /// here using chamber-based flux helper and initial slope f0 = a * b.
+    pub fn flux_from_vec(
+        &mut self,
+        x: Vec<f64>,
+        y: Vec<f64>,
+        air_temperature: f64,
+        air_pressure: f64,
+        chamber: Chamber,
+    ) {
+        if x.len() != y.len() || x.len() < 2 || !y.iter().all(|v| *v > 0.0) {
+            return;
+        }
+
+        let x0 = x[0];
+        let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
+
+        self.model = ExpReg::train(&x_norm, &y);
+        let f0 = self.model.a * self.model.b;
+        self.flux = flux_umol_m2_s(&self.gas_channel, f0, air_temperature, air_pressure, &chamber);
+    }
+}
 #[derive(Clone)]
 pub struct PolyFlux {
     pub fit_id: String,
@@ -519,7 +802,7 @@ impl PolyFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -672,7 +955,7 @@ impl RobustFlux {
         end: f64,
         air_temperature: f64,
         air_pressure: f64,
-        chamber: ChamberShape,
+        chamber: Chamber,
     ) -> Option<Self> {
         if x.len() != y.len() || x.len() < 3 {
             return None;
@@ -723,7 +1006,7 @@ fn flux_umol_m2_s_core(
     slope_x_per_s: f64, // instrument slope (whatever that is)
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     // phys constants + env
     let p_pa = air_pressure_hpa * 100.0; // hPa -> Pa
@@ -759,7 +1042,7 @@ pub fn flux_umol_m2_s(
     slope_x_per_s: f64,
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber)
 }
@@ -770,7 +1053,7 @@ pub fn flux_mg_m2_s(
     slope_x_per_s: f64,
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     let flux_umol =
         flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
@@ -792,7 +1075,7 @@ pub fn flux_mg_m2_h(
     slope_x_per_s: f64,
     air_temperature_c: f64,
     air_pressure_hpa: f64,
-    chamber: &ChamberShape,
+    chamber: &Chamber,
 ) -> f64 {
     // start from mg m⁻² s⁻¹ then scale by 3600
     let flux_mg_s =
@@ -856,8 +1139,9 @@ mod tests {
         let end = x[x.len() - 1];
         let temperature = 20.0; // °C
         let pressure = 1013.25; // hPa
-        let chamber = ChamberShape::default();
-        let channel = GasChannel::new(gas, ConcentrationUnit::Ppb, fit_id.to_owned());
+        let chamber = Chamber::default();
+        let channel =
+            GasChannel::new(gas, concentrationunit::ConcentrationUnit::Ppb, fit_id.to_owned());
 
         let flux = RobustFlux::from_data(
             fit_id,

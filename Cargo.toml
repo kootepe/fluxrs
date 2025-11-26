@@ -1,11 +1,11 @@
 [workspace]
-members = ["crates/fluxrs-core", "crates/fluxrs-gui"]
-default-members = ["crates/fluxrs-gui"]
+members = ["crates/fluxrs-core", "crates/fluxrs-gui", "crates/fluxrs-cli"]
+default-members = ["crates/fluxrs-gui", "crates/fluxrs-cli"]
 resolver = "2"
 
 [workspace.package]
 documentation = "https://kootepe.github.io/fluxrs/"
-version = "0.3.0"
+version = "0.4.7"
 edition = "2021"
 
 [workspace.dependencies]

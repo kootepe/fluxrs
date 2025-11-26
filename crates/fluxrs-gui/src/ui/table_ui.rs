@@ -176,8 +176,10 @@ impl TableApp {
                             let col_name = &self.column_names[i];
                             let display = if col_name == "datetime" || col_name == "start_time" {
                                 if let Ok(ts) = value.parse::<i64>() {
-                                    if let Some(dt) = chrono::DateTime::from_timestamp(ts, 0) {
-                                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                                    if let Some(dt_utc) = chrono::DateTime::from_timestamp(ts, 0) {
+                                        let dt_local = dt_utc
+                                            .with_timezone(&self.project.as_ref().unwrap().tz); // or &self.project.tz / &tz
+                                        dt_local.format("%Y-%m-%d %H:%M:%S").to_string()
                                     } else {
                                         format!("Invalid timestamp: {}", ts)
                                     }

@@ -42,6 +42,7 @@ pub enum Action {
     ToggleShowPoly,
     ToggleShowResiduals,
     ToggleShowStandResiduals,
+    ToggleShowLag,
     ToggleShowDetails,
     ToggleShowLegend,
     TogglePlotWidthsWindow,
@@ -83,6 +84,7 @@ impl fmt::Display for Action {
             Action::ToggleShowRobLinear => write!(f, "Toggle robust linear model"),
             Action::ToggleShowPoly => write!(f, "Toggle Poly model"),
             Action::ToggleShowStandResiduals => write!(f, "Toggle standardized residuals plots"),
+            Action::ToggleShowLag => write!(f, "Toggle lag plot"),
             Action::ToggleShowResiduals => write!(f, "Toggle residuals bar plots"),
             Action::ToggleShowDetails => write!(f, "Toggle cycle details window"),
             Action::ToggleShowLegend => write!(f, "Toggle legend window"),
@@ -117,6 +119,7 @@ impl Default for KeyBindings {
         bindings.insert(Action::ToggleShowLegend, no_mods(F2));
         bindings.insert(Action::ToggleShowDetails, no_mods(F3));
         bindings.insert(Action::TogglePlotWidthsWindow, no_mods(F4));
+        bindings.insert(Action::ToggleShowLag, no_mods(F5));
         bindings
             .insert(Action::SearchLag, KeyBind { key: L, ctrl: true, shift: false, alt: false });
         Self { bindings }

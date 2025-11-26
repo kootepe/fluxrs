@@ -61,10 +61,8 @@ impl CycleNavigator {
         r2_thresh: f64,
         t0_thresh: f64,
     ) {
-        let previous_start_time = self
-            .current_index()
-            .and_then(|idx| cycles.get(idx))
-            .map(|cycle| cycle.start_time.timestamp());
+        let previous_start_time =
+            self.current_index().and_then(|idx| cycles.get(idx)).map(|cycle| cycle.get_start_ts());
 
         self.visible_cycles.clear();
 
@@ -156,7 +154,7 @@ impl CycleNavigator {
 
         let result = self
             .visible_cycles
-            .binary_search_by_key(&target_time, |&idx| cycles[idx].start_time.timestamp());
+            .binary_search_by_key(&target_time, |&idx| cycles[idx].get_start_ts());
 
         match result {
             Ok(pos) => Some(pos), // Exact match, perfect
@@ -170,8 +168,8 @@ impl CycleNavigator {
                     (Some(b), Some(a)) => {
                         let b_idx = self.visible_cycles[b];
                         let a_idx = self.visible_cycles[a];
-                        let b_diff = (cycles[b_idx].start_time.timestamp() - target_time).abs();
-                        let a_diff = (cycles[a_idx].start_time.timestamp() - target_time).abs();
+                        let b_diff = (cycles[b_idx].get_start_ts() - target_time).abs();
+                        let a_diff = (cycles[a_idx].get_start_ts() - target_time).abs();
                         if b_diff <= a_diff {
                             b
                         } else {
@@ -218,7 +216,7 @@ fn is_cycle_visible(
     // let stats_valid =
     //     p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh;
     let is_valid =
-        cycle.is_valid_by_threshold(key, kind, p_val_thresh, r2_thresh, rmse_thresh, t0_thresh)
+        cycle.is_valid_by_threshold(&key, kind, p_val_thresh, r2_thresh, rmse_thresh, t0_thresh)
             && cycle.error_code.0 == 0;
 
     let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);

@@ -77,7 +77,6 @@ impl ValidationApp {
                         },
                     };
                     let arc_conn = Arc::new(Mutex::new(conn));
-                    // self.progress_receiver = Some(progress_receiver);
 
                     self.runtime.spawn(async move {
                         let cycles_result = query_cycles_async(

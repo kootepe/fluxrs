@@ -2,12 +2,10 @@ use crate::project::Project;
 
 use crate::datatype::DataType;
 use crate::processevent::{InsertEvent, ProcessEvent, ReadEvent};
-use crate::utils::get_or_insert_data_file;
-use chrono_tz::Tz;
-use std::path::PathBuf;
-use tokio::sync::mpsc;
-
 use crate::utils::ensure_utf8;
+use crate::utils::get_or_insert_data_file;
+
+use chrono_tz::Tz;
 use rusqlite;
 use rusqlite::Row;
 use rusqlite::{params, Connection, Result};
@@ -15,9 +13,10 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
 use tokio::task;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +53,7 @@ impl FromStr for ChamberShapeType {
         }
     }
 }
+
 #[derive(Debug, Clone, Copy)]
 pub enum ChamberShape {
     Cylinder { diameter_m: f64, height_m: f64, snow_height_m: f64 },
@@ -62,7 +62,7 @@ pub enum ChamberShape {
 
 impl Default for ChamberShape {
     fn default() -> Self {
-        ChamberShape::Box { width_m: 1., length_m: 1., height_m: 1., snow_height_m: 0. }
+        ChamberShape::Box { width_m: 1.0, length_m: 1.0, height_m: 1.0, snow_height_m: 0.0 }
     }
 }
 
@@ -117,12 +117,14 @@ impl ChamberShape {
             ChamberShape::Cylinder { .. } => ChamberShapeType::Cylinder,
         }
     }
+
     pub fn set_height(&mut self, new_height: f64) {
         match self {
             ChamberShape::Cylinder { height_m, .. } => *height_m = new_height,
             ChamberShape::Box { height_m, .. } => *height_m = new_height,
         }
     }
+
     pub fn set_snow_height(&mut self, new_snow_height: f64) {
         match self {
             ChamberShape::Cylinder { snow_height_m, .. } => *snow_height_m = new_snow_height,
@@ -134,26 +136,98 @@ impl ChamberShape {
 impl fmt::Display for ChamberShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ChamberShape::Cylinder { diameter_m, height_m, snow_height_m } => {
-                write!(
-                    f,
-                    "Cylinder: height = {:.2} m, diameter = {:.2} m, snow height = {:.2}",
-                    height_m, diameter_m, snow_height_m
-                )
-            },
-            ChamberShape::Box { width_m, length_m, height_m, snow_height_m } => {
-                write!(
-                    f,
-                    "Box: height = {:.2} m, length = {:.2} m, width = {:.2} m, snow height = {:.2}",
-                    height_m, length_m, width_m, snow_height_m
-                )
-            },
+            ChamberShape::Cylinder { diameter_m, height_m, snow_height_m } => write!(
+                f,
+                "Cylinder: L={:.2}m, D={:.2}m, snow h = {:.2}",
+                height_m, diameter_m, snow_height_m
+            ),
+            ChamberShape::Box { width_m, length_m, height_m, snow_height_m } => write!(
+                f,
+                "Box: L={:.2}m, W={:.2}m, H={:.2}m, S={:.2}m",
+                height_m, length_m, width_m, snow_height_m
+            ),
         }
     }
 }
-pub fn query_chambers(conn: &Connection, project: i64) -> Result<HashMap<String, ChamberShape>> {
+
+/// Where did this chamber definition come from?
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChamberOrigin {
+    /// Synthetic default (e.g. not present in DB/CSV)
+    Default,
+    /// Loaded from the database
+    Raw,
+}
+
+/// A chamber plus metadata about its origin.
+///
+/// Use `chamber.shape` for geometry, and `chamber.origin` to know
+/// if it’s default vs DB vs CSV.
+#[derive(Debug, Clone, Copy)]
+pub struct Chamber {
+    pub shape: ChamberShape,
+    pub origin: ChamberOrigin,
+}
+
+impl Default for Chamber {
+    fn default() -> Self {
+        Self { shape: ChamberShape::default(), origin: ChamberOrigin::Default }
+    }
+}
+
+impl Chamber {
+    pub fn is_default(&self) -> bool {
+        self.origin == ChamberOrigin::Default
+    }
+
+    pub fn is_raw(&self) -> bool {
+        self.origin == ChamberOrigin::Raw
+    }
+
+    pub fn volume_m3(&self) -> f64 {
+        self.shape.volume_m3()
+    }
+
+    pub fn area_m2(&self) -> f64 {
+        self.shape.area_m2()
+    }
+
+    pub fn internal_height(&self) -> f64 {
+        self.shape.internal_height()
+    }
+
+    pub fn adjusted_volume(&self) -> f64 {
+        self.shape.adjusted_volume()
+    }
+
+    pub fn kind(&self) -> ChamberShapeType {
+        self.shape.kind()
+    }
+
+    pub fn set_height(&mut self, new_height: f64) {
+        self.shape.set_height(new_height);
+    }
+
+    pub fn set_snow_height(&mut self, new_snow_height: f64) {
+        self.shape.set_snow_height(new_snow_height);
+    }
+}
+
+impl fmt::Display for Chamber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let origin_str = match self.origin {
+            ChamberOrigin::Default => "default",
+            ChamberOrigin::Raw => "raw",
+        };
+        write!(f, "{} (origin: {})", self.shape, origin_str)
+    }
+}
+
+/// Query chambers from the DB for a project.
+/// All returned chambers have origin = `ChamberOrigin::Db`.
+pub fn query_chambers(conn: &Connection, project: i64) -> Result<HashMap<String, Chamber>> {
     println!("Querying chamber data");
-    let mut chamber_map: HashMap<String, ChamberShape> = HashMap::new();
+    let mut chamber_map: HashMap<String, Chamber> = HashMap::new();
 
     let mut stmt = conn.prepare(
         "SELECT chamber_id, shape, diameter, width, length, height
@@ -168,9 +242,8 @@ pub fn query_chambers(conn: &Connection, project: i64) -> Result<HashMap<String,
         let width_m: f64 = row.get("width")?;
         let length_m: f64 = row.get("length")?;
         let height_m: f64 = row.get("height")?;
-        let snow_height_m = 0.;
+        let snow_height_m = 0.0;
 
-        // Parse and build ChamberShape
         let shape_type = shape_str.parse::<ChamberShapeType>().map_err(|_| {
             rusqlite::Error::FromSqlConversionFailure(
                 0,
@@ -179,7 +252,7 @@ pub fn query_chambers(conn: &Connection, project: i64) -> Result<HashMap<String,
             )
         })?;
 
-        let chamber_shape = match shape_type {
+        let shape = match shape_type {
             ChamberShapeType::Box => {
                 ChamberShape::Box { width_m, length_m, height_m, snow_height_m }
             },
@@ -188,47 +261,53 @@ pub fn query_chambers(conn: &Connection, project: i64) -> Result<HashMap<String,
             },
         };
 
-        Ok((chamber_id, chamber_shape))
+        Ok((chamber_id, Chamber { shape, origin: ChamberOrigin::Raw }))
     })?;
 
     for row in rows {
-        let (chamber_id, shape) = row?;
-        chamber_map.insert(chamber_id, shape);
+        let (chamber_id, chamber) = row?;
+        chamber_map.insert(chamber_id, chamber);
     }
 
     Ok(chamber_map)
 }
+
 pub async fn query_chamber_async(
     conn: Arc<Mutex<Connection>>, // Arc<Mutex> for shared async access
     project: Project,
-) -> Result<HashMap<String, ChamberShape>> {
+) -> Result<HashMap<String, Chamber>> {
     let result = task::spawn_blocking(move || {
         let conn = conn.lock().unwrap();
         query_chambers(&conn, project.id.unwrap())
     })
     .await;
+
     match result {
         Ok(inner) => inner,
         Err(_) => {
-            // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
-            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
+            // Convert JoinError into rusqlite::Error
+            Err(rusqlite::Error::ExecuteReturnedResults)
         },
     }
 }
 
+/// Insert chamber metadata into DB from a map.
+/// Geometry comes from `chamber.shape`; origin is *not* stored in DB.
 pub fn insert_chamber_metadata(
     tx: &Connection,
-    chambers: &HashMap<String, ChamberShape>,
+    chambers: &HashMap<String, Chamber>,
     project_id: &i64,
     file_id: &i64,
 ) -> Result<()> {
-    for (chamber_id, shape) in chambers {
+    for (chamber_id, chamber) in chambers {
+        let shape = &chamber.shape;
+
         let (shape_str, diameter, width, length, height) = match shape {
-            ChamberShape::Cylinder { diameter_m, height_m, snow_height_m } => {
-                ("cylinder", *diameter_m, 0., 0., *height_m)
+            ChamberShape::Cylinder { diameter_m, height_m, .. } => {
+                ("cylinder", *diameter_m, 0.0, 0.0, *height_m)
             },
-            ChamberShape::Box { width_m, length_m, height_m, snow_height_m } => {
-                ("box", 0., *width_m, *length_m, *height_m)
+            ChamberShape::Box { width_m, length_m, height_m, .. } => {
+                ("box", 0.0, *width_m, *length_m, *height_m)
             },
         };
 
@@ -242,37 +321,48 @@ pub fn insert_chamber_metadata(
 
     Ok(())
 }
-impl TryFrom<&Row<'_>> for ChamberShape {
+
+/// Convert a DB row to a Chamber (origin = Db).
+impl TryFrom<&Row<'_>> for Chamber {
     type Error = rusqlite::Error;
 
     fn try_from(row: &Row) -> Result<Self, Self::Error> {
         let shape_type_str: String = row.get("shape_type")?;
-        match shape_type_str.to_lowercase().as_str() {
-            "box" => Ok(ChamberShape::Box {
+        let shape = match shape_type_str.to_lowercase().as_str() {
+            "box" => ChamberShape::Box {
                 width_m: row.get("width")?,
                 length_m: row.get("length")?,
                 height_m: row.get("height")?,
-                snow_height_m: 0.,
-            }),
-            "cylinder" => Ok(ChamberShape::Cylinder {
+                snow_height_m: 0.0,
+            },
+            "cylinder" => ChamberShape::Cylinder {
                 diameter_m: row.get("diameter")?,
                 height_m: row.get("height")?,
-                snow_height_m: 0.,
-            }),
-            _ => Err(rusqlite::Error::FromSqlConversionFailure(
-                0,
-                rusqlite::types::Type::Text,
-                Box::new(rusqlite::types::FromSqlError::Other("Unknown chamber shape type".into())),
-            )),
-        }
+                snow_height_m: 0.0,
+            },
+            _ => {
+                return Err(rusqlite::Error::FromSqlConversionFailure(
+                    0,
+                    rusqlite::types::Type::Text,
+                    Box::new(rusqlite::types::FromSqlError::Other(
+                        "Unknown chamber shape type".into(),
+                    )),
+                ))
+            },
+        };
+
+        Ok(Chamber { shape, origin: ChamberOrigin::Raw })
     }
 }
 
+/// Read chamber metadata from CSV.
+/// All chambers loaded here have origin = `ChamberOrigin::Csv`.
 pub fn read_chamber_metadata<P: AsRef<Path>>(
     path: P,
-) -> Result<HashMap<String, ChamberShape>, Box<dyn Error>> {
+) -> Result<HashMap<String, Chamber>, Box<dyn Error>> {
     let content = ensure_utf8(&path)?;
-    let mut rdr = csv::ReaderBuilder::new().has_headers(true).from_reader(content.as_bytes());
+    let mut rdr =
+        csv::ReaderBuilder::new().has_headers(true).flexible(true).from_reader(content.as_bytes());
 
     let mut chambers = HashMap::new();
 
@@ -286,21 +376,25 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
         let width = parse_f64_field(&record, 4)?;
         let length = parse_f64_field(&record, 5)?;
 
-        let chamber = match shape.as_str() {
-            "cylinder" => {
-                ChamberShape::Cylinder { diameter_m: diameter, height_m: height, snow_height_m: 0. }
+        let shape_val = match shape.as_str() {
+            "cylinder" => ChamberShape::Cylinder {
+                diameter_m: diameter,
+                height_m: height,
+                snow_height_m: 0.0,
             },
             "box" => ChamberShape::Box {
                 width_m: width,
                 length_m: length,
                 height_m: height,
-                snow_height_m: 0.,
+                snow_height_m: 0.0,
             },
             _ => {
                 eprintln!("Unknown shape '{}', skipping chamber {}", shape, chamber_id);
                 continue;
             },
         };
+
+        let chamber = Chamber { shape: shape_val, origin: ChamberOrigin::Raw };
 
         println!("{}", chamber);
         chambers.insert(chamber_id, chamber);
@@ -312,11 +406,14 @@ pub fn read_chamber_metadata<P: AsRef<Path>>(
 fn parse_f64_field(record: &csv::StringRecord, idx: usize) -> Result<f64, Box<dyn Error>> {
     Ok(record.get(idx).filter(|s| !s.trim().is_empty()).unwrap_or("0").parse()?)
 }
+
+/// Upload chamber metadata from selected CSV paths, insert into DB,
+/// and send progress events. Chambers from CSV are marked as `Csv` origin.
 pub fn upload_chamber_metadata_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
-    tz: Tz,
+    _tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
@@ -326,7 +423,6 @@ pub fn upload_chamber_metadata_async(
             Some(name) => name,
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
-                // Optionally notify UI:
                 let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MetadataFail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
@@ -334,6 +430,7 @@ pub fn upload_chamber_metadata_async(
                 continue;
             },
         };
+
         let tx = match conn.transaction() {
             Ok(tx) => tx,
             Err(e) => {
@@ -345,9 +442,9 @@ pub fn upload_chamber_metadata_async(
                 continue;
             },
         };
+
         let file_id = match get_or_insert_data_file(&tx, DataType::Chamber, file_name, project_id) {
             Ok(id) => id,
-
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
                 let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
@@ -357,6 +454,7 @@ pub fn upload_chamber_metadata_async(
                 continue;
             },
         };
+
         match read_chamber_metadata(path) {
             Ok(chambers) => {
                 match insert_chamber_metadata(&tx, &chambers, &project.id.unwrap(), &file_id) {
@@ -366,7 +464,6 @@ pub fn upload_chamber_metadata_async(
                             let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
                                 format!("Commit failed for file '{}': {}", file_name, e),
                             )));
-
                             continue;
                         }
                     },
@@ -384,5 +481,6 @@ pub fn upload_chamber_metadata_async(
             },
         }
     }
+
     let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
 }

@@ -1,6 +1,6 @@
-use rusqlite::{Connection, OptionalExtension, Result};
+use rusqlite::{Connection, Result};
 
-const DB_VERSION: i32 = 1;
+pub const DB_VERSION: i32 = 3; // latest schema version
 
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
@@ -19,20 +19,24 @@ pub mod fluxes_col {
     pub const START_LAG_S: usize = 13;
     pub const MIN_CALC_LEN: usize = 14;
     pub const AIR_PRESSURE: usize = 15;
-    pub const AIR_TEMPERATURE: usize = 16;
-    pub const CHAMBER_HEIGHT: usize = 17;
-    pub const ERROR_CODE: usize = 18;
-    pub const IS_VALID: usize = 19;
-    pub const MANUAL_ADJUSTED: usize = 20;
-    pub const MANUAL_VALID: usize = 21;
-    pub const T0_CONC: usize = 22;
-    pub const MEASUREMENT_R2: usize = 23;
-    pub const FLUX: usize = 24;
-    pub const R2: usize = 25;
-    pub const INTERCEPT: usize = 26;
-    pub const SLOPE: usize = 27;
-    pub const CALC_START: usize = 28;
-    pub const CALC_END: usize = 29;
+    pub const PRESSURE_SOURCE: usize = 16;
+    pub const PRESSURE_DIST: usize = 17;
+    pub const AIR_TEMPERATURE: usize = 18;
+    pub const TEMPERATURE_SOURCE: usize = 19;
+    pub const TEMPERATURE_DIST: usize = 20;
+    pub const CHAMBER_HEIGHT: usize = 21;
+    pub const ERROR_CODE: usize = 22;
+    pub const IS_VALID: usize = 23;
+    pub const MANUAL_ADJUSTED: usize = 24;
+    pub const MANUAL_VALID: usize = 25;
+    pub const T0_CONC: usize = 26;
+    pub const MEASUREMENT_R2: usize = 27;
+    pub const FLUX: usize = 28;
+    pub const R2: usize = 29;
+    pub const INTERCEPT: usize = 30;
+    pub const SLOPE: usize = 31;
+    pub const CALC_START: usize = 32;
+    pub const CALC_END: usize = 33;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -48,7 +52,11 @@ pub const OTHER_COLS: &[&str] = &[
     "end_lag_s",
     "start_lag_s",
     "air_pressure",
+    "pressure_source",
+    "pressure_dist",
     "air_temperature",
+    "temperature_source",
+    "temperature_dist",
     "chamber_height",
     "error_code",
     "is_valid",
@@ -75,7 +83,11 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "start_lag_s",
     "min_calc_len",
     "air_pressure",
+    "pressure_source",
+    "pressure_dist",
     "air_temperature",
+    "temperature_source",
+    "temperature_dist",
     "chamber_height",
     "snow_depth_m",
     "error_code",
@@ -86,6 +98,8 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "deadband",
     "t0_concentration",
     "measurement_r2",
+    "calc_range_start",
+    "calc_range_end",
     "lin_flux",
     "lin_r2",
     "lin_adj_r2",
@@ -96,8 +110,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "lin_aic",
     "lin_rmse",
     "lin_cv",
-    "lin_range_start",
-    "lin_range_end",
     "poly_flux",
     "poly_r2",
     "poly_adj_r2",
@@ -108,8 +120,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "poly_a0",
     "poly_a1",
     "poly_a2",
-    "poly_range_start",
-    "poly_range_end",
     "roblin_flux",
     "roblin_r2",
     "roblin_adj_r2",
@@ -119,8 +129,18 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "roblin_aic",
     "roblin_rmse",
     "roblin_cv",
-    "roblin_range_start",
-    "roblin_range_end",
+    "exp_flux",
+    "exp_r2",
+    "exp_adj_r2",
+    "exp_intercept",
+    "exp_slope",
+    "exp_sigma",
+    "exp_p_value",
+    "exp_aic",
+    "exp_rmse",
+    "exp_cv",
+    "exp_a",
+    "exp_b",
 ];
 pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "start_time",
@@ -136,7 +156,11 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "start_lag_s",
     "min_calc_len",
     "air_pressure",
+    "pressure_source",
+    "pressure_dist",
     "air_temperature",
+    "temperature_source",
+    "temperature_dist",
     "chamber_height",
     "snow_depth_m",
     "error_code",
@@ -157,8 +181,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "lin_aic",
     "lin_rmse",
     "lin_cv",
-    "lin_range_start",
-    "lin_range_end",
     "poly_flux",
     "poly_r2",
     "poly_adj_r2",
@@ -169,8 +191,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "poly_a0",
     "poly_a1",
     "poly_a2",
-    "poly_range_start",
-    "poly_range_end",
     "roblin_flux",
     "roblin_r2",
     "roblin_adj_r2",
@@ -180,8 +200,18 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "roblin_aic",
     "roblin_rmse",
     "roblin_cv",
-    "roblin_range_start",
-    "roblin_range_end",
+    "exp_flux",
+    "exp_r2",
+    "exp_adj_r2",
+    "exp_intercept",
+    "exp_slope",
+    "exp_sigma",
+    "exp_p_value",
+    "exp_aic",
+    "exp_rmse",
+    "exp_cv",
+    "exp_a",
+    "exp_b",
 ];
 pub fn make_select_all_fluxes() -> String {
     format!(
@@ -308,7 +338,11 @@ pub fn create_flux_table() -> String {
             start_lag_s				INTEGER NOT NULL,
             min_calc_len			INTEGER NOT NULL,
             air_pressure			FLOAT,
+            pressure_source         INTEGER,
+            pressure_dist           INTEGER,
             air_temperature			FLOAT,
+            temperature_source      INTEGER,
+            temperature_dist        INTEGER,
             chamber_height			FLOAT,
             snow_depth_m			FLOAT,
 
@@ -321,6 +355,8 @@ pub fn create_flux_table() -> String {
             t0_concentration		FLOAT,
             measurement_r2			FLOAT,
 
+            calc_range_start        FLOAT,
+            calc_range_end          FLOAT,
             lin_flux				FLOAT,
             lin_r2					FLOAT,
             lin_adj_r2				FLOAT,
@@ -331,8 +367,6 @@ pub fn create_flux_table() -> String {
             lin_aic					FLOAT,
             lin_rmse				FLOAT,
             lin_cv  				FLOAT,
-            lin_range_start			FLOAT,
-            lin_range_end			FLOAT,
 
             poly_flux				FLOAT,
             poly_r2					FLOAT,
@@ -344,8 +378,6 @@ pub fn create_flux_table() -> String {
             poly_a0					FLOAT,
             poly_a1					FLOAT,
             poly_a2					FLOAT,
-            poly_range_start		FLOAT,
-            poly_range_end			FLOAT,
 
             roblin_flux				FLOAT,
             roblin_r2				FLOAT,
@@ -356,12 +388,23 @@ pub fn create_flux_table() -> String {
             roblin_aic				FLOAT,
             roblin_rmse				FLOAT,
             roblin_cv               FLOAT,
-            roblin_range_start		FLOAT,
-            roblin_range_end		FLOAT,
 
-            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id) ON DELETE CASCADE
+            exp_flux                FLOAT,
+            exp_r2                  FLOAT,
+            exp_adj_r2              FLOAT,
+            exp_intercept           FLOAT,
+            exp_slope               FLOAT,
+            exp_sigma               FLOAT,
+            exp_p_value             FLOAT,
+            exp_aic                 FLOAT,
+            exp_rmse                FLOAT,
+            exp_cv                  FLOAT,
+            exp_a                   FLOAT,
+            exp_b                   FLOAT,
+
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id) ON DELETE CASCADE,
             FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
 
             UNIQUE (instrument_link, start_time, project_link, gas)
@@ -391,7 +434,11 @@ pub fn create_flux_history_table() -> String {
             start_lag_s				INTEGER NOT NULL,
             min_calc_len			INTEGER NOT NULL,
             air_pressure			FLOAT,
+            pressure_source         INTEGER,
+            pressure_dist           INTEGER,
             air_temperature			FLOAT,
+            temperature_source      INTEGER,
+            temperature_dist        INTEGER,
             chamber_height			FLOAT,
             snow_depth_m			FLOAT,
 
@@ -404,6 +451,8 @@ pub fn create_flux_history_table() -> String {
             t0_concentration		FLOAT,
             measurement_r2			FLOAT,
 
+            calc_range_start        FLOAT,
+            calc_range_end          FLOAT,
             lin_flux				FLOAT,
             lin_r2				    FLOAT,
             lin_adj_r2				FLOAT,
@@ -414,8 +463,6 @@ pub fn create_flux_history_table() -> String {
             lin_aic				    FLOAT,
             lin_rmse				FLOAT,
             lin_cv                  FLOAT,
-            lin_range_start			FLOAT,
-            lin_range_end			FLOAT,
 
             poly_flux				FLOAT,
             poly_r2				    FLOAT,
@@ -427,8 +474,6 @@ pub fn create_flux_history_table() -> String {
             poly_a0				    FLOAT,
             poly_a1				    FLOAT,
             poly_a2				    FLOAT,
-            poly_range_start		FLOAT,
-            poly_range_end			FLOAT,
 
             roblin_flux				FLOAT,
             roblin_r2				FLOAT,
@@ -439,45 +484,28 @@ pub fn create_flux_history_table() -> String {
             roblin_aic				FLOAT,
             roblin_rmse				FLOAT,
             roblin_cv				FLOAT,
-            roblin_range_start		FLOAT,
-            roblin_range_end		FLOAT,
 
-            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id)
+            exp_flux                FLOAT,
+            exp_r2                  FLOAT,
+            exp_adj_r2              FLOAT,
+            exp_intercept           FLOAT,
+            exp_slope               FLOAT,
+            exp_sigma               FLOAT,
+            exp_p_value             FLOAT,
+            exp_aic                 FLOAT,
+            exp_rmse                FLOAT,
+            exp_cv                  FLOAT,
+            exp_a                   FLOAT,
+            exp_b                   FLOAT,
+
+            FOREIGN KEY (cycle_link) REFERENCES cycles(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (main_instrument_link) REFERENCES instruments(id),
             FOREIGN KEY (instrument_link) REFERENCES instruments(id)
         )"
     .to_owned()
 }
 
-fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
-    // NOTE: the table name has to be a literal in the pragma call.
-    // We safely embed it by escaping single quotes.
-    fn esc(s: &str) -> String {
-        s.replace('\'', "''")
-    }
-
-    let sql = format!("SELECT 1 FROM pragma_table_info('{}') WHERE name = ?1 LIMIT 1;", esc(table));
-    conn.query_row(&sql, [column], |_| Ok(true)).optional().map(|opt| opt.unwrap_or(false))
-}
-
-pub fn migrate_db() -> Result<i32> {
-    let conn = Connection::open("fluxrs.db")?;
-    // user_version is 0 by default
-    let current_version: i32 = conn.query_row("PRAGMA user_version;", [], |row| row.get(0))?;
-    let mut migrated = 0;
-
-    let has_col = column_exists(&conn, "projects", "tz")?;
-    // this is a migration needed for couple of the first users... remove later
-    if current_version == 7 && !has_col {
-        println!("Applying migration 1: Setting user_version to 1");
-        conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
-        conn.execute("ALTER TABLE projects ADD COLUMN tz TEXT NOT NULL DEFAULT 'UTC';", [])?;
-        migrated = 1
-    }
-
-    Ok(migrated)
-}
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open("fluxrs.db")?;
     // conn.execute("PRAGMA journal_mode=WAL;", [])?;
@@ -509,7 +537,7 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             instrument_serial   TEXT NOT NULL,
             project_link        INTEGER NOT NULL,
 
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
             UNIQUE (project_link, instrument_model, instrument_serial)
         )",
         [],
@@ -526,9 +554,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             project_link        INTEGER NOT NULL,
             instrument_link     INTEGER NOT NULL,
 
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id),
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
 
             PRIMARY KEY (datetime, instrument_link, project_link)
         )",
@@ -548,9 +576,9 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             instrument_link INTEGER NOT NULL,
 
 
-            FOREIGN KEY (instrument_link) REFERENCES instruments(id)
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (instrument_link) REFERENCES instruments(id),
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
 
             UNIQUE (start_time, chamber_id, project_link)
         )",
@@ -564,8 +592,8 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             file_link       INTEGER NOT NULL,
             project_link    INTEGER NOT NULL,
 
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
             PRIMARY KEY (datetime, project_link)
         )",
         [],
@@ -578,8 +606,8 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             project_link    INTEGER NOT NULL,
             file_link       INTEGER NOT NULL,
 
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
 
             PRIMARY KEY (chamber_id, project_link, datetime)
         )",
@@ -597,8 +625,8 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
             file_link       INTEGER NOT NULL,
             project_link    INTEGER NOT NULL,
 
-            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE
-            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE
+            FOREIGN KEY (project_link) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_link) REFERENCES data_files(id) ON DELETE CASCADE,
 
             UNIQUE(chamber_id, project_link)
         );",

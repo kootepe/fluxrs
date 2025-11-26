@@ -1,6 +1,6 @@
 [package]
-name = "fluxrs-core"
-version = "0.4.7"
+name = "fluxrs_cli"
+version = "0.4.8"
 edition = "2021"
 
 [dependencies]
@@ -27,3 +27,5 @@ futures = "0.3.31"
 itertools = "0.14.0"
 # unused?
 plotters = "0.3.7"
+
+fluxrs-core = { path = "../fluxrs-core"  }

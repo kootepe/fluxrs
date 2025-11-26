@@ -8,7 +8,6 @@ use tokio::sync::mpsc;
 // use ui::manage_proj::project_ui::ProjectApp;
 
 // pub mod appview;
-pub mod cmd;
 pub mod concentrationunit;
 pub mod constants;
 pub mod cycle;
@@ -17,9 +16,9 @@ pub mod cycle_processor;
 pub mod cycle_recalcer;
 pub mod data_formats;
 pub mod datatype;
+pub mod db;
 pub mod errorcode;
 pub mod flux;
-pub mod fluxes_schema;
 mod gas_plot;
 pub mod gaschannel;
 pub mod gastype;
@@ -160,7 +159,7 @@ impl Flux {
 //         let date_key = datetime.format("%Y-%m-%d").to_string();
 //
 //         //   Get or create a new GasData entry
-//         let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
+//         let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
 //             header: StringRecord::new(),
 //             instrument_model: String::new(),
 //             instrument_serial: String::new(),

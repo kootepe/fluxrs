@@ -1,7 +1,9 @@
 use crate::cycle::cycle::{update_fluxes, Cycle};
-use crate::data_formats::chamberdata::ChamberShape;
+use crate::data_formats::chamberdata::Chamber;
 use crate::data_formats::heightdata::HeightData;
-use crate::data_formats::meteodata::MeteoData;
+use crate::data_formats::meteodata::{
+    MeteoData, MeteoPoint, MeteoSource, DEFAULT_PRESSURE, DEFAULT_TEMP,
+};
 use crate::processevent::{ProcessEvent, ProgressEvent};
 use crate::project::Project;
 
@@ -10,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::UnboundedSender;
 
 type HeightDataSet = HeightData;
-type ChamberDataSet = HashMap<String, ChamberShape>;
+type ChamberDataSet = HashMap<String, Chamber>;
 type MeteoDataSet = MeteoData;
 
 pub struct Datasets {
@@ -50,16 +52,32 @@ impl Recalcer {
             c.chamber.set_height(
                 self.data
                     .height
-                    .get_nearest_previous_height(c.start_time.to_utc().timestamp(), &c.chamber_id)
+                    .get_nearest_previous_height(c.timing.get_start_utc_ts(), &c.chamber_id)
                     .unwrap_or(old_height),
             );
 
-            if let Some((temp, press)) =
-                self.data.meteo.get_nearest(c.start_time.to_utc().timestamp())
-            {
-                c.air_temperature = temp;
-                c.air_pressure = press;
-            }
+            let nearest = self.data.meteo.get_nearest(c.get_start_ts());
+
+            let (mut temp_point, mut press_point) = nearest.unwrap_or((
+                MeteoPoint {
+                    value: Some(DEFAULT_TEMP),
+                    source: MeteoSource::Default,
+                    distance_from_target: Some(0), // Default originates at ts=0 away
+                },
+                MeteoPoint {
+                    value: Some(DEFAULT_PRESSURE),
+                    source: MeteoSource::Default,
+                    distance_from_target: Some(0),
+                },
+            ));
+
+            // Make sure Missing never leaks into pipeline:
+            temp_point = temp_point.or_default(DEFAULT_TEMP);
+            press_point = press_point.or_default(DEFAULT_PRESSURE);
+
+            // Assign final values to cycle
+            c.air_temperature = temp_point;
+            c.air_pressure = press_point;
 
             if let Some(chamber) = self.data.chambers.get(&c.chamber_id) {
                 c.chamber = *chamber

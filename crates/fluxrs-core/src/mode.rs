@@ -25,6 +25,7 @@ impl FromStr for Mode {
         match s.to_ascii_lowercase().as_str() {
             "deadband" => Ok(Mode::AfterDeadband),
             "pearsons" => Ok(Mode::BestPearsonsR),
+            "pearson" => Ok(Mode::BestPearsonsR),
             "bestr" => Ok(Mode::BestPearsonsR),
             other => Err(ParseModeError(format!("invalid mode: {other}"))),
         }

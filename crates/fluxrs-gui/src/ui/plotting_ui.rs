@@ -13,6 +13,7 @@ use fluxrs_core::mode::Mode;
 use crate::flux_extension::UiColor;
 use crate::gastype_extension::GasColor;
 use chrono::DateTime;
+use chrono_tz::Tz;
 use ecolor::Hsva;
 use egui::widgets::Label;
 use egui::{Align2, Rgba};
@@ -31,83 +32,6 @@ type DataTraceKind =
     (HashMap<String, Vec<(FluxKind, [f64; 2])>>, HashMap<String, Vec<(FluxKind, [f64; 2])>>);
 
 impl ValidationApp {
-    pub fn is_gas_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_gases.contains(key)
-    }
-
-    pub fn is_lin_flux_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_fluxes.contains(key)
-    }
-    pub fn is_poly_flux_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_fluxes.contains(key)
-    }
-    pub fn is_lin_p_val_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_p_val.contains(key)
-    }
-    pub fn is_lin_rmse_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_rmse.contains(key)
-    }
-    pub fn is_lin_cv_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_cv.contains(key)
-    }
-    pub fn is_lin_sigma_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_sigma.contains(key)
-    }
-    pub fn is_lin_adj_r2_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_adj_r2.contains(key)
-    }
-    pub fn is_lin_aic_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_lin_aic.contains(key)
-    }
-    pub fn is_poly_rmse_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_rmse.contains(key)
-    }
-    pub fn is_poly_cv_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_cv.contains(key)
-    }
-    pub fn is_poly_sigma_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_sigma.contains(key)
-    }
-    pub fn is_poly_adj_r2_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_adj_r2.contains(key)
-    }
-    pub fn is_poly_aic_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_poly_aic.contains(key)
-    }
-    pub fn is_roblin_rmse_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_roblin_rmse.contains(key)
-    }
-    pub fn is_roblin_cv_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_roblin_cv.contains(key)
-    }
-    pub fn is_roblin_sigma_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_roblin_sigma.contains(key)
-    }
-    pub fn is_roblin_adj_r2_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_roblin_adj_r2.contains(key)
-    }
-    pub fn is_roblin_aic_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_roblin_aic.contains(key)
-    }
-    pub fn is_roblin_flux_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_roblin_fluxes.contains(key)
-    }
-
-    // pub fn is_aic_diff_enabled(&self, key: &GasKey) -> bool {
-    //     self.enabled_aic_diff.contains(key)
-    // }
-
-    pub fn is_calc_r_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_calc_r.contains(key)
-    }
-
-    pub fn is_measurement_r_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_measurement_rs.contains(key)
-    }
-
-    pub fn is_conc_t0_enabled(&self, key: &GasKey) -> bool {
-        self.enabled_conc_t0.contains(key)
-    }
     pub fn mark_dirty(&mut self) {
         if let Some(i) = self.cycle_nav.current_index() {
             self.dirty_cycles.insert(i);
@@ -164,7 +88,7 @@ impl ValidationApp {
             .cycles
             .iter()
             .enumerate()
-            .find(|(_, cycle)| cycle.start_time.timestamp() as f64 == timestamp)
+            .find(|(_, cycle)| cycle.get_start_ts() as f64 == timestamp)
         {
             if Some(idx) != self.cycle_nav.current_index() {
                 self.commit_current_cycle();
@@ -179,9 +103,7 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key.clone());
-            // let actual = cycle.get_calc_gas_v2(&key.clone());
-            let (dt_v, actual) = cycle.get_calc_data2(&key.clone());
+            let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // Prepare predictions from the selected model
 
@@ -238,8 +160,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key.clone());
-            // let actual = cycle.get_calc_gas_v2(&key.clone());
+            // let dt_v = cycle.get_calc_dt2(&key);
+            // let actual = cycle.get_calc_gas_v2(&key);
             let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // let gas_nopt: Vec<f64> = actual.iter().map(|x| x.unwrap_or(0.0)).collect();
@@ -294,8 +216,8 @@ impl ValidationApp {
         kind: FluxKind,
     ) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            // let dt_v = cycle.get_calc_dt2(&key.clone());
-            // let actual = cycle.get_calc_gas_v2(&key.clone());
+            // let dt_v = cycle.get_calc_dt2(&key);
+            // let actual = cycle.get_calc_gas_v2(&key);
             let (dt_v, actual) = cycle.get_calc_data2(key);
 
             // Prepare predictions from the selected model
@@ -473,7 +395,7 @@ impl ValidationApp {
                 plot_ui.polygon(right_polygon);
             }
             if let Some(data) = cycle.gas_v.get(key) {
-                let dt_v = &cycle.dt_v.get(&key.id).unwrap();
+                let dt_v = &cycle.get_dt_v(&key.id);
                 let diag_v = &cycle.diag_v.get(&key.id).unwrap();
 
                 let mut normal_points = Vec::new();
@@ -511,14 +433,17 @@ impl ValidationApp {
                     );
                 }
 
-                if self.show_linfit {
+                if self.show_fits.show_linfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::Linear);
                 }
-                if self.show_roblinfit {
+                if self.show_fits.show_roblinfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::RobLin);
                 }
-                if self.show_polyfit {
+                if self.show_fits.show_polyfit {
                     self.plot_model_fit(plot_ui, key, FluxKind::Poly);
+                }
+                if self.show_fits.show_expfit {
+                    self.plot_model_fit(plot_ui, key, FluxKind::Exponential);
                 }
 
                 plot_ui.vline(adj_open_line);
@@ -685,14 +610,14 @@ impl ValidationApp {
             if let Some(cycle) = self.cycles.get(index) {
                 let chamber_id = cycle.chamber_id.clone(); // Get chamber ID
                 let value = selector(cycle, key); // Extract value using selector
-                let start_time = cycle.start_time.timestamp() as f64; // Get timestamp
+                let start_time = cycle.get_start_ts() as f64; // Get timestamp
 
                 // BUG: Thresholds need to be enabled/disabled within the app, otherwise it causes
                 // issues with showing which measurements are valid.
                 if let Some(best_kind) = cycle.best_model_by_aic(key) {
                     let gas_key = GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()));
                     let is_valid = cycle.is_valid_by_threshold(
-                        gas_key,
+                        &gas_key,
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,
@@ -718,21 +643,21 @@ impl ValidationApp {
 
     pub fn get_close_offset(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.close_offset as f64
+            cycle.get_close_offset() as f64
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
     pub fn get_open_offset(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.open_offset as f64
+            cycle.get_open_offset() as f64
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
     }
     pub fn get_end_offset(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.end_offset as f64
+            cycle.get_end_offset() as f64
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
@@ -760,7 +685,7 @@ impl ValidationApp {
     }
     pub fn get_min_calc_area_len(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.min_calc_len
+            cycle.get_min_calc_len()
         } else {
             0.0 // Return 0.0 if no valid cycle is found
         }
@@ -794,7 +719,7 @@ impl ValidationApp {
     }
     pub fn get_open_lag_s(&self) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.open_lag_s
+            cycle.get_open_lag()
         } else {
             0.0
         }
@@ -828,6 +753,13 @@ impl ValidationApp {
             0.0
         }
     }
+    pub fn get_start_after_deadband(&self, key: &GasKey) -> f64 {
+        if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
+            cycle.get_start_after_deadband(key)
+        } else {
+            0.0
+        }
+    }
     pub fn drag_left_to(&mut self, key: &GasKey, new_start: f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             cycle.drag_left_to(key, new_start)
@@ -835,27 +767,27 @@ impl ValidationApp {
     }
     pub fn drag_right_to(&mut self, key: &GasKey, new_end: f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.drag_right_to(key, new_end)
+            cycle.timing.drag_right_to(key, new_end)
         }
     }
     pub fn drag_main(&mut self, key: &GasKey, dx_steps: f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.drag_main(key, dx_steps)
+            cycle.timing.drag_main(key, dx_steps)
         }
     }
     pub fn stick_calc_to_range_start(&mut self, key: &GasKey) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.stick_calc_to_range_start(key)
+            cycle.timing.stick_calc_to_range_start(key)
         }
     }
     pub fn stick_calc_to_range_start_for_all(&mut self) {
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.stick_calc_to_range_start_for_all()
+            cycle.timing.stick_calc_to_range_start_for_all(&cycle.gases)
         }
     }
     pub fn bounds_for(&self, key: &GasKey) -> (f64, f64) {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            cycle.bounds_for(key)
+            cycle.timing.bounds_for(key)
         } else {
             (0.0, 0.0)
         }
@@ -863,7 +795,7 @@ impl ValidationApp {
 
     pub fn get_deadband(&self, key: &GasKey) -> f64 {
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            *cycle.deadbands.get(key).unwrap_or(&0.0)
+            cycle.get_deadband(key)
         } else {
             0.0
         }
@@ -877,9 +809,7 @@ impl ValidationApp {
     }
 
     pub fn get_model(&self, key: &GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
-        self.cycle_nav
-            .current_cycle(&self.cycles)
-            .and_then(|cycle| cycle.get_model(key.clone(), kind))
+        self.cycle_nav.current_cycle(&self.cycles).and_then(|cycle| cycle.get_model(key, kind))
     }
     // pub fn get_model(&self, key: GasKey, kind: FluxKind) -> Option<&dyn FluxModel> {
     //     if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
@@ -898,7 +828,16 @@ impl ValidationApp {
     pub fn set_calc_start_all(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_calc_start_all(x);
+            cycle.timing.set_calc_start_all(&cycle.gases, x);
+            cycle.compute_all_fluxes();
+        }
+    }
+
+    pub fn set_calc_end_all(&mut self, x: f64) {
+        self.mark_dirty();
+        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            cycle.timing.set_calc_end_all(&cycle.gases, x);
+            cycle.compute_all_fluxes();
         }
     }
     // pub fn print_first_dt(&mut self) {
@@ -921,11 +860,11 @@ impl ValidationApp {
         if let Some(c) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             c.manual_adjusted = false;
             c.override_valid = None;
-            c.close_lag_s = 0.;
-            c.open_lag_s = 0.;
+            c.set_close_lag(0.);
+            c.set_open_lag(0.);
             c.reset_deadbands(self.selected_project.as_ref().unwrap().deadband);
-            c.end_lag_s = 0.;
-            c.start_lag_s = 0.;
+            c.set_end_lag_only(0.);
+            c.set_start_lag_only(0.);
             c.error_code.0 = 0;
             c.reload_gas_data();
             c.check_diag();
@@ -935,7 +874,7 @@ impl ValidationApp {
                 || !c.has_error(ErrorCode::TooFewMeasurements)
             {
                 c.search_open_lag(
-                    GasKey::from((&c.main_gas, &c.main_instrument.id.unwrap())).clone(),
+                    &GasKey::from((&c.main_gas, &c.main_instrument.id.unwrap())).clone(),
                 );
                 match mode {
                     Mode::AfterDeadband => c.set_calc_ranges(),
@@ -952,34 +891,11 @@ impl ValidationApp {
             }
         }
     }
-    // pub fn print_stats(&self) {
-    //     if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-    //         println!("g {}", cycle.gas_v.get(&GasType, ::CH4).unwrap().len());
-    //         println!("t {}", cycle.dt_v.len());
-    //         println!("d {}", cycle.diag_v.len());
-    //         println!(
-    //             "gs {}",
-    //             cycle
-    //                 .gas_v
-    //                 .get(&GasType::CH4)
-    //                 .map(|v| v.iter().filter_map(|&x| x).sum::<f64>())
-    //                 .unwrap_or(0.0)
-    //         );
-    //         println!("ts {:?}", cycle.dt_v);
-    //         println!("###");
-    //     }
-    // }
 
     pub fn set_calc_end(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_calc_end(key, x);
-        }
-    }
-    pub fn set_calc_end_all(&mut self, x: f64) {
-        self.mark_dirty();
-        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_calc_end_all(x);
+            cycle.timing.set_calc_end(key, x);
         }
     }
 
@@ -997,48 +913,52 @@ impl ValidationApp {
     pub fn decrement_calc_start(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            let s = cycle.calc_range_start.get(key).unwrap_or(&0.0);
+            let s = cycle.get_calc_start(key);
             let new_value = s - x;
-            cycle.calc_range_start.insert(key.clone(), new_value);
+            cycle.set_calc_start(key, new_value);
         }
     }
     pub fn decrement_calc_starts(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
-                let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_start(&key);
                 let new_value = s - x;
-                cycle.calc_range_start.insert(key.clone(), new_value);
+                cycle.set_calc_start(&key, new_value);
             }
         }
     }
     pub fn decrement_calc_ends(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
-                let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_end(&key);
                 let new_value = s - x;
-                cycle.calc_range_end.insert(key.clone(), new_value);
+                cycle.set_calc_end(&key, new_value);
             }
         }
     }
     pub fn increment_calc_starts(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
-                let s = cycle.calc_range_start.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_start(&key);
                 let new_value = s + x;
-                cycle.calc_range_start.insert(key.clone(), new_value);
+                cycle.set_calc_start(&key, new_value);
             }
         }
     }
     pub fn increment_calc_ends(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            for key in cycle.gases.clone() {
-                let s = cycle.calc_range_end.get(&key).unwrap_or(&0.0);
+            // NOTE: Get rid of clone
+            for &key in &cycle.gases.clone() {
+                let s = cycle.get_calc_end(&key);
                 let new_value = s + x;
-                cycle.calc_range_end.insert(key.clone(), new_value);
+                cycle.set_calc_end(&key, new_value);
             }
         }
     }
@@ -1053,6 +973,7 @@ impl ValidationApp {
 
     pub fn increment_calc_end(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
+        // NOTE: Get rid of clone
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             let s = cycle.get_calc_end(key);
             let new_value = s + x;
@@ -1061,26 +982,23 @@ impl ValidationApp {
     }
     pub fn increment_deadband_gas(&mut self, key: &GasKey, x: f64) {
         self.mark_dirty();
+        // NOTE: Get rid of clone
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            let deadband = cycle.deadbands.get(key).unwrap_or(&0.0);
+            let deadband = cycle.get_deadband(key);
             cycle.set_deadband(key, deadband + x);
         }
     }
     pub fn increment_deadband(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
+            // NOTE: Get rid of clone
             for gas in cycle.gases.clone() {
-                let deadband = cycle.deadbands.get(&gas).unwrap_or(&0.0);
+                let deadband = cycle.get_deadband(&gas);
                 cycle.set_deadband(&gas, deadband + x);
             }
         }
     }
-    pub fn increment_deadband_and_start(&mut self, x: f64) {
-        self.mark_dirty();
-        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.set_deadband_and_start(x);
-        }
-    }
+
     pub fn increment_deadband_constant_calc(&mut self, x: f64) {
         self.mark_dirty();
         if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
@@ -1116,7 +1034,7 @@ impl ValidationApp {
         for &index in &self.cycle_nav.visible_cycles {
             if let Some(cycle) = self.cycles.get(index) {
                 let chamber_id = cycle.chamber_id.clone();
-                let start_time = cycle.start_time.timestamp() as f64;
+                let start_time = cycle.get_start_ts() as f64;
                 let main_gas = cycle.main_gas;
                 let id = &cycle.instrument.id.unwrap();
 
@@ -1125,7 +1043,7 @@ impl ValidationApp {
                     .iter()
                     .filter_map(|kind| {
                         cycle
-                            .get_model(GasKey::from((&main_gas, id)), *kind)
+                            .get_model(&GasKey::from((&main_gas, id)), *kind)
                             .and_then(|m| m.aic().map(|aic| (*kind, aic)))
                     })
                     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -1134,7 +1052,7 @@ impl ValidationApp {
                     let value = selector(cycle, key);
 
                     let is_valid = cycle.is_valid_by_threshold(
-                        GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())),
+                        &GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())),
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,
@@ -1246,7 +1164,7 @@ impl ValidationApp {
 
         // **Force `selected_point` to update whenever `index` changes**
         if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let x_coord = current_cycle.start_time.timestamp() as f64;
+            let x_coord = current_cycle.get_start_ts() as f64;
 
             if let Some(new_y) = all_traces
                 .values()
@@ -1375,7 +1293,7 @@ impl ValidationApp {
 
         // **Force `selected_point` to update whenever `index` changes**
         if let Some(current_cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let x_coord = current_cycle.start_time.timestamp() as f64;
+            let x_coord = current_cycle.get_start_ts() as f64;
 
             if let Some(new_y) =
                 all_traces.values().flatten().filter(|p| p[0] == x_coord).map(|p| p[1]).last()
@@ -1447,7 +1365,7 @@ impl ValidationApp {
         let id = self.selected_project.as_ref().unwrap().instrument.id.unwrap();
 
         let (valid_traces, invalid_traces) =
-            self.create_traces(&(GasKey::from((&main_gas, &id))), |cycle, _| cycle.open_lag_s);
+            self.create_traces(&(GasKey::from((&main_gas, &id))), |cycle, _| cycle.get_open_lag());
         let lag_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
 
         let mut hovered_point: Option<[f64; 2]> = None;
@@ -1515,7 +1433,7 @@ impl ValidationApp {
 
                 // Set lag on currently selected cycle
                 if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                    if cycle.start_time.timestamp() as f64 == dragged[0] {
+                    if cycle.get_start_ts() as f64 == dragged[0] {
                         cycle.increment_open_lag(steps);
                         // cycle.set_open_lag(new_y);
                         if self.mode_pearsons() {
@@ -1555,7 +1473,7 @@ impl ValidationApp {
 
         // Sync selected point with current cycle
         if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            let x = cycle.start_time.timestamp() as f64;
+            let x = cycle.get_start_ts() as f64;
             if let Some(y) = lag_traces.values().flatten().find(|p| p[0] == x).map(|p| p[1]) {
                 self.selected_point = Some([x, y]);
             }
@@ -1628,8 +1546,8 @@ impl ValidationApp {
 
             let calc_start = self.get_calc_start(key);
             let calc_end = self.get_calc_end(key);
-            let min_y = self.get_min_y(&key.clone());
-            let max_y = self.get_max_y(&key.clone());
+            let min_y = self.get_min_y(key);
+            let max_y = self.get_max_y(key);
 
             let inside_left =
                 is_inside_polygon(pointer_pos, calc_start, calc_start + dpw, min_y, max_y);
@@ -1763,7 +1681,7 @@ impl ValidationApp {
                             self.increment_close_lag(delta);
 
                             // Anchor calc window to new start of range (stick-to-beginning)
-                            self.stick_calc_to_range_start(key);
+                            self.stick_calc_to_range_start_for_all();
 
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
@@ -1790,7 +1708,7 @@ impl ValidationApp {
                             self.increment_open_lag(delta);
 
                             // Anchor calc window to new start of range (stick-to-beginning)
-                            self.stick_calc_to_range_start(key);
+                            self.stick_calc_to_range_start_for_all();
 
                             if self.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
@@ -1928,8 +1846,8 @@ impl ValidationApp {
                 });
 
                 if ui.button("Select All").clicked() {
-                    for key in &sorted_traces {
-                        self.visible_traces.insert(key.clone(), true);
+                    for key in sorted_traces {
+                        self.visible_traces.insert(key, true);
                     }
                     self.update_plots();
                 }
@@ -1951,7 +1869,7 @@ impl ValidationApp {
     }
 
     pub fn plot_model_fit(&self, plot_ui: &mut egui_plot::PlotUi, key: &GasKey, kind: FluxKind) {
-        let x_min = self.get_calc_start(key);
+        let x_min = self.get_start_after_deadband(key);
         let x_max = self.get_measurement_end();
         let num_points = 50;
 
@@ -1997,7 +1915,7 @@ pub fn init_attribute_plot(
         .width(w)
         .height(h)
         .x_axis_formatter(format_x_axis)
-        .y_axis_label(format!("{} {} {}", key.gas_type, key.id, attribute))
+        .y_axis_label(format!("{} {} {}", key.gas_type, instrument.serial , attribute))
 }
 pub fn init_residual_plot(gas_type: &GasType, kind: FluxKind, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}{}residual_plot", gas_type, kind.as_str()))
@@ -2007,6 +1925,7 @@ pub fn init_residual_plot(gas_type: &GasType, kind: FluxKind, w: f32, h: f32) ->
 }
 pub fn init_standardized_residuals_plot(
     key: &GasKey,
+    instrument: Instrument,
     kind: FluxKind,
     w: f32,
     h: f32,
@@ -2017,17 +1936,31 @@ pub fn init_standardized_residuals_plot(
         .x_axis_formatter(|_val, _range| String::new()) // Hide tick labels.width(w)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}",key.id, key.gas_type))
+        .y_axis_label(format!("{} {}",key.gas_type,instrument.serial ))
 }
-pub fn init_residual_bars(key: &GasKey, kind: FluxKind, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_residual_bars(
+    key: &GasKey,
+    instrument: Instrument,
+    kind: FluxKind,
+    w: f32,
+    h: f32,
+) -> egui_plot::Plot {
     Plot::new(format!("{}{}{}residual_bars", key.id, key.gas_type, kind.as_str()))
         .width(w)
         .height(h)
         .allow_drag(false)
         .allow_zoom(false)
-        .y_axis_label(format!("{}{}", key.id, key.gas_type))
+        .y_axis_label(format!("{} {}", key.gas_type, instrument.serial))
 }
-pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_gas_plot(
+    key: &GasKey,
+    instrument: Instrument,
+    tz: Tz,
+    start: f64,
+    end: f64,
+    w: f32,
+    h: f32,
+) -> egui_plot::Plot {
     let _x_axis_formatter = |mark: GridMark, _range: &std::ops::RangeInclusive<f64>| -> String {
         let timestamp = mark.value as i64;
 
@@ -2035,7 +1968,10 @@ pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui
         let rounded_timestamp = (timestamp / 300) * 300;
 
         DateTime::from_timestamp(rounded_timestamp, 0)
-            .map(|dt| dt.format("%H:%M").to_string())
+            .map(|dt| {
+                let local = dt.with_timezone(&tz);
+                local.format("%H:%M").to_string()
+            })
             .unwrap_or_else(|| "Invalid".to_string())
     };
     Plot::new(format!("{}{}gas_plot", key.gas_type, key.id))
@@ -2045,8 +1981,8 @@ pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui
                 let timestamp = value.x as i64;
                 let datetime = DateTime::from_timestamp(timestamp, 0)
                     .map(|dt| {
-                        // DateTime::<Utc>::from_utc(dt, Utc)
-                        dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                        let local = dt.with_timezone(&tz);
+                        local.format("%Y-%m-%d %H:%M:%S").to_string()
                     })
                     .unwrap_or_else(|| format!("{:.1}", value.x));
 
@@ -2059,13 +1995,19 @@ pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui
                 )
             }),
         )
-        .label_formatter(|_, value| {
-            let timestamp = value.x as i64;
-            let datetime = DateTime::from_timestamp(timestamp, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_else(|| format!("{:.1}", value.x));
+        .label_formatter({
+            let tz_local = tz;
+            move |_, value| {
+                let timestamp = value.x as i64;
+                let datetime = DateTime::from_timestamp(timestamp, 0)
+                    .map(|dt| {
+                        let local = dt.with_timezone(&tz_local.clone());
+                        local.format("%Y-%m-%d %H:%M:%S").to_string()
+                    })
+                    .unwrap_or_else(|| format!("{:.1}", value.x));
 
-            format!("Time: {}\nConc: {:.3} ppm", datetime, value.y)
+                format!("Time: {}\nConc: {:.3} ppm", datetime, value.y)
+            }
         })
         .x_axis_formatter(format_x_axis)
         .allow_drag(false)
@@ -2073,7 +2015,7 @@ pub fn init_gas_plot(key: &GasKey, start: f64, end: f64, w: f32, h: f32) -> egui
         .height(h)
         .include_x(start)
         .include_x(end)
-        .y_axis_label(format!("{}", key.gas_type))
+        .y_axis_label(format!("{} {}", key.gas_type, instrument.serial))
     // .legend(Legend::default().position(Corner::LeftTop))
 }
 
@@ -2098,7 +2040,7 @@ pub fn init_calc_r_plot(gas_type: &GasType, w: f32, h: f32) -> egui_plot::Plot {
         .y_axis_label(format!("{} calc r2", gas_type))
 }
 
-pub fn init_lag_plot(key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
+pub fn init_lag_plot(key: &GasKey, instrument: Instrument, w: f32, h: f32) -> egui_plot::Plot {
     Plot::new(format!("{}{}lag_plot",key.gas_type,key.id))
         // .coordinates_formatter(
         //     Corner::LeftBottom,
@@ -2126,7 +2068,7 @@ pub fn init_lag_plot(key: &GasKey, w: f32, h: f32) -> egui_plot::Plot {
         .allow_drag(false)
         .width(w)
         .height(h)
-        .y_axis_label(format!("{} {} lag s", key.gas_type, key.id))
+        .y_axis_label(format!("{} {} lag s", key.gas_type, instrument.serial))
         .x_axis_formatter(format_x_axis)
 }
 fn _generate_grid_marks(range: GridInput) -> Vec<GridMark> {

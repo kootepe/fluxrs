@@ -1518,7 +1518,7 @@ checksum = "8ce81f49ae8a0482e4c55ea62ebbd7e5a686af544c00b9d090bba3ff9be97b3d"
 
 [[package]]
 name = "fluxrs"
-version = "0.3.0"
+version = "0.4.7"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -1543,13 +1543,40 @@ dependencies = [
 
 [[package]]
 name = "fluxrs-core"
-version = "0.3.0"
+version = "0.4.7"
 dependencies = [
  "chrono",
  "chrono-tz",
  "clap",
  "csv",
  "dyn-clone",
+ "futures",
+ "fxhash",
+ "glob",
+ "itertools 0.14.0",
+ "nalgebra",
+ "plotters",
+ "rand 0.9.2",
+ "rayon",
+ "rusqlite",
+ "rustc-hash 2.1.1",
+ "serde",
+ "serde_json",
+ "statrs",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
+name = "fluxrs_cli"
+version = "0.4.8"
+dependencies = [
+ "chrono",
+ "chrono-tz",
+ "clap",
+ "csv",
+ "dyn-clone",
+ "fluxrs-core",
  "futures",
  "fxhash",
  "glob",

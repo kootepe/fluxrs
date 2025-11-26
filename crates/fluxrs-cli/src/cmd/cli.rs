@@ -6,10 +6,10 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use crate::cmd::config::{Action, Config, ProjectCreate, Run as RunCfg, Upload as UploadCfg};
-use crate::datatype::DataType;
-use crate::gastype::GasType;
-use crate::instruments::instruments::InstrumentType;
-use crate::mode::Mode;
+use fluxrs_core::datatype::DataType;
+use fluxrs_core::gastype::GasType;
+use fluxrs_core::instruments::instruments::InstrumentType;
+use fluxrs_core::mode::Mode;
 
 // Reuse your flexible parser
 fn parse_datetime_str(s: &str) -> Result<DateTime<Utc>, String> {
@@ -18,16 +18,12 @@ fn parse_datetime_str(s: &str) -> Result<DateTime<Utc>, String> {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "fluxrs",
+    name = "fluxrs_cli",
     about = "Data Upload and Project Management Tool",
     version,
     disable_help_subcommand = true
 )]
 pub struct Cli {
-    /// Path to SQLite database
-    #[arg(long = "db", value_name = "PATH", default_value = "fluxrs.db", global = true)]
-    pub db_path: String,
-
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -88,7 +84,7 @@ pub struct ProjectCreateArgs {
     #[arg(long)]
     pub mode: Mode,
 
-    /// Timezone, e.g., Europe/Helsinki
+    /// Timezone of the timestamps e.g., Europe/Helsinki (IANA / tz database format)
     #[arg(long = "tz")]
     pub tz: Tz,
 }
@@ -108,6 +104,9 @@ pub enum UploadKind {
 
     /// Upload meteo data files
     Meteo(UploadArgs),
+
+    /// Upload chamber metadata files
+    Chamber(UploadArgs),
 }
 
 #[derive(Debug, Args)]
@@ -129,7 +128,7 @@ pub struct UploadArgs {
     #[arg(short = 'n', long = "newest")]
     pub use_newest: bool,
 
-    /// Timezone of the timestamps (if needed by your pipeline)
+    /// Timezone of the timestamps e.g., Europe/Helsinki (IANA / tz database format)
     #[arg(short = 'z', long = "tz")]
     pub tz: Option<Tz>,
 }
@@ -184,7 +183,7 @@ pub struct RunArgs {
     #[arg(short = 'n', long = "newest")]
     pub use_newest: bool,
 
-    /// Timezone (if needed by your processing)
+    /// Timezone of the timestamps e.g., Europe/Helsinki (IANA / tz database format)
     #[arg(short = 'z', long = "tz")]
     pub tz: Option<Tz>,
 
@@ -197,7 +196,7 @@ pub struct RunArgs {
 
 impl Cli {
     pub fn into_config(self) -> Config {
-        let db_path = PathBuf::from(self.db_path);
+        let db_path = PathBuf::from("fluxrs.db");
 
         match self.command {
             Commands::Project { cmd } => match cmd {
@@ -228,6 +227,9 @@ impl Cli {
                     },
                     UploadKind::Cycle(u) => {
                         (u.project, DataType::Cycle, u.inputs, u.use_newest, u.tz)
+                    },
+                    UploadKind::Chamber(u) => {
+                        (u.project, DataType::Chamber, u.inputs, u.use_newest, u.tz)
                     },
                 };
 

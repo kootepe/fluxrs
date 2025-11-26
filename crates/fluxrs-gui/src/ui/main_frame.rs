@@ -6,16 +6,16 @@ use egui::FontFamily;
 use std::path::Path;
 
 #[derive(Default)]
-pub struct MyApp {
+pub struct FluxApp {
     pub main_app: MainApp,
     pub show_settings: bool,
 }
-impl MyApp {
+impl FluxApp {
     pub fn new() -> Self {
         Default::default()
     }
 }
-impl eframe::App for MyApp {
+impl eframe::App for FluxApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // self.apply_font_size(ctx, self.main_app.validation_panel.font_size);
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {

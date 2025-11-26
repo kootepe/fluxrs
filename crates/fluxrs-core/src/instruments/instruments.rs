@@ -59,7 +59,13 @@ pub struct Instrument {
 
 impl fmt::Display for Instrument {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "model: {}, serial: {}", self.model, self.serial,)
+        write!(
+            f,
+            "model: {}, serial: {}, ID: {}",
+            self.model,
+            self.serial,
+            self.id.map_or("None".to_string(), |id| id.to_string())
+        )
     }
 }
 
