@@ -24,10 +24,6 @@ fn parse_datetime_str(s: &str) -> Result<DateTime<Utc>, String> {
     disable_help_subcommand = true
 )]
 pub struct Cli {
-    /// Path to SQLite database
-    #[arg(long = "db", value_name = "PATH", default_value = "fluxrs.db", global = true)]
-    pub db_path: String,
-
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -88,7 +84,7 @@ pub struct ProjectCreateArgs {
     #[arg(long)]
     pub mode: Mode,
 
-    /// Timezone, e.g., Europe/Helsinki
+    /// Timezone of the timestamps e.g., Europe/Helsinki (IANA / tz database format)
     #[arg(long = "tz")]
     pub tz: Tz,
 }
@@ -132,7 +128,7 @@ pub struct UploadArgs {
     #[arg(short = 'n', long = "newest")]
     pub use_newest: bool,
 
-    /// Timezone of the timestamps (if needed by your pipeline)
+    /// Timezone of the timestamps e.g., Europe/Helsinki (IANA / tz database format)
     #[arg(short = 'z', long = "tz")]
     pub tz: Option<Tz>,
 }
@@ -187,7 +183,7 @@ pub struct RunArgs {
     #[arg(short = 'n', long = "newest")]
     pub use_newest: bool,
 
-    /// Timezone (if needed by your processing)
+    /// Timezone of the timestamps e.g., Europe/Helsinki (IANA / tz database format)
     #[arg(short = 'z', long = "tz")]
     pub tz: Option<Tz>,
 
@@ -200,7 +196,7 @@ pub struct RunArgs {
 
 impl Cli {
     pub fn into_config(self) -> Config {
-        let db_path = PathBuf::from(self.db_path);
+        let db_path = PathBuf::from("fluxrs.db");
 
         match self.command {
             Commands::Project { cmd } => match cmd {
