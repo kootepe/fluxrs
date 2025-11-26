@@ -11,6 +11,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   BIN_NAME: "fluxrs"
+  BIN_NAMES: "fluxrs fluxrs_cli"
 
 jobs:
   build:
@@ -66,30 +67,32 @@ jobs:
             --locked \
             --target ${{ matrix.target }}
 
-      - name: Package binary
+            - name: Package binaries
         shell: bash
         run: |
           set -e
           mkdir -p dist
-          FILE="${BIN_NAME}${{ matrix.ext }}"
 
+          # Copy both binaries into dist
+          for BIN in $BIN_NAMES; do
+            FILE="${BIN}${{ matrix.ext }}"
+            cp "target/${{ matrix.target }}/release-fast/${FILE}" dist/
+          done
 
-          # release-fast profile goes into target/<target>/release-fast/
-          cp "target/${{ matrix.target }}/release-fast/${FILE}" dist/
           cd dist
 
-          ARCHIVE="${BIN_NAME}-${{ github.ref_name }}-${{ matrix.target }}"
+          ARCHIVE_BASE="${{ env.BIN_NAME }}-${{ github.ref_name }}-${{ matrix.target }}"
 
-          # Use zip for Windows artifacts, tar.gz for others
+          # For Windows → zip; others → tar.gz
           if [[ "${{ matrix.target }}" == *"windows-gnu" ]]; then
-            # zip is available on ubuntu-latest
-            zip "${ARCHIVE}.zip" "${FILE}"
+            zip "${ARCHIVE_BASE}.zip" ./*
           else
-            tar czf "${ARCHIVE}.tar.gz" "${FILE}"
+            tar czf "${ARCHIVE_BASE}.tar.gz" ./*
           fi
 
-          # remove binary so it wont be in release
-          rm "${FILE}"
+          # Remove binaries so they are only inside the archive
+          rm ./*
+
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

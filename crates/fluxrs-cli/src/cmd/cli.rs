@@ -6,10 +6,10 @@ use std::error::Error;
 use std::path::PathBuf;
 
 use crate::cmd::config::{Action, Config, ProjectCreate, Run as RunCfg, Upload as UploadCfg};
-use crate::datatype::DataType;
-use crate::gastype::GasType;
-use crate::instruments::instruments::InstrumentType;
-use crate::mode::Mode;
+use fluxrs_core::datatype::DataType;
+use fluxrs_core::gastype::GasType;
+use fluxrs_core::instruments::instruments::InstrumentType;
+use fluxrs_core::mode::Mode;
 
 // Reuse your flexible parser
 fn parse_datetime_str(s: &str) -> Result<DateTime<Utc>, String> {
