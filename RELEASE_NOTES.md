@@ -6,7 +6,7 @@
   - Having cli and gui in the same binary doesn't work on windows without
   annoying jank, this is the fix
 - Running fluxrs (the gui binary) with arguments now runs the fluxrs_cli binary
-  which provied the cli functionality
+  which provides the cli functionality
 
 
 ## v0.4.6
