@@ -2061,7 +2061,7 @@ impl ValidationApp {
                 ui.checkbox(&mut self.show_lag_plot, "Show lag plot");
             });
         } else {
-            ui.label("Load data ");
+            ui.colored_label(Color32::ORANGE, "LOAD DATA TO SHOW ALL SETTINGS!");
         }
     }
     pub fn render_lin_plot_selection(&mut self, ui: &mut egui::Ui) {
