@@ -67,7 +67,7 @@ jobs:
             --locked \
             --target ${{ matrix.target }}
 
-            - name: Package binaries
+      - name: Package binaries
         shell: bash
         run: |
           set -e
