@@ -8,9 +8,8 @@ mod utils;
 
 use crate::ui::main_frame::FluxApp;
 
-use std::env;
 use std::path::Path;
-use std::process::{self, Command};
+use std::process;
 
 fn main() -> eframe::Result {
     if !Path::new("fluxrs.db").exists() {
@@ -24,37 +23,6 @@ fn main() -> eframe::Result {
     } else if let Err(e) = fluxrs_core::db::migrate::migrate_db() {
         eprintln!("Migration failed: {}", e);
         process::exit(1);
-    }
-    // CLI forwarding
-    let args: Vec<String> = env::args().collect();
-    if args.len() > 1 {
-        // Build path to cli exe (next to this binary)
-        // Works whether installed, built, or running via cargo
-        let mut exe = env::current_exe().expect("Failed to get current exe path");
-
-        #[cfg(windows)]
-        exe.set_file_name("fluxrs-cli.exe");
-        #[cfg(not(windows))]
-        exe.set_file_name("fluxrs_cli");
-
-        // Spawn the cli and forward arguments
-        let status = Command::new(&exe)
-    .args(&args[1..]) // Pass everything except the program name
-    .status()
-    .unwrap_or_else(|e| {
-        eprintln!(
-            "You tried to launch fluxrs with arguments, triggering the CLI mode.\n\
-             But 'fluxrs_cli' (or 'fluxrs_cli.exe') could not be found or executed.\n\
-             Attempted path: {}\n\
-             Error: {}",
-            exe.display(),
-            e,
-        );
-        process::exit(1);
-    });
-
-        // Mirror cli exit code
-        process::exit(status.code().unwrap_or(1));
     }
 
     // GUI mode
