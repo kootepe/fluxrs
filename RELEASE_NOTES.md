@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.7
+- Split commandline into a separate crate and binary
+- Fluxrs is now packaged with gui (fluxrs) and cli (fluxrs_cli) binary
+  - Having cli and gui in the same binary doesn't work on windows without
+  annoying jank, this is the fix
+- Running fluxrs (the gui binary) with arguments now runs the fluxrs_cli binary
+  which provied the cli functionality
+
+
 ## v0.4.6
 - Fix close lag adjusting
   - previously close lag wouldnt move if open lag was at the bound
