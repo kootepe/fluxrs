@@ -1,5 +1,6 @@
 ---
-title: Workflow
+title: Getting started
+nav_order: 2
 ---
 This page will explain a basic workflow with the app from starting a project
 to starting processing.

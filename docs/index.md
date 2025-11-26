@@ -1,5 +1,6 @@
 ---
 title: Fluxrs
+nav_order: 1
 ---
 Fluxrs is an application for manually validating chamber flux measurements.
 
