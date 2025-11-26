@@ -8,7 +8,6 @@ use tokio::sync::mpsc;
 // use ui::manage_proj::project_ui::ProjectApp;
 
 // pub mod appview;
-pub mod cmd;
 pub mod concentrationunit;
 pub mod constants;
 pub mod cycle;
