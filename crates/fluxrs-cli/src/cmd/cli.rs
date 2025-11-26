@@ -18,7 +18,7 @@ fn parse_datetime_str(s: &str) -> Result<DateTime<Utc>, String> {
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "fluxrs",
+    name = "fluxrs_cli",
     about = "Data Upload and Project Management Tool",
     version,
     disable_help_subcommand = true
