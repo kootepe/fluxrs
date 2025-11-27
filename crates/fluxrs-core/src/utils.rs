@@ -63,7 +63,9 @@ pub fn touch_data_file(conn: &Connection, id: i64) -> rusqlite::Result<()> {
 // if file already exists and has rows inserted, update the uploaded at timestamp
 pub fn touch_if_exists_updated(exists: Option<i64>, inserts: usize, tx: &Connection) {
     if inserts > 0 {
-        let _ = touch_data_file(tx, exists.unwrap());
+        if let Some(id) = exists {
+            let _ = touch_data_file(tx, id);
+        }
     }
 }
 
