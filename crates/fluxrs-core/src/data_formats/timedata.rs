@@ -196,8 +196,8 @@ impl OulankaManualFormat {
                         LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
                         LocalResult::None => {
                             return Err(format!(
-                        "Impossible local time {}. Selected timezone ({}) is likely incorrect.",
-                        naive_dt, tz
+                        "Impossible local time {} on row {}. Selected timezone ({}) is likely incorrect.",
+                        i+5,naive_dt, tz
                     )
                             .into());
                         },
