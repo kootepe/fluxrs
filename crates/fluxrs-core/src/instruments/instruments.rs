@@ -552,9 +552,9 @@ pub fn upload_gas_data_async(
                         };
 
                         match insert_measurements(&tx, &data, project, &file_id) {
-                            Ok((count, duplicates)) => {
+                            Ok((inserts, skips)) => {
                                 let _ = progress_sender.send(ProcessEvent::Insert(
-                                    InsertEvent::gas_okskip(count, duplicates),
+                                    InsertEvent::gas_okskip(inserts, skips),
                                 ));
                                 let _ = progress_sender.send(ProcessEvent::Read(
                                     ReadEvent::FileDetail(
