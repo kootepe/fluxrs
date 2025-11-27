@@ -85,15 +85,15 @@ pub fn get_or_insert_data_file(
     file_name: &str,
     project_id: i64,
 ) -> Result<i64, DataFileError> {
-    if get_file_id(conn, datatype, file_name, project_id).is_some() {
-        return Err(DataFileError::FileAlreadyExists);
+    if let Some(id) = get_file_id(conn, datatype, file_name, project_id) {
+        return Err(DataFileError::FileAlreadyExists(id));
     }
 
     insert_data_file(conn, datatype, file_name, project_id)
 }
 #[derive(Debug)]
 pub enum DataFileError {
-    FileAlreadyExists,
+    FileAlreadyExists(i64),
     Sql(rusqlite::Error),
 }
 
@@ -106,7 +106,7 @@ impl From<rusqlite::Error> for DataFileError {
 impl fmt::Display for DataFileError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DataFileError::FileAlreadyExists => write!(f, "File already exists"),
+            DataFileError::FileAlreadyExists(i) => write!(f, "File already exists, id: {}", i),
             DataFileError::Sql(err) => write!(f, "Database error: {}", err),
         }
     }
