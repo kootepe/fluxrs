@@ -551,7 +551,7 @@ pub async fn query_cycles_async(
 }
 
 pub fn insert_cycles(
-    conn: &mut Connection,
+    tx: &Connection,
     cycles: &TimeData,
     project_id: &i64,
     file_id: &i64,
@@ -594,7 +594,6 @@ pub fn insert_cycles(
         ));
     }
 
-    let tx = conn.transaction()?;
     let mut duplicates = 0;
     let mut inserted = 0;
 
@@ -688,7 +687,6 @@ pub fn insert_cycles(
     drop(insert_cycle_stmt);
     drop(check_stmt);
 
-    tx.commit()?;
     println!("Inserted {} rows into cycles, {} duplicates skipped.", inserted, duplicates);
 
     Ok((inserted, duplicates))
