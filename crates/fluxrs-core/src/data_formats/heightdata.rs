@@ -49,8 +49,9 @@ pub fn insert_height_data(
     height_data: &HeightData,
     file_id: &i64,
     project_id: &i64,
-) -> Result<u64> {
-    let mut inserted: u64 = 0;
+) -> Result<(usize, usize)> {
+    let mut inserts = 0;
+    let mut skips = 0;
     if height_data.datetime.len() != height_data.chamber_id.len()
         || height_data.datetime.len() != height_data.height.len()
     {
@@ -67,18 +68,21 @@ pub fn insert_height_data(
         )?;
 
         for i in 0..height_data.datetime.len() {
-            stmt.execute(params![
+            let affected = stmt.execute(params![
                 &height_data.chamber_id[i],
                 project_id,
                 height_data.datetime[i],
                 height_data.height[i],
                 file_id,
             ])?;
-            // inserted += 1;
-            inserted += tx.changes();
+            if affected > 0 {
+                inserts += 1
+            } else {
+                skips += 1
+            }
         }
     }
-    Ok(inserted)
+    Ok((inserts, skips))
 }
 
 pub fn get_previous_height(
@@ -240,11 +244,10 @@ pub fn upload_height_data_async(
         };
         match read_height_csv(path, tz) {
             Ok(res) => match insert_height_data(&tx, &res, &file_id, &project.id.unwrap()) {
-                Ok(row_count) => {
-                    let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
-                        " of height data inserted.".to_owned(),
-                        row_count,
-                    )));
+                Ok((inserts, skips)) => {
+                    let _ = progress_sender
+                        .send(ProcessEvent::Insert(InsertEvent::height_okskip(inserts, skips)));
+
                     if let Err(e) = tx.commit() {
                         eprintln!("Failed to commit transaction for '{}': {}", file_name, e);
                         let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
