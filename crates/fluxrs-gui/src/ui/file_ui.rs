@@ -131,7 +131,10 @@ impl ValidationApp {
                     self.open_file_dialog = None; // Close the dialog
                 },
                 egui_file::State::Cancelled | egui_file::State::Closed => {
-                    self.log_messages.push_front("File selection cancelled.".into());
+                    self.log_messages.push_front(
+                        format!("{} file selection cancelled.", self.selected_data_type.unwrap())
+                            .into(),
+                    );
                     self.open_file_dialog = None;
                 },
                 _ => {}, // Do nothing if still open
