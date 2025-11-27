@@ -46,6 +46,10 @@ will be used for chamber dimensions, air pressure and air temperature. So you
 can do check all of your measurements and worry about chamber dimensions and
 meteo data later.
 
+Good to know, the same data from the same file cannot be ingested twice. So if
+you have a file that keeps updating over the course of the day, and you upload
+it multiple times during the day, only the new data will be inserted.
+
 In the `Initiate measurements` tab there is a `Recalculate` button. Clicking it
 trigger a recalculation for all measurements, but it will not change any of your
 manual changes. It will only look for new chambers, height and meteodata.
