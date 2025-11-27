@@ -518,3 +518,10 @@ pub fn upload_meteo_data_async(
         let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
     }
 }
+
+// if file already exists and has rows inserted, update the uploaded at timestamp
+fn touch_if_exists_updated(exists: Option<i64>, inserts: usize, tx: &Connection) {
+    if inserts > 0 {
+        let _ = touch_data_file(tx, exists.unwrap());
+    }
+}

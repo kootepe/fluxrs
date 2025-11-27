@@ -50,6 +50,16 @@ pub fn parse_datetime(s: &str, tz: Tz) -> Result<i64, Box<dyn Error>> {
     Err(format!("Unrecognized datetime format: {}", s).into())
 }
 
+pub fn touch_data_file(conn: &Connection, id: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE data_files
+         SET uploaded_at = CURRENT_TIMESTAMP
+         WHERE id = ?1",
+        [id],
+    )?;
+    Ok(())
+}
+
 pub fn get_file_id(
     conn: &Connection,
     datatype: DataType,
