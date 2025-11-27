@@ -599,7 +599,6 @@ pub fn upload_gas_data_async(
                 },
             }
         }
-        let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::InitEnded));
     }
     let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
 }
