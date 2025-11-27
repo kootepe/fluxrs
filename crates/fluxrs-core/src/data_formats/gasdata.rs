@@ -403,7 +403,7 @@ pub fn insert_measurements(
         values.push(&file_id);
 
         let affected = stmt.execute(params_from_iter(values))?;
-        if affected == 1 {
+        if affected > 0 {
             inserted += 1;
         } else {
             duplicates += 1; // affected == 0 → ignored

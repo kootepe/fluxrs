@@ -15,7 +15,7 @@ impl fmt::Display for DataType {
             DataType::Cycle => write!(f, "Cycle data"),
             DataType::Meteo => write!(f, "Meteo data"),
             DataType::Height => write!(f, "Height data"),
-            DataType::Chamber => write!(f, "Chamber metadat"),
+            DataType::Chamber => write!(f, "Chamber metadata"),
         }
     }
 }
