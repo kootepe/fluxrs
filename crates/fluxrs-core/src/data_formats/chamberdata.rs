@@ -298,7 +298,9 @@ pub fn insert_chamber_metadata(
     chambers: &HashMap<String, Chamber>,
     project_id: &i64,
     file_id: &i64,
-) -> Result<()> {
+) -> Result<(usize, usize)> {
+    let mut inserts = 0;
+    let mut skips = 0;
     for (chamber_id, chamber) in chambers {
         let shape = &chamber.shape;
 
@@ -311,15 +313,20 @@ pub fn insert_chamber_metadata(
             },
         };
 
-        tx.execute(
+        let affected = tx.execute(
             "INSERT OR IGNORE INTO chamber_metadata (
                 chamber_id, shape, diameter, width, length, height, project_link, file_link
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![chamber_id, shape_str, diameter, width, length, height, project_id, file_id],
         )?;
+        if affected > 0 {
+            inserts += 1
+        } else {
+            skips += 1
+        }
     }
 
-    Ok(())
+    Ok((inserts, skips))
 }
 
 /// Convert a DB row to a Chamber (origin = Db).
@@ -458,7 +465,11 @@ pub fn upload_chamber_metadata_async(
         match read_chamber_metadata(path) {
             Ok(chambers) => {
                 match insert_chamber_metadata(&tx, &chambers, &project.id.unwrap(), &file_id) {
-                    Ok(_) => {
+                    Ok((inserts, skips)) => {
+                        let _ = progress_sender.send(ProcessEvent::Insert(
+                            InsertEvent::chamber_okskip(inserts, skips),
+                        ));
+
                         if let Err(e) = tx.commit() {
                             eprintln!("Failed to commit transaction for '{}': {}", file_name, e);
                             let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
