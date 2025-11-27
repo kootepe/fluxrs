@@ -613,12 +613,26 @@ impl ExponentialFlux {
 
         let rss_ln: f64 = ln_residuals.iter().map(|r| r.powi(2)).sum();
         let sigma_ln = (rss_ln / (n - 2.0)).sqrt();
-
+        if !sigma_ln.is_finite() {
+            return None;
+        }
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
         let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
+        if !ss_xx.is_finite() || ss_xx <= f64::EPSILON {
+            return None;
+        }
+
         let se_b = sigma_ln / ss_xx.sqrt();
+        if !se_b.is_finite() || se_b <= 0.0 {
+            // e.g. perfect fit (sigma = 0) or degenerate
+            // you can decide how to handle this; example: p_value = 0 or 1
+            return None;
+        }
 
         let t_stat = ln_model.slope / se_b;
+        if !t_stat.is_finite() {
+            return None;
+        }
         let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
         let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
 
