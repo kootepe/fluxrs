@@ -393,20 +393,15 @@ impl ProcessEventSink for Config {
             ReadEvent::FileDetail(filename, detail) => {
                 println!("Read file: {} {}", filename, detail);
             },
-            ReadEvent::MeteoFail(filename, msg) => {
-                println!("Could not parse as meteo file: {}, {}", filename, msg);
-            },
-            ReadEvent::GasFail(filename, msg) => {
-                println!("Could not parse as gas file: {}, {}", filename, msg);
-            },
-            ReadEvent::HeightFail(filename, msg) => {
-                println!("Could not parse as height file: {}, {}", filename, msg);
-            },
-            ReadEvent::CycleFail(filename, msg) => {
-                println!("Could not parse as cycle file: {}, {}", filename, msg);
-            },
-            ReadEvent::MetadataFail(filename, msg) => {
-                println!("Could not parse as chamber metadata file: {}, {}", filename, msg);
+            ReadEvent::DataFail { kind, file, reason } => {
+                let what = match kind {
+                    DataType::Meteo => "meteo",
+                    DataType::Gas => "gas",
+                    DataType::Height => "height",
+                    DataType::Cycle => "cycle",
+                    DataType::Chamber => "chamber metadata",
+                };
+                println!("Could not parse as {} file: {}, {}", what, file, reason);
             },
             ReadEvent::FileRows(filename, rows) => {
                 println!("Read file: {} with {} rows", filename, rows);
@@ -425,19 +420,18 @@ impl ProcessEventSink for Config {
             InsertEvent::Ok(msg, rows) => {
                 println!("{}{}", rows, msg);
             },
-            InsertEvent::OkSkip(rows, skips) => {
-                println!("Inserted {} rows, skipped {} duplicates.", rows, skips);
-            },
-            InsertEvent::CycleOkSkip(rows, skips) => {
-                println!("Inserted {} cycles, skipped {} entries. Either they failed during calculation or are already in the db..", rows, skips);
-                if skips == &0 {
-                    println!("Inserted {} cycles.", rows);
-                } else {
-                    println!(
-                        "Inserted {} cycles, skipped {} entries. Either something went wrong with the calculation or the cycles already exist in the db.",
-                        rows, skips
-                    );
-                }
+            InsertEvent::DataOkSkip { kind, inserts, skips } => {
+                let what = match kind {
+                    DataType::Meteo => "meteo",
+                    DataType::Gas => "gas",
+                    DataType::Height => "height",
+                    DataType::Cycle => "cycle",
+                    DataType::Chamber => "chamber metadata",
+                };
+                println!(
+                    "Inserted {} rows of {} data, skipped {} duplicates.",
+                    what, inserts, skips
+                );
             },
             InsertEvent::Fail(e) => {
                 println!("Failed to insert rows: {}", e);

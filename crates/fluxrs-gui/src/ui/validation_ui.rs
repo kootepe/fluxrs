@@ -3116,35 +3116,16 @@ impl ProcessEventSink for ValidationApp {
                 self.log_messages
                     .push_front(good_message(&format!("Read file: {} {}", filename, detail)));
             },
-            ReadEvent::MeteoFail(filename, msg) => {
-                self.log_messages.push_front(bad_message(&format!(
-                    "Could not parse as meteo file: {}, {}",
-                    filename, msg,
-                )));
-            },
-            ReadEvent::HeightFail(filename, msg) => {
-                self.log_messages.push_front(bad_message(&format!(
-                    "Could not parse as height file: {}, {}",
-                    filename, msg
-                )));
-            },
-            ReadEvent::CycleFail(filename, msg) => {
-                self.log_messages.push_front(bad_message(&format!(
-                    "Could not parse as cycle file: {}, {}",
-                    filename, msg
-                )));
-            },
-            ReadEvent::GasFail(filename, msg) => {
-                self.log_messages.push_front(bad_message(&format!(
-                    "Could not parse as gas file: {}, {}",
-                    filename, msg
-                )));
-            },
-            ReadEvent::MetadataFail(filename, msg) => {
-                self.log_messages.push_front(bad_message(&format!(
-                    "Could not parse as chamber metadata file: {}, {}",
-                    filename, msg
-                )));
+            ReadEvent::DataFail { kind, file, reason } => {
+                let what = match kind {
+                    DataType::Meteo => "meteo",
+                    DataType::Gas => "gas",
+                    DataType::Height => "height",
+                    DataType::Cycle => "cycle",
+                    DataType::Chamber => "chamber metadata",
+                };
+                let msg = format!("Could not parse as {} file: {}, {}", what, file, reason);
+                self.log_messages.push_front(bad_message(&msg));
             },
             ReadEvent::FileRows(filename, rows) => {
                 self.log_messages.push_front(good_message(&format!(
@@ -3169,32 +3150,37 @@ impl ProcessEventSink for ValidationApp {
             InsertEvent::Ok(msg, rows) => {
                 self.log_messages.push_front(good_message(&format!("{}{}", rows, msg)));
             },
-            InsertEvent::OkSkip(rows, duplicates) => {
-                if *duplicates == 0 {
+            InsertEvent::DataOkSkip { kind, inserts, skips } => {
+                let what = match kind {
+                    DataType::Meteo => "meteo",
+                    DataType::Gas => "gas",
+                    DataType::Height => "height",
+                    DataType::Cycle => "cycle",
+                    DataType::Chamber => "chamber metadata",
+                };
+                if *skips == 0 {
                     self.log_messages.push_front(good_message(&format!(
-                        "Inserted {} rows, skipped {} duplicates.",
-                        rows, duplicates
+                        "Inserted rows of {} {} data.",
+                        inserts, what
                     )));
                 } else {
                     self.log_messages.push_front(warn_message(&format!(
-                        "Inserted {} rows, skipped {} duplicates.",
-                        rows, duplicates
-                    )));
-                }
-            },
-            InsertEvent::CycleOkSkip(rows, skips) => {
-                if skips == &0 {
-                    self.log_messages
-                        .push_front(good_message(&format!("Inserted {} cycles.", rows,)));
-                } else {
-                    self.log_messages.push_front(warn_message(&format!(
-                        "Inserted {} cycles, skipped {} entries. Either something went wrong with the calculation or the cycles already exist in the db.",
-                        rows, skips
+                        "Inserted rows of {} {} data, skipped {} duplicates.",
+                        inserts, what, skips
                     )));
                 }
             },
             InsertEvent::Fail(e) => {
                 self.log_messages.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
+                self.cycles_progress = 0;
+                self.init_in_progress = false;
+                self.init_enabled = true;
+                self.query_in_progress = false;
+                self.recalc.calc_enabled = true;
+                self.recalc.calc_in_progress = false;
+                self.recalc.query_in_progress = false;
+                self.recalc.cycles_progress = 0;
+                self.recalc.cycles_state = None;
             },
         }
     }
