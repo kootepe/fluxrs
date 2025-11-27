@@ -473,8 +473,13 @@ pub fn upload_meteo_data_async(
             },
         };
 
+        let mut file_exists: Option<i64> = None;
         let file_id = match get_or_insert_data_file(&tx, DataType::Meteo, file_name, project_id) {
             Ok(id) => id,
+            Err(DataFileError::FileAlreadyExists(id)) => {
+                file_exists = Some(id);
+                id
+            },
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
                 let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
@@ -487,11 +492,14 @@ pub fn upload_meteo_data_async(
 
         match read_meteo_csv(path, tz) {
             Ok(res) => match insert_meteo_data(&tx, &file_id, &project.id.unwrap(), &res) {
-                Ok(row_count) => {
-                    let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Ok(
-                        " rows of meteo data inserted.".to_owned(),
-                        row_count as u64,
-                    )));
+                Ok((inserts, skips)) => {
+                    touch_if_exists_updated(file_exists, inserts, &tx);
+                    if let Some(fid) = file_exists {
+                        if inserts > 0 {
+                            let _ = touch_data_file(&tx, fid);
+                        }
+                    }
+
                     let _ = progress_sender
                         .send(ProcessEvent::Insert(InsertEvent::meteo_okskip(inserts, skips)));
                     if let Err(e) = tx.commit() {
