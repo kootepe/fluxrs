@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.4.8
+- All data formats now allow inserting the same file multiple times, but only
+rows that are new will be inserted.
+- fluxrs/fluxrs no longer launches fluxrs_cli. If you want to use the CLI
+functionality, you need to launch fluxrs_cli directly.
+
 ## v0.4.7
 - Split commandline into a separate crate and binary
 - Fluxrs is now packaged with gui (fluxrs) and cli (fluxrs_cli) binary
