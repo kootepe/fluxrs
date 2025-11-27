@@ -1,8 +1,9 @@
 use crate::datatype::DataType;
 use crate::processevent::{InsertEvent, ProcessEvent, ReadEvent};
 use crate::project::Project;
-use crate::utils::get_or_insert_data_file;
-use crate::utils::{ensure_utf8, parse_datetime};
+use crate::utils::{
+    ensure_utf8, get_or_insert_data_file, parse_datetime, touch_data_file, DataFileError,
+};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
