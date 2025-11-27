@@ -5,7 +5,7 @@ use crate::processevent::{
 };
 use crate::project::Project;
 use crate::traits::EqualLen;
-use crate::utils::ensure_utf8;
+use crate::utils::{ensure_utf8, touch_if_exists_updated, DataFileError};
 use chrono::{DateTime, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
@@ -750,8 +750,25 @@ pub fn upload_cycle_data_async(
             },
         };
 
-        let file_id = match get_or_insert_data_file(conn, DataType::Cycle, file_name, project_id) {
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(e) => {
+                eprintln!("Failed to start transaction: {}", e);
+                let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
+                    "Could not start transaction for '{}': {}",
+                    file_name, e
+                ))));
+                continue;
+            },
+        };
+
+        let mut file_exists: Option<i64> = None;
+        let file_id = match get_or_insert_data_file(&tx, DataType::Cycle, file_name, project_id) {
             Ok(id) => id,
+            Err(DataFileError::FileAlreadyExists(id)) => {
+                file_exists = Some(id);
+                id
+            },
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
                 // Optionally notify UI
@@ -769,12 +786,26 @@ pub fn upload_cycle_data_async(
                     let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::File(
                         path.to_string_lossy().to_string(),
                     )));
-                    match insert_cycles(conn, &res, &project.id.unwrap(), &file_id) {
-                        Ok((row_count, duplicates)) => {
+                    match insert_cycles(&tx, &res, &project.id.unwrap(), &file_id) {
+                        Ok((inserts, skips)) => {
+                            touch_if_exists_updated(file_exists, inserts, &tx);
                             let _ = progress_sender.send(ProcessEvent::Insert(
-                                InsertEvent::cycle_okskip(row_count, duplicates),
+                                InsertEvent::cycle_okskip(inserts, skips),
                             ));
+
+                            if let Err(e) = tx.commit() {
+                                eprintln!(
+                                    "Failed to commit transaction for '{}': {}",
+                                    file_name, e
+                                );
+                                let _ =
+                                    progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
+                                        format!("Commit failed for file '{}': {}", file_name, e),
+                                    )));
+                                continue;
+                            }
                         },
+
                         Err(e) => {
                             let _ = progress_sender
                                 .send(ProcessEvent::Insert(InsertEvent::Fail(e.to_string())));
