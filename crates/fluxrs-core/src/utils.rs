@@ -37,8 +37,11 @@ pub fn parse_datetime(s: &str, tz: Tz) -> Result<i64, Box<dyn Error>> {
                 LocalResult::Single(dt) => dt.with_timezone(&Utc),
                 LocalResult::Ambiguous(dt1, _) => dt1.with_timezone(&Utc),
                 LocalResult::None => {
-                    eprintln!("Impossible local time {}. Fix or remove.", naive_dt);
-                    continue;
+                    return Err(format!(
+                        "Impossible local time {}. Selected timezone ({}) is likely incorrect.",
+                        naive_dt, tz
+                    )
+                    .into());
                 },
             };
             return Ok(dt_utc.timestamp());
