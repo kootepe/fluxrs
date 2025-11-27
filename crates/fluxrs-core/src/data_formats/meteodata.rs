@@ -245,8 +245,9 @@ pub fn insert_meteo_data(
     file_id: &i64,
     project_id: &i64,
     meteo_data: &MeteoData,
-) -> Result<usize> {
+) -> Result<(usize, usize)> {
     let mut inserted = 0;
+    let mut skipped = 0;
 
     if meteo_data.datetime.len() != meteo_data.temperature.len()
         || meteo_data.datetime.len() != meteo_data.pressure.len()
@@ -255,11 +256,8 @@ pub fn insert_meteo_data(
     }
 
     let mut stmt = tx.prepare(
-        "INSERT INTO meteo (project_link, datetime, temperature, pressure, file_link)
-         VALUES (?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(datetime, project_link)
-         DO UPDATE SET temperature = excluded.temperature,
-                       pressure = excluded.pressure",
+        "INSERT OR IGNORE INTO meteo (project_link, datetime, temperature, pressure, file_link)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
     )?;
 
     for i in 0..meteo_data.datetime.len() {
@@ -267,15 +265,15 @@ pub fn insert_meteo_data(
         let temp_val = meteo_data.temperature[i].value;
         let press_val = meteo_data.pressure[i].value;
 
-        inserted += 1;
-
-        stmt.execute(params![
-            project_id, datetime, temp_val, // Option<f64> -> NULL or REAL
-            press_val, file_id
-        ])?;
+        let affected = stmt.execute(params![project_id, datetime, temp_val, press_val, file_id])?;
+        if affected > 0 {
+            inserted += 1;
+        } else {
+            skipped += 1
+        }
     }
 
-    Ok(inserted)
+    Ok((inserted, skipped))
 }
 
 pub fn get_nearest_meteo_data(
