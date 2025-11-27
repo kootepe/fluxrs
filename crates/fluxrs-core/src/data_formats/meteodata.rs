@@ -2,20 +2,21 @@ use crate::datatype::DataType;
 use crate::processevent::{InsertEvent, ProcessEvent, ReadEvent};
 use crate::project::Project;
 use crate::utils::{
-    ensure_utf8, get_or_insert_data_file, parse_datetime, touch_data_file, DataFileError,
+    ensure_utf8, get_or_insert_data_file, parse_datetime, touch_data_file, touch_if_exists_updated,
+    DataFileError,
 };
+
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
-use std::cmp::Ordering;
+use tokio::sync::mpsc;
+use tokio::task;
+
 use std::error::Error;
 use std::fmt;
 use std::path::Path;
-
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
-use tokio::task;
 
 pub const DEFAULT_TEMP: f64 = 10.0;
 pub const DEFAULT_PRESSURE: f64 = 980.0;
@@ -494,11 +495,6 @@ pub fn upload_meteo_data_async(
             Ok(res) => match insert_meteo_data(&tx, &file_id, &project.id.unwrap(), &res) {
                 Ok((inserts, skips)) => {
                     touch_if_exists_updated(file_exists, inserts, &tx);
-                    if let Some(fid) = file_exists {
-                        if inserts > 0 {
-                            let _ = touch_data_file(&tx, fid);
-                        }
-                    }
 
                     let _ = progress_sender
                         .send(ProcessEvent::Insert(InsertEvent::meteo_okskip(inserts, skips)));

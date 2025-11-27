@@ -2,7 +2,7 @@ use crate::datatype::DataType;
 use crate::processevent::{InsertEvent, ProcessEvent, ReadEvent};
 use crate::project::Project;
 use crate::utils::get_or_insert_data_file;
-use crate::utils::{ensure_utf8, parse_datetime};
+use crate::utils::{ensure_utf8, parse_datetime, touch_if_exists_updated, DataFileError};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use rusqlite::{params, Connection, Result};
@@ -227,11 +227,15 @@ pub fn upload_height_data_async(
                 continue;
             },
         };
+        let mut file_exists = None;
         let file_id = match get_or_insert_data_file(&tx, DataType::Height, file_name, project_id) {
             Ok(id) => id,
+            Err(DataFileError::FileAlreadyExists(id)) => {
+                file_exists = Some(id);
+                id
+            },
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
-                // Optionally notify UI
                 let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
                     "File '{}' skipped: {}",
                     file_name, e
@@ -239,9 +243,12 @@ pub fn upload_height_data_async(
                 continue;
             },
         };
+
         match read_height_csv(path, tz) {
             Ok(res) => match insert_height_data(&tx, &res, &file_id, &project.id.unwrap()) {
                 Ok((inserts, skips)) => {
+                    touch_if_exists_updated(file_exists, inserts, &tx);
+
                     let _ = progress_sender
                         .send(ProcessEvent::Insert(InsertEvent::height_okskip(inserts, skips)));
 

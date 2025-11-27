@@ -3,7 +3,7 @@ use crate::project::Project;
 use crate::datatype::DataType;
 use crate::processevent::{InsertEvent, ProcessEvent, ReadEvent};
 use crate::utils::ensure_utf8;
-use crate::utils::get_or_insert_data_file;
+use crate::utils::{get_or_insert_data_file, touch_if_exists_updated, DataFileError};
 
 use chrono_tz::Tz;
 use rusqlite;
@@ -450,8 +450,13 @@ pub fn upload_chamber_metadata_async(
             },
         };
 
+        let mut file_exists = None;
         let file_id = match get_or_insert_data_file(&tx, DataType::Chamber, file_name, project_id) {
             Ok(id) => id,
+            Err(DataFileError::FileAlreadyExists(id)) => {
+                file_exists = Some(id);
+                id
+            },
             Err(e) => {
                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
                 let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(format!(
@@ -466,6 +471,7 @@ pub fn upload_chamber_metadata_async(
             Ok(chambers) => {
                 match insert_chamber_metadata(&tx, &chambers, &project.id.unwrap(), &file_id) {
                     Ok((inserts, skips)) => {
+                        touch_if_exists_updated(file_exists, inserts, &tx);
                         let _ = progress_sender.send(ProcessEvent::Insert(
                             InsertEvent::chamber_okskip(inserts, skips),
                         ));

@@ -6,7 +6,7 @@ use crate::gaschannel::{ChannelConfig, GasChannel};
 use crate::gastype::GasType;
 use crate::processevent::{InsertEvent, ProcessEvent, QueryEvent, ReadEvent};
 use crate::project::Project;
-use crate::utils::get_or_insert_data_file;
+use crate::utils::{get_or_insert_data_file, touch_if_exists_updated, DataFileError};
 use chrono::{DateTime, LocalResult, NaiveDateTime, TimeZone};
 use chrono_tz::{Tz, UTC};
 use rusqlite::{params, types::ValueRef, Connection, Result};
@@ -533,6 +533,7 @@ pub fn upload_gas_data_async(
                                 continue;
                             },
                         };
+                        let mut file_exists = None;
                         let file_id = match get_or_insert_data_file(
                             &tx,
                             DataType::Gas,
@@ -540,9 +541,12 @@ pub fn upload_gas_data_async(
                             project_id,
                         ) {
                             Ok(id) => id,
+                            Err(DataFileError::FileAlreadyExists(id)) => {
+                                file_exists = Some(id);
+                                id
+                            },
                             Err(e) => {
                                 eprintln!("Failed to insert/find data file '{}': {}", file_name, e);
-                                // Optionally notify UI
                                 let _ =
                                     progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
                                         format!("File '{}' skipped: {}", file_name, e),
@@ -553,6 +557,7 @@ pub fn upload_gas_data_async(
 
                         match insert_measurements(&tx, &data, project, &file_id) {
                             Ok((inserts, skips)) => {
+                                touch_if_exists_updated(file_exists, inserts, &tx);
                                 let _ = progress_sender.send(ProcessEvent::Insert(
                                     InsertEvent::gas_okskip(inserts, skips),
                                 ));
