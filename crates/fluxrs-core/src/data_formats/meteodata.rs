@@ -254,7 +254,6 @@ pub fn insert_meteo_data(
         return Err(rusqlite::Error::InvalidQuery); // length mismatch
     }
 
-    // NOTE: DB keeps only raw value (NULL or REAL). The "source" and distance are in-memory metadata.
     let mut stmt = tx.prepare(
         "INSERT INTO meteo (project_link, datetime, temperature, pressure, file_link)
          VALUES (?1, ?2, ?3, ?4, ?5)
@@ -271,9 +270,8 @@ pub fn insert_meteo_data(
         inserted += 1;
 
         stmt.execute(params![
-            project_id, datetime, temp_val,  // Option<f64> -> NULL or REAL
-            press_val, // Option<f64> -> NULL or REAL
-            file_id
+            project_id, datetime, temp_val, // Option<f64> -> NULL or REAL
+            press_val, file_id
         ])?;
     }
 

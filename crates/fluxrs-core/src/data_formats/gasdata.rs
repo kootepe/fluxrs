@@ -190,10 +190,7 @@ pub fn query_gas2(
         Ok((datetime_unix, gases, diag, instrument_serial, instrument_model, instrument_id))
     })?;
 
-    let mut asd = 0;
     for row in rows {
-        asd += 1;
-
         let (dt_unix, gas_values, diag, instrument_serial, instrument_model, instrument_id) = row?;
 
         // Skip rows lacking serial/model (you can choose to error instead)
