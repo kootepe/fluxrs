@@ -513,7 +513,7 @@ pub fn upload_gas_data_async(
                                 eprintln!("Skipping path with invalid filename: {:?}", path);
                                 // Optionally notify UI:
                                 let _ =
-                                    progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                                    progress_sender.send(ProcessEvent::Read(ReadEvent::gas_fail(
                                         path.to_string_lossy().to_string(),
                                         "Invalid file name (non-UTF8)".to_string(),
                                     )));
@@ -554,7 +554,7 @@ pub fn upload_gas_data_async(
                         match insert_measurements(&tx, &data, project, &file_id) {
                             Ok((count, duplicates)) => {
                                 let _ = progress_sender.send(ProcessEvent::Insert(
-                                    InsertEvent::OkSkip(count, duplicates),
+                                    InsertEvent::gas_okskip(count, duplicates),
                                 ));
                                 let _ = progress_sender.send(ProcessEvent::Read(
                                     ReadEvent::FileDetail(
@@ -587,7 +587,7 @@ pub fn upload_gas_data_async(
                     }
                 },
                 Err(e) => {
-                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::meteo_fail(
                         path.to_str().unwrap().to_owned(),
                         e.to_string(),
                     )));

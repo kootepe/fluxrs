@@ -208,7 +208,7 @@ pub fn upload_height_data_async(
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
                 // Optionally notify UI:
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::height_fail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
@@ -260,7 +260,7 @@ pub fn upload_height_data_async(
                 },
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::HeightFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::height_fail(
                     path.to_string_lossy().to_string(),
                     e.to_string(),
                 )));

@@ -423,7 +423,7 @@ pub fn upload_chamber_metadata_async(
             Some(name) => name,
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MetadataFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::chamber_fail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
@@ -474,7 +474,7 @@ pub fn upload_chamber_metadata_async(
                 }
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MetadataFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::chamber_fail(
                     path.to_string_lossy().to_string(),
                     e.to_string(),
                 )));

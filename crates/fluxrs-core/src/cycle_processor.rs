@@ -165,7 +165,7 @@ impl Processor {
         // Only report inserts/skips if no fatal error
         if fatal_error.is_none() {
             let _ = progress_sender
-                .send(ProcessEvent::Insert(InsertEvent::CycleOkSkip(total_inserts, total_skips)));
+                .send(ProcessEvent::Insert(InsertEvent::cycle_okskip(total_inserts, total_skips)));
         }
 
         let done_event = match fatal_error {

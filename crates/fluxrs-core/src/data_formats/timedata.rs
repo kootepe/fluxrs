@@ -6,15 +6,12 @@ use crate::processevent::{
 use crate::project::Project;
 use crate::traits::EqualLen;
 use crate::utils::ensure_utf8;
-use chrono::{DateTime, Duration, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
-use chrono_tz::Europe::Helsinki;
+use chrono::{DateTime, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::{Tz, UTC};
 use rusqlite::{params, Connection, Result};
-use std::collections::HashMap;
 use std::error::Error;
 use std::io::Read;
 use std::path::Path;
-use std::process;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::task;
@@ -744,7 +741,7 @@ pub fn upload_cycle_data_async(
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
                 // Optionally notify UI:
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::cycle_fail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
@@ -774,7 +771,7 @@ pub fn upload_cycle_data_async(
                     match insert_cycles(conn, &res, &project.id.unwrap(), &file_id) {
                         Ok((row_count, duplicates)) => {
                             let _ = progress_sender.send(ProcessEvent::Insert(
-                                InsertEvent::OkSkip(row_count, duplicates),
+                                InsertEvent::cycle_okskip(row_count, duplicates),
                             ));
                         },
                         Err(e) => {
@@ -791,7 +788,7 @@ pub fn upload_cycle_data_async(
                 }
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::CycleFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::cycle_fail(
                     path.to_string_lossy().to_string(),
                     e.to_string(),
                 )));

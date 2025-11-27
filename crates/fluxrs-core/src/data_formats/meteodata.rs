@@ -454,7 +454,7 @@ pub fn upload_meteo_data_async(
             Some(name) => name,
             None => {
                 eprintln!("Skipping path with invalid filename: {:?}", path);
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::GasFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::meteo_fail(
                     path.to_string_lossy().to_string(),
                     "Invalid file name (non-UTF8)".to_string(),
                 )));
@@ -493,6 +493,8 @@ pub fn upload_meteo_data_async(
                         " rows of meteo data inserted.".to_owned(),
                         row_count as u64,
                     )));
+                    let _ = progress_sender
+                        .send(ProcessEvent::Insert(InsertEvent::meteo_okskip(inserts, skips)));
                     if let Err(e) = tx.commit() {
                         eprintln!("Failed to commit transaction for '{}': {}", file_name, e);
                         let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
@@ -507,7 +509,7 @@ pub fn upload_meteo_data_async(
                 },
             },
             Err(e) => {
-                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::MeteoFail(
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::meteo_fail(
                     path.to_string_lossy().to_string(),
                     e.to_string(),
                 )));
