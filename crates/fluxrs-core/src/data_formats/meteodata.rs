@@ -405,7 +405,7 @@ pub fn read_meteo_csv<P: AsRef<Path>>(file_path: P, tz: Tz) -> Result<MeteoData,
     let mut temperature = Vec::new();
     let mut pressure = Vec::new();
 
-    for result in rdr.records() {
+    for (i, result) in rdr.records().enumerate() {
         let record = result?;
         let datetime_str = record.get(0).ok_or("Missing datetime field")?;
         let timestamp = parse_datetime(datetime_str, tz)?;
