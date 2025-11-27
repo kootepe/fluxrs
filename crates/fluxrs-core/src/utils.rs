@@ -60,6 +60,13 @@ pub fn touch_data_file(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+// if file already exists and has rows inserted, update the uploaded at timestamp
+pub fn touch_if_exists_updated(exists: Option<i64>, inserts: usize, tx: &Connection) {
+    if inserts > 0 {
+        let _ = touch_data_file(tx, exists.unwrap());
+    }
+}
+
 pub fn get_file_id(
     conn: &Connection,
     datatype: DataType,
@@ -101,6 +108,7 @@ pub fn get_or_insert_data_file(
 
     insert_data_file(conn, datatype, file_name, project_id)
 }
+
 #[derive(Debug)]
 pub enum DataFileError {
     FileAlreadyExists(i64),
