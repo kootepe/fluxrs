@@ -2197,6 +2197,9 @@ pub fn load_cycles_sync(
             SELECT
                 f.*,
 
+                c.close_offset              AS close_offset,
+                c.open_offset               AS open_offset,
+                c.end_offset                AS end_offset,
                 main_i.id                   AS main_instrument_id,
                 main_i.instrument_model     AS main_instrument_model,
                 main_i.instrument_serial    AS main_instrument_serial,
@@ -2208,6 +2211,7 @@ pub fn load_cycles_sync(
             FROM fluxes f
             LEFT JOIN instruments main_i    ON f.main_instrument_link = main_i.id
             LEFT JOIN instruments i         ON f.instrument_link      = i.id
+            LEFT JOIN cycles c              ON f.cycle_link           = c.id
             WHERE f.project_link = ?1
             AND f.start_time BETWEEN ?2 AND ?3
             ORDER BY f.start_time;
