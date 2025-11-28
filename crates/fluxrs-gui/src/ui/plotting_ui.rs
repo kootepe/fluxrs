@@ -615,7 +615,7 @@ impl ValidationApp {
                 // BUG: Thresholds need to be enabled/disabled within the app, otherwise it causes
                 // issues with showing which measurements are valid.
                 if let Some(best_kind) = cycle.best_model_by_aic(key) {
-                    let gas_key = GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()));
+                    let gas_key = GasKey::from((&cycle.main_gas, &key.id));
                     let is_valid = cycle.is_valid_by_threshold(
                         &gas_key,
                         best_kind,
@@ -1036,7 +1036,7 @@ impl ValidationApp {
                 let chamber_id = cycle.chamber_id.clone();
                 let start_time = cycle.get_start_ts() as f64;
                 let main_gas = cycle.main_gas;
-                let id = &cycle.instrument.id.unwrap();
+                let id = &key.id;
 
                 // Get best model kind (lowest AIC among available models)
                 let best_model = FluxKind::all()
@@ -1052,7 +1052,7 @@ impl ValidationApp {
                     let value = selector(cycle, key);
 
                     let is_valid = cycle.is_valid_by_threshold(
-                        &GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())),
+                        &GasKey::from((&cycle.main_gas, id)),
                         best_kind,
                         self.p_val_thresh as f64,
                         self.r2_thresh as f64,

@@ -531,7 +531,7 @@ impl ValidationApp {
                     if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                         cycle.search_new_open_lag(&GasKey::from((
                             &cycle.main_gas,
-                            &cycle.instrument.id.unwrap(),
+                            &cycle.main_instrument.id.unwrap(),
                         )));
                         self.update_plots();
                     }
@@ -562,7 +562,7 @@ impl ValidationApp {
                                 current_cycle.get_peak_near_timestamp(
                                     &GasKey::from((
                                         &main_gas,
-                                        &current_cycle.instrument.id.unwrap(),
+                                        &current_cycle.main_instrument.id.unwrap(),
                                     )),
                                     target as i64,
                                 );
@@ -681,7 +681,7 @@ impl ValidationApp {
             return;
         }
         let main_key = if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
-            GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))
+            GasKey::from((&cycle.main_gas, &cycle.main_instrument.id.unwrap()))
         } else {
             return;
         };
@@ -2827,11 +2827,11 @@ impl ValidationApp {
 
                 ui.collapsing("Cycle details", |ui| {
                     egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
-                        ui.label("Model:");
-                        ui.label(format!("{}", cycle.instrument.model));
+                        ui.label("Main instrument:");
+                        ui.label(format!("{}", cycle.main_instrument.model));
                         ui.end_row();
                         ui.label("Serial:");
-                        ui.label(&cycle.instrument.serial);
+                        ui.label(&cycle.main_instrument.serial);
                         ui.end_row();
                         ui.label("Chamber:");
                         ui.label(cycle.chamber_id.to_string());
@@ -2851,11 +2851,8 @@ impl ValidationApp {
                         ui.label((cycle.get_start_ts() + cycle.get_end_offset()).to_string());
                         ui.end_row();
                         ui.label("First TS:");
-                        if let Some(first_val) = cycle
-                            .get_dt_v(
-                                &self.selected_project.as_ref().unwrap().instrument.id.unwrap(),
-                            )
-                            .first()
+                        if let Some(first_val) =
+                            cycle.get_dt_v(&cycle.main_instrument.id.unwrap()).first()
                         {
                             ui.label(format!("{}", first_val.to_owned()));
                         } else {
@@ -2863,11 +2860,8 @@ impl ValidationApp {
                         }
                         ui.end_row();
                         ui.label("Last TS:");
-                        if let Some(last_val) = cycle
-                            .get_dt_v(
-                                &self.selected_project.as_ref().unwrap().instrument.id.unwrap(),
-                            )
-                            .last()
+                        if let Some(last_val) =
+                            cycle.get_dt_v(&cycle.main_instrument.id.unwrap()).last()
                         {
                             ui.label(format!("{}", last_val.to_owned()));
                         } else {
@@ -2911,12 +2905,11 @@ impl ValidationApp {
                             self.cycles.len()
                         ));
                         ui.end_row();
-                        ui.label("Measurement R²:");
+                        ui.label("Measurement r²:");
                         ui.label(
-                            match cycle
-                                .measurement_r2
-                                .get(&(GasKey::from((&main_gas, &cycle.instrument.id.unwrap()))))
-                            {
+                            match cycle.measurement_r2.get(
+                                &(GasKey::from((&main_gas, &cycle.main_instrument.id.unwrap()))),
+                            ) {
                                 Some(r) => format!("{:.6}", r),
                                 None => "N/A".to_string(),
                             },

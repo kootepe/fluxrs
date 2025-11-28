@@ -78,7 +78,6 @@ pub struct Cycle {
     /// checking are evaulated from this onr
     pub main_instrument: Instrument,
     /// the instrumet this cycles data is from
-    pub instrument: Instrument,
     pub instruments: FastMap<i64, Instrument>,
     pub chamber: Chamber,
     pub project_id: Option<i64>,
@@ -1613,7 +1612,6 @@ impl CycleBuilder {
             id: 0,
             chamber_id: chamber,
             main_instrument: instrument.clone().unwrap(),
-            instrument: instrument.unwrap(),
             instruments: FastMap::default(),
             chamber: Chamber::default(),
             snow_depth_m,
@@ -1811,6 +1809,8 @@ fn execute_history_insert(
             continue;
         }
         let instrument_id = &key.id;
+        let main_key = &GasKey::from((&cycle.main_gas, instrument_id));
+        let instrument = cycle.instruments.get(instrument_id).unwrap();
 
         stmt.execute(params![
             archived_at,
@@ -1845,13 +1845,9 @@ fn execute_history_insert(
             cycle.manual_valid,
             deadband,
             cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
-            cycle
-                .measurement_r2
-                .get(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))))
-                .copied()
-                .unwrap_or(0.0),
-            cycle.get_calc_start(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
-            cycle.get_calc_end(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
+            cycle.measurement_r2.get(main_key).copied().unwrap_or(0.0),
+            cycle.get_calc_start(main_key),
+            cycle.get_calc_end(main_key),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -1939,6 +1935,7 @@ fn execute_insert(
 
         let tx = Connection::open("fluxrs.db").expect("Failed to open database");
         let instrument_id = &key.id;
+        let main_key = &GasKey::from((&cycle.main_gas, instrument_id));
 
         let inserts = stmt.execute(params![
             cycle.get_start_utc_ts(),
@@ -1979,8 +1976,8 @@ fn execute_insert(
             //     .copied()
             //     .unwrap_or(0.0),
             // Linear fields
-            cycle.get_calc_start(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
-            cycle.get_calc_end(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
+            cycle.get_calc_start(main_key),
+            cycle.get_calc_end(main_key),
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
             lin.and_then(|m| m.adj_r2()).unwrap_or(0.0),
@@ -2062,12 +2059,14 @@ fn execute_update(
             eprintln!("Skipping gas {:?}: no models available", key);
             continue;
         }
+        let instrument_id = &key.id;
+        let main_key = &GasKey::from((&cycle.main_gas, instrument_id));
 
         let inserts = stmt.execute(params![
             cycle.get_start_utc_ts(),
             cycle.chamber_id,
             cycle.main_instrument.id,
-            cycle.instrument.id,
+            instrument_id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
             project_id,
@@ -2095,13 +2094,9 @@ fn execute_update(
             cycle.manual_valid,
             deadband,
             cycle.t0_concentration.get(&key).copied().unwrap_or(0.0),
-            cycle
-                .measurement_r2
-                .get(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap()))))
-                .copied()
-                .unwrap_or(0.0),
-            cycle.get_calc_start(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
-            cycle.get_calc_end(&(GasKey::from((&cycle.main_gas, &cycle.instrument.id.unwrap())))),
+            cycle.measurement_r2.get(main_key).copied().unwrap_or(0.0),
+            cycle.get_calc_start(main_key),
+            cycle.get_calc_end(main_key),
             // Linear fields
             lin.and_then(|m| m.flux()).unwrap_or(0.0),
             lin.and_then(|m| m.r2()).unwrap_or(0.0),
@@ -2416,7 +2411,6 @@ pub fn load_cycles_sync(
                 id: cycle_link,
                 chamber_id: chamber_id.clone(),
                 main_instrument,
-                instrument,
                 instruments: instruments.clone(),
                 chamber,
                 project_id: Some(project.id.unwrap()),
@@ -2912,6 +2906,7 @@ where
     V: Borrow<GasData>, // <-- key trick
 {
     let mut cycle_vec = Vec::new();
+    let instruments = project.load_instruments()?;
 
     for (chamber, start, close, open, end, snow_depth, id, project_id, instrument_id) in
         timev.iter()
@@ -3002,15 +2997,6 @@ where
                 let diag_slice: Vec<i64> = diags[idx_range.clone()].to_vec();
                 cycle.diag_v.insert(*ser, diag_slice);
             }
-
-            // Model + serial for this cycle (uses the matched serial)
-
-            // cycle.main_instrument = project.instrument.clone();
-            // cycle.instrument = Instrument {
-            //     model: *cur_data.model_key.get(ser).unwrap(),
-            //     serial: *ser,
-            //     id: None,
-            // };
 
             // Gas values for this serial only
             for (key, gas_values) in &cur_data.gas {
@@ -3114,7 +3100,8 @@ where
             let dt_loc =
                 DateTime::<Utc>::from_timestamp(*start, 0).unwrap().with_timezone(&project.tz);
             // let date_str = dt_utc.format("%Y-%m-%d").to_string();
-            let msg = format!("{}, ID: {} {}", dt_loc, chamber, cycle.instrument.serial);
+            let serial = instruments.get(instrument_id).unwrap();
+            let msg = format!("{}, ID: {} {}", dt_loc, chamber, serial);
             let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(msg)));
             cycle_vec.push(None);
         }
