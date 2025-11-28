@@ -1433,7 +1433,7 @@ impl ValidationApp {
 
                 // Set lag on currently selected cycle
                 if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-                    if cycle.get_start_ts() as f64 == dragged[0] {
+                    if cycle.get_start_ts() as f64 == dragged[0] && (steps >= 1. || steps <= -1.) {
                         cycle.increment_open_lag(steps);
                         // cycle.set_open_lag(new_y);
                         if self.mode_pearsons() {
