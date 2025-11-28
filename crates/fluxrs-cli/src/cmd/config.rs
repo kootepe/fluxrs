@@ -430,7 +430,7 @@ impl ProcessEventSink for Config {
                 };
                 println!(
                     "Inserted {} rows of {} data, skipped {} duplicates.",
-                    what, inserts, skips
+                    inserts, what, skips
                 );
             },
             InsertEvent::Fail(e) => {

@@ -1147,7 +1147,6 @@ impl Cycle {
 
     pub fn compute_all_fluxes(&mut self) {
         let keys = self.gases.to_vec();
-
         for key in &keys {
             self.calculate_lin_flux(key);
             self.calculate_poly_flux(key);
@@ -1260,7 +1259,6 @@ impl Cycle {
                 },
             );
         } else {
-            // Optionally log: fitting failed
         }
     }
     pub fn calculate_poly_flux(&mut self, key: &GasKey) {
@@ -1376,31 +1374,7 @@ impl Cycle {
             eprintln!("Exponential regression failed for gas {:?}", key.gas_type);
         }
     }
-    pub fn ppb_to_nmol(&mut self) {
-        // Constants
-        const R: f64 = 8.314462618; // J/mol·K
 
-        let pressure_pa = self.air_pressure.value.unwrap() * 100.0; // Convert hPa to Pa
-        let temperature_k = self.air_temperature.value.unwrap() + 273.15; // Convert °C to K
-        let volume_m3 = self.chamber_height / 1000.0; // Convert L to m³
-
-        let conversion_factor = (pressure_pa * volume_m3) / (R * temperature_k); // mol / mol-fraction
-        let ppb_to_nmol = conversion_factor * 1e-9 * 1e9; // mol → nmol, and ppb = 1e-9
-        let mut converted: FastMap<GasKey, Vec<Option<f64>>> = FastMap::default();
-        let keys: Vec<_> = self.gases.to_vec();
-        for key in &keys {
-            if let Some(values) = self.gas_v.get(key) {
-                let new_vals = values.iter().map(|v| v.map(|val| val * ppb_to_nmol)).collect();
-                converted.insert(*key, new_vals);
-            }
-            // if let Some(values) = self.gas_v.get_mut(&key) {
-            //     for value in values.iter_mut().flatten() {
-            //         let val = *value *= ppb_to_nmol;
-            //     }
-            // }
-        }
-        self.gas_v_mole = converted;
-    }
     pub fn update_cycle(&mut self, _project: String) {
         // self.get_calc_datas();
         // self.get_measurement_datas();
