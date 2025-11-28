@@ -1,6 +1,7 @@
 use crate::gastype::GasType;
 use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::mode::Mode;
+use crate::types::FastMap;
 use chrono_tz::Tz;
 use std::error::Error;
 use std::fmt;
@@ -73,6 +74,37 @@ impl fmt::Display for Project {
 }
 
 impl Project {
+    pub fn load_instruments(&self) -> rusqlite::Result<FastMap<i64, Instrument>> {
+        let conn = Connection::open("fluxrs.db")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, instrument_model, instrument_serial
+         FROM instruments
+         WHERE project_link = ?1",
+        )?;
+
+        let rows = stmt.query_map(params![self.id.unwrap()], |row| {
+            let id: i64 = row.get(0)?;
+            let model_str: String = row.get(1)?;
+
+            Ok((
+                id,
+                Instrument {
+                    id: Some(id),
+                    model: InstrumentType::from_str(&model_str)
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?,
+                    serial: row.get(2)?,
+                },
+            ))
+        })?;
+
+        let mut instruments = FastMap::default();
+        for inst in rows {
+            let (id, instrument) = inst?;
+            instruments.insert(id, instrument);
+        }
+
+        Ok(instruments)
+    }
     pub fn load(db_path: Option<String>, name: &String) -> Option<Project> {
         let mut conn = Connection::open("fluxrs.db").ok()?;
         if db_path.is_some() {
