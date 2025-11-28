@@ -610,6 +610,9 @@ impl Cycle {
     ) -> Option<f64> {
         if let Some(gas_v) = self.gas_v.get(key) {
             let len = gas_v.len();
+            // BUG: this is 120 seconds because all manual cycles have 1 minute added before the
+            // measurement and after the measurement. Pontential break if those added minutes are
+            // made work differently
             if len < 120 {
                 println!("Less than 2minutes of data.");
                 return None;
@@ -664,7 +667,7 @@ impl Cycle {
                 if let Some(peak_time) = dt_v.get(idx) {
                     let open_lag_s =
                         peak_time - (self.get_start_ts() + self.get_open_offset()) as f64;
-                    self.set_open_lag_only(open_lag_s);
+                    self.set_open_lag(open_lag_s);
 
                     return Some(*peak_time);
                 }
