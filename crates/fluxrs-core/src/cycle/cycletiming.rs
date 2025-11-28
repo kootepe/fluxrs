@@ -186,6 +186,12 @@ impl CycleTiming {
     pub fn get_calc_start(&self, key: &GasKey) -> f64 {
         *self.calc_range_start.get(key).unwrap_or(&0.0)
     }
+    pub fn get_calc_starts(&self) -> &FastMap<GasKey, f64> {
+        &self.calc_range_start
+    }
+    pub fn get_calc_ends(&self) -> &FastMap<GasKey, f64> {
+        &self.calc_range_end
+    }
 
     pub fn get_calc_end(&self, key: &GasKey) -> f64 {
         *self.calc_range_end.get(key).unwrap_or(&0.0)

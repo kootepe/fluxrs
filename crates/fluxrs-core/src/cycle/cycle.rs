@@ -532,6 +532,12 @@ impl Cycle {
     pub fn get_calc_start(&self, key: &GasKey) -> f64 {
         self.timing.get_calc_start(key)
     }
+    pub fn get_calc_starts(&self) -> &FastMap<GasKey, f64> {
+        self.timing.get_calc_starts()
+    }
+    pub fn get_calc_ends(&self) -> &FastMap<GasKey, f64> {
+        self.timing.get_calc_ends()
+    }
     pub fn get_calc_end(&self, key: &GasKey) -> f64 {
         self.timing.get_calc_end(key)
     }
