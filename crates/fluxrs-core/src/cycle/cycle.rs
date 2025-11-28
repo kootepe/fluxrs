@@ -487,12 +487,12 @@ impl Cycle {
             && (self.get_adjusted_close() + delta) >= self.get_start()
         {
             self.timing.increment_open_lag(delta);
+            self.adjust_calc_range_all();
+            self.check_errors();
+            self.calculate_measurement_rs();
+            self.calculate_concentration_at_t0();
+            self.compute_all_fluxes();
         }
-        self.adjust_calc_range_all();
-        self.check_errors();
-        self.calculate_measurement_rs();
-        self.calculate_concentration_at_t0();
-        self.compute_all_fluxes();
     }
 
     pub fn increment_close_lag(&mut self, delta: f64) {
