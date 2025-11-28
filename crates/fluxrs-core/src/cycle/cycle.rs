@@ -75,7 +75,7 @@ pub struct Cycle {
     /// id of the chamber / plot
     pub chamber_id: String,
     /// the main instrument, if there are multiple instruments in a cycle, linearity and error
-    /// checking are evaulated from this onr
+    /// checking are evaulated from this one
     pub main_instrument: Instrument,
     /// the instrumet this cycles data is from
     pub instruments: FastMap<i64, Instrument>,
@@ -475,9 +475,9 @@ impl Cycle {
         self.timing.set_open_lag(new_lag);
 
         self.adjust_calc_range_all();
-
         self.check_errors();
         self.calculate_measurement_rs();
+        self.calculate_concentration_at_t0();
         self.compute_all_fluxes();
     }
 
