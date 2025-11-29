@@ -155,6 +155,34 @@ pub fn migrate_db() -> Result<()> {
         version = 3;
         migrated_steps += 1;
     }
+    if version < 4 {
+        // 1. Create indexes on measurements
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_measurements_project_datetime
+         ON measurements (project_link, datetime, instrument_link);",
+            [],
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_measurements_instrument_link
+         ON measurements (instrument_link);",
+            [],
+        )?;
+
+        // 2. Remove old offset columns from fluxes
+        println!("Migration v4: removing close_offset, open_offset, end_offset from fluxes");
+        conn.execute("ALTER TABLE fluxes DROP COLUMN close_offset;", [])?;
+        conn.execute("ALTER TABLE fluxes DROP COLUMN open_offset;", [])?;
+        conn.execute("ALTER TABLE fluxes DROP COLUMN end_offset;", [])?;
+
+        // 3. Remove old offset columns from flux_history
+        println!("Migration v4: removing close_offset, open_offset, end_offset from flux_history");
+        conn.execute("ALTER TABLE flux_history DROP COLUMN close_offset;", [])?;
+        conn.execute("ALTER TABLE flux_history DROP COLUMN open_offset;", [])?;
+        conn.execute("ALTER TABLE flux_history DROP COLUMN end_offset;", [])?;
+
+        version = 4;
+        migrated_steps += 1;
+    }
 
     // Only bump user_version once, at the end, to the *latest* schema version
     if migrated_steps > 0 {

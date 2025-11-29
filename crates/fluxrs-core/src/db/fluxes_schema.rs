@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Result};
 
-pub const DB_VERSION: i32 = 3; // latest schema version
+pub const DB_VERSION: i32 = 4; // latest schema version
 
 pub mod fluxes_col {
     pub const START_TIME: usize = 0;
@@ -490,12 +490,11 @@ pub fn create_flux_history_table() -> String {
 
 pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
     let conn = Connection::open("fluxrs.db")?;
-    // conn.execute("PRAGMA journal_mode=WAL;", [])?;
-    // let wal_mode: String = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))?;
+
+    // conn.pragma_update(None, "journal_mode", &"WAL")?;
 
     conn.execute(&format!("PRAGMA user_version = {};", DB_VERSION), [])?;
     conn.execute("PRAGMA foreign_keys = ON", [])?;
-    // conn.execute("PRAGMA journal_mode = WAL;", [])?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS projects (
@@ -542,6 +541,16 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
 
             PRIMARY KEY (datetime, instrument_link, project_link)
         )",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_measurements_project_datetime
+     ON measurements (project_link, datetime, instrument_link);",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_measurements_instrument_link
+     ON measurements (instrument_link);",
         [],
     )?;
     conn.execute(
@@ -628,6 +637,23 @@ pub fn initiate_tables() -> Result<(), Box<dyn std::error::Error>> {
         [],
     )?;
     conn.execute(&create_flux_table(), [])?;
+
+    // Indexes for fluxes
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fluxes_project_start
+     ON fluxes (project_link, start_time);",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fluxes_main_instrument_link
+     ON fluxes (main_instrument_link);",
+        [],
+    )?;
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_fluxes_instrument_link
+     ON fluxes (instrument_link);",
+        [],
+    )?;
     conn.execute(&create_flux_history_table(), [])?;
 
     Ok(())
