@@ -10,33 +10,30 @@ pub mod fluxes_col {
     pub const MAIN_GAS: usize = 4;
     pub const GAS: usize = 5;
     pub const PROJECT_LINK: usize = 6;
-    pub const CLOSE_OFFSET: usize = 7;
-    pub const OPEN_OFFSET: usize = 8;
-    pub const END_OFFSET: usize = 9;
-    pub const OPEN_LAG_S: usize = 10;
-    pub const CLOSE_LAG_S: usize = 11;
-    pub const END_LAG_S: usize = 12;
-    pub const START_LAG_S: usize = 13;
-    pub const MIN_CALC_LEN: usize = 14;
-    pub const AIR_PRESSURE: usize = 15;
-    pub const PRESSURE_SOURCE: usize = 16;
-    pub const PRESSURE_DIST: usize = 17;
-    pub const AIR_TEMPERATURE: usize = 18;
-    pub const TEMPERATURE_SOURCE: usize = 19;
-    pub const TEMPERATURE_DIST: usize = 20;
-    pub const CHAMBER_HEIGHT: usize = 21;
-    pub const ERROR_CODE: usize = 22;
-    pub const IS_VALID: usize = 23;
-    pub const MANUAL_ADJUSTED: usize = 24;
-    pub const MANUAL_VALID: usize = 25;
-    pub const T0_CONC: usize = 26;
-    pub const MEASUREMENT_R2: usize = 27;
-    pub const FLUX: usize = 28;
-    pub const R2: usize = 29;
-    pub const INTERCEPT: usize = 30;
-    pub const SLOPE: usize = 31;
-    pub const CALC_START: usize = 32;
-    pub const CALC_END: usize = 33;
+    pub const OPEN_LAG_S: usize = 7;
+    pub const CLOSE_LAG_S: usize = 8;
+    pub const END_LAG_S: usize = 9;
+    pub const START_LAG_S: usize = 10;
+    pub const MIN_CALC_LEN: usize = 11;
+    pub const AIR_PRESSURE: usize = 12;
+    pub const PRESSURE_SOURCE: usize = 13;
+    pub const PRESSURE_DIST: usize = 14;
+    pub const AIR_TEMPERATURE: usize = 15;
+    pub const TEMPERATURE_SOURCE: usize = 16;
+    pub const TEMPERATURE_DIST: usize = 17;
+    pub const CHAMBER_HEIGHT: usize = 18;
+    pub const ERROR_CODE: usize = 19;
+    pub const IS_VALID: usize = 20;
+    pub const MANUAL_ADJUSTED: usize = 21;
+    pub const MANUAL_VALID: usize = 22;
+    pub const T0_CONC: usize = 23;
+    pub const MEASUREMENT_R2: usize = 24;
+    pub const FLUX: usize = 25;
+    pub const R2: usize = 26;
+    pub const INTERCEPT: usize = 27;
+    pub const SLOPE: usize = 28;
+    pub const CALC_START: usize = 29;
+    pub const CALC_END: usize = 30;
 }
 
 pub const OTHER_COLS: &[&str] = &[
@@ -44,9 +41,6 @@ pub const OTHER_COLS: &[&str] = &[
     "main_gas",
     "project_link",
     "start_time",
-    "close_offset",
-    "open_offset",
-    "end_offset",
     "open_lag_s",
     "close_lag_s",
     "end_lag_s",
@@ -74,9 +68,6 @@ pub const FLUXES_COLUMNS: &[&str] = &[
     "gas",
     "project_link",
     "cycle_link",
-    "close_offset",
-    "open_offset",
-    "end_offset",
     "open_lag_s",
     "close_lag_s",
     "end_lag_s",
@@ -147,9 +138,6 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "chamber_id",
     "main_gas",
     "gas",
-    "close_offset",
-    "open_offset",
-    "end_offset",
     "open_lag_s",
     "close_lag_s",
     "end_lag_s",
@@ -329,9 +317,6 @@ pub fn create_flux_table() -> String {
             project_link			INTEGER NOT NULL,
             cycle_link				INTEGER NOT NULL,
 
-            close_offset			INTEGER NOT NULL,
-            open_offset				INTEGER NOT NULL,
-            end_offset				INTEGER NOT NULL,
             open_lag_s				INTEGER NOT NULL,
             close_lag_s				INTEGER NOT NULL,
             end_lag_s				INTEGER NOT NULL,
@@ -425,9 +410,6 @@ pub fn create_flux_history_table() -> String {
             project_link			INTEGER NOT NULL,
             cycle_link				INTEGER NOT NULL,
 
-            close_offset			INTEGER NOT NULL,
-            open_offset				INTEGER NOT NULL,
-            end_offset				INTEGER NOT NULL,
             open_lag_s				INTEGER NOT NULL,
             close_lag_s				INTEGER NOT NULL,
             end_lag_s				INTEGER NOT NULL,
