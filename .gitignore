@@ -4,6 +4,12 @@
 *.DAT
 .jukit
 images/
+r_testing/
+sfp_test/
+suvin_data/
+.dockerignore
+Gemfile.lock
+*.py
 _site/
 target-arm
 *.db*
