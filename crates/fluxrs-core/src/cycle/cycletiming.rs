@@ -38,7 +38,6 @@ pub struct CycleTiming {
     /// Time axes
     dt_v: FastMap<i64, Vec<f64>>,
     calc_dt_v: FastMap<GasKey, Vec<f64>>,
-    measurement_dt_v: Vec<f64>,
 }
 
 impl CycleTiming {
@@ -82,7 +81,6 @@ impl CycleTiming {
             calc_range_end: FastMap::default(),
             dt_v: FastMap::default(),
             calc_dt_v: FastMap::default(),
-            measurement_dt_v: Vec::new(),
         }
     }
     pub fn new_from_offsets(start: i64, close: i64, open: i64, end: i64, min_len: f64) -> Self {
@@ -117,7 +115,6 @@ impl CycleTiming {
             calc_range_end: FastMap::default(),
             dt_v: FastMap::default(),
             calc_dt_v: FastMap::default(),
-            measurement_dt_v: Vec::new(),
         }
     }
 
