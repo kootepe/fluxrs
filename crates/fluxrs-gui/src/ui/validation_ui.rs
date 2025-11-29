@@ -527,7 +527,6 @@ impl ValidationApp {
                         self.update_plots();
                     }
                 }
-
                 if self.keybinds.action_triggered(Action::SearchLagPrevious, i) {
                     if let Some(current_visible_idx) = self.cycle_nav.current_index() {
                         if current_visible_idx > 0 {
@@ -541,7 +540,13 @@ impl ValidationApp {
                                 .rev()
                                 .find(|cycle| cycle.chamber_id == chamber_id && cycle.is_valid)
                             {
-                                let target = current_cycle.get_adjusted_open();
+                                // 1) reuse previous cycle's lag, not its absolute adjusted open time
+                                let prev_lag = previous_cycle.get_open_lag(); // f64
+
+                                // 2) compute where that lag would be in the current cycle
+                                let current_start = current_cycle.timing.get_start_ts() as f64;
+                                let current_open_offset = current_cycle.get_open_offset() as f64;
+                                let target = current_start + current_open_offset + prev_lag;
 
                                 let Some(main_gas) =
                                     self.selected_project.as_ref().unwrap().main_gas
