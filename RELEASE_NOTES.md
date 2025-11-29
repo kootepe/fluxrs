@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.4.9
+- Added some db indexes for faster queries
+  - with migrations
+- Remove lags from fluxes table as they are linked from another table
+  - Slight performance increase + smaller db size
+  - with migrations
+- File reading no longer frees the UI too early
+- Added sanity checks to expflux
+
 ## v0.4.8
 - All data formats now allow inserting the same file multiple times, but only
 rows that are new will be inserted.
