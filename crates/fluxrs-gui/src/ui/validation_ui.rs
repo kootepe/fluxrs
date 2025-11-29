@@ -480,10 +480,7 @@ impl ValidationApp {
                     let delta = -1.0;
 
                     match self.zoom_to_measurement {
-                        0 => {
-                            self.increment_open_lag(delta);
-                        },
-                        1 => {
+                        0 | 1 => {
                             self.increment_open_lag(delta);
                         },
                         2 => {
@@ -491,8 +488,6 @@ impl ValidationApp {
                         },
                         _ => {},
                     }
-
-                    self.stick_calc_to_range_start_for_all();
 
                     if self.mode_pearsons() {
                         self.set_all_calc_range_to_best_r();
@@ -506,10 +501,7 @@ impl ValidationApp {
                     let delta = 1.0;
 
                     match self.zoom_to_measurement {
-                        0 => {
-                            self.increment_open_lag(delta);
-                        },
-                        1 => {
+                        0 | 1 => {
                             self.increment_open_lag(delta);
                         },
                         2 => {
@@ -518,11 +510,10 @@ impl ValidationApp {
                         _ => {},
                     }
 
-                    self.stick_calc_to_range_start_for_all();
-
                     if self.mode_pearsons() {
                         self.set_all_calc_range_to_best_r();
                     }
+
                     self.update_plots();
                 }
 
@@ -566,7 +557,6 @@ impl ValidationApp {
                                     )),
                                     target as i64,
                                 );
-
                                 self.mark_dirty();
                                 self.update_plots();
                             }

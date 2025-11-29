@@ -475,6 +475,7 @@ impl Cycle {
         self.timing.set_open_lag(new_lag);
 
         self.adjust_calc_range_all();
+        self.timing.stick_calc_to_range_start_for_all(&self.gases);
         self.check_errors();
         self.calculate_measurement_rs();
         self.calculate_concentration_at_t0();
@@ -488,6 +489,7 @@ impl Cycle {
         {
             self.timing.increment_open_lag(delta);
             self.adjust_calc_range_all();
+            self.timing.stick_calc_to_range_start_for_all(&self.gases);
             self.check_errors();
             self.calculate_measurement_rs();
             self.calculate_concentration_at_t0();
@@ -499,21 +501,23 @@ impl Cycle {
         // only increment the lag if its within the start and end time
         if (self.get_adjusted_close() + delta) >= self.get_start() {
             self.timing.increment_close_lag(delta);
+
+            self.adjust_calc_range_all();
+            self.timing.stick_calc_to_range_start_for_all(&self.gases);
+            self.check_errors();
+            self.calculate_measurement_rs();
+            self.calculate_concentration_at_t0();
+            self.compute_all_fluxes();
         }
-        self.adjust_calc_range_all();
-        self.check_errors();
-        self.calculate_measurement_rs();
-        self.calculate_concentration_at_t0();
-        self.compute_all_fluxes();
     }
 
     pub fn search_new_open_lag(&mut self, key: &GasKey) {
         self.search_open_lag(key);
 
-        self.adjust_calc_range_all();
-        self.check_errors();
-        self.calculate_measurement_rs();
-        self.compute_all_fluxes();
+        // self.adjust_calc_range_all();
+        // self.check_errors();
+        // self.calculate_measurement_rs();
+        // self.compute_all_fluxes();
     }
 
     fn adjust_calc_range_all_deadband(&mut self) {
