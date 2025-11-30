@@ -876,16 +876,20 @@ impl PolyFlux {
         air_temperature: f64,
         air_pressure: f64,
         chamber: Chamber,
-    ) -> Option<Self> {
-        if x.len() != y.len() || x.len() < 3 {
-            return None;
+    ) -> FluxResult<Self> {
+        if x.len() != y.len() {
+            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        }
+        if x.len() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
         }
 
         let x0 = x[0]; // normalize to start
         let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
         let n = y.len() as f64;
 
-        let model = PolyReg::train(&x_norm, y)?;
+        let model = PolyReg::train(&x_norm, y)
+            .ok_or(FluxFitError::StatError("PolyReg::train returned None"))?;
 
         let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
@@ -900,6 +904,9 @@ impl PolyFlux {
         let rss: f64 = y.iter().zip(&y_hat).map(|(&yi, &yhi)| (yi - yhi).powi(2)).sum();
         let aic = aic_from_rss(rss, n, k + 1); // k + 1 = slope + quad + intercept
         let sigma = (rss / (n as f64 - k as f64 - 1.0)).sqrt();
+        if !sigma.is_finite() {
+            return Err(FluxFitError::NonFiniteSigma);
+        }
 
         // Evaluate slope at midpoint of the fit range (normalized)
         // let x_mid = ((start - x0) + (end - x0)) / 2.0;
@@ -909,7 +916,7 @@ impl PolyFlux {
 
         let flux = flux_umol_m2_s(&channel, slope, air_temperature, air_pressure, &chamber);
 
-        Some(Self {
+        Ok(Self {
             fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
