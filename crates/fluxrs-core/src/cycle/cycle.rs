@@ -39,7 +39,7 @@ use std::fmt;
 use std::hash::Hash;
 use std::process;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::task;
 
 pub type InstrumentSerial = String;
@@ -48,7 +48,7 @@ pub const MIN_WINDOW_SIZE: f64 = 180.;
 // how many seconds to increment the moving window searching for max r
 pub const WINDOW_INCREMENT: usize = 1;
 
-// type InstrumentSerial = String;
+pub type ProgSender = UnboundedSender<ProcessEvent>;
 
 struct CalcRange {
     start: f64,
@@ -986,12 +986,7 @@ impl Cycle {
             self.set_deadband_only(&key, deadband);
         }
     }
-    pub fn init(
-        &mut self,
-        use_best_r: bool,
-        deadband: f64,
-        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-    ) {
+    pub fn init(&mut self, use_best_r: bool, deadband: f64, project: &Project, sender: ProgSender) {
         self.manual_adjusted = false;
         self.set_close_lag_only(0.);
         self.set_open_lag_only(0.);
