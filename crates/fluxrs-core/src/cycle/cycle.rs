@@ -8,7 +8,8 @@ use crate::db::fluxes_schema::{
 };
 use crate::errorcode::{ErrorCode, ErrorMask};
 use crate::flux::{
-    ExponentialFlux, FluxKind, FluxModel, FluxRecord, LinearFlux, PolyFlux, RobustFlux,
+    ExponentialFlux, FluxFitError, FluxKind, FluxModel, FluxRecord, FluxResult, LinearFlux,
+    PolyFlux, RobustFlux,
 };
 use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
@@ -1238,7 +1239,7 @@ impl Cycle {
             .unwrap_or_default()
     }
 
-    pub fn calculate_lin_flux(&mut self, key: &GasKey) {
+    pub fn calculate_lin_flux(&mut self, key: &GasKey) -> FluxResult<()> {
         let (x, y) = self.get_calc_data2(key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
@@ -1247,12 +1248,11 @@ impl Cycle {
         let ee = self.get_calc_end(key);
 
         if x.len() < 2 || y.len() < 2 || x.len() != y.len() {
-            // Optionally: log or emit warning here
-            return; // Not enough data to fit
+            return Err(FluxFitError::NotEnoughPoints { len: x.len().min(y.len()), needed: 2 });
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        if let Some(data) = LinearFlux::from_data(
+        let data = LinearFlux::from_data(
             "lin",
             channel,
             &x,
@@ -1262,37 +1262,30 @@ impl Cycle {
             self.air_temperature.value.unwrap(),
             self.air_pressure.value.unwrap(),
             self.chamber,
-        ) {
-            self.fluxes.insert(
-                (*key, FluxKind::Linear),
-                FluxRecord {
-                    model: Box::new(data),
-                    is_valid: true, // default to valid unless user invalidates later
-                },
-            );
-        } else {
-        }
+        )?;
+
+        self.fluxes.insert(
+            (*key, FluxKind::Linear),
+            FluxRecord {
+                model: Box::new(data),
+                is_valid: true, // default to valid unless user invalidates later
+            },
+        );
+        Ok(())
     }
-    pub fn calculate_poly_flux(&mut self, key: &GasKey) {
+    pub fn calculate_poly_flux(&mut self, key: &GasKey) -> FluxResult<()> {
         let (x, y) = self.get_calc_data2(key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
 
         // Ensure valid input
         if x.len() < 3 || y.len() < 3 || x.len() != y.len() {
-            // Optional: log or notify
-            eprintln!(
-                "Insufficient data for polynomial flux on gas {:?}: x = {}, y = {}",
-                key.gas_type,
-                x.len(),
-                y.len()
-            );
-            return;
+            return Err(FluxFitError::NotEnoughPoints { len: x.len().min(y.len()), needed: 2 });
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         // Fit and insert if successful
-        if let Some(data) = PolyFlux::from_data(
+        let data = PolyFlux::from_data(
             "poly",
             channel,
             &x,
@@ -1302,26 +1295,23 @@ impl Cycle {
             self.air_temperature.value.unwrap(),
             self.air_pressure.value.unwrap(),
             self.chamber,
-        ) {
-            self.fluxes.insert(
-                (*key, FluxKind::Poly),
-                FluxRecord { model: Box::new(data), is_valid: true },
-            );
-        } else {
-            eprintln!("Polynomial regression failed for gas {:?}", key.gas_type);
-        }
+        )?;
+
+        self.fluxes
+            .insert((*key, FluxKind::Poly), FluxRecord { model: Box::new(data), is_valid: true });
+        Ok(())
     }
-    pub fn calculate_roblin_flux(&mut self, key: &GasKey) {
+    pub fn calculate_roblin_flux(&mut self, key: &GasKey) -> FluxResult<()> {
         let (x, y) = self.get_calc_data2(key);
         let s = x.first().unwrap_or(&0.);
         let e = x.last().unwrap_or(&0.);
 
         if x.len() < 2 || y.len() < 2 || x.len() != y.len() {
-            return; // Not enough data to fit
+            return Err(FluxFitError::NotEnoughPoints { len: x.len().min(y.len()), needed: 2 });
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        if let Some(data) = RobustFlux::from_data(
+        let data = RobustFlux::from_data(
             "roblin",
             channel,
             &x,
@@ -1331,43 +1321,30 @@ impl Cycle {
             self.air_temperature.value.unwrap(),
             self.air_pressure.value.unwrap(),
             self.chamber,
-        ) {
-            self.fluxes.insert(
-                (*key, FluxKind::RobLin),
-                FluxRecord { model: Box::new(data), is_valid: true },
-            );
-        } else {
-            // Optionally log: fitting failed (maybe x.len != y.len or regression degenerate)
-        }
+        )?;
+
+        self.fluxes
+            .insert((*key, FluxKind::RobLin), FluxRecord { model: Box::new(data), is_valid: true });
+        Ok(())
     }
 
-    pub fn calculate_exp_flux(&mut self, key: &GasKey) {
+    pub fn calculate_exp_flux(&mut self, key: &GasKey) -> FluxResult<()> {
         let (x, y) = self.get_calc_data2(key);
         let s = x.first().unwrap_or(&0.0);
         let e = x.last().unwrap_or(&0.0);
 
         // Need at least a few points, and all y > 0 for exp fit
         if x.len() < 3 || y.len() < 3 || x.len() != y.len() {
-            eprintln!(
-                "Insufficient data for exponential flux on gas {:?}: x = {}, y = {}",
-                key.gas_type,
-                x.len(),
-                y.len()
-            );
-            return;
+            return Err(FluxFitError::NotEnoughPoints { len: x.len().min(y.len()), needed: 2 });
         }
 
-        if !y.iter().all(|v| *v > 0.0) {
-            eprintln!(
-                "Non-positive values in y for exponential flux on gas {:?}; skipping.",
-                key.gas_type
-            );
-            return;
+        if !y.iter().all(|&v| v > 0.0) {
+            return Err(FluxFitError::NonPositiveY);
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
 
-        if let Some(data) = ExponentialFlux::from_data(
+        let data = ExponentialFlux::from_data(
             "exp",
             channel,
             &x,
@@ -1377,14 +1354,13 @@ impl Cycle {
             self.air_temperature.value.unwrap(),
             self.air_pressure.value.unwrap(),
             self.chamber,
-        ) {
-            self.fluxes.insert(
-                (*key, FluxKind::Exponential),
-                FluxRecord { model: Box::new(data), is_valid: true },
-            );
-        } else {
-            eprintln!("Exponential regression failed for gas {:?}", key.gas_type);
-        }
+        )?;
+
+        self.fluxes.insert(
+            (*key, FluxKind::Exponential),
+            FluxRecord { model: Box::new(data), is_valid: true },
+        );
+        Ok(())
     }
 
     pub fn update_cycle(&mut self, _project: String) {
