@@ -2831,14 +2831,6 @@ impl ValidationApp {
                         ui.label("Chamber:");
                         ui.label(cycle.chamber_id.to_string());
                         ui.end_row();
-                        ui.label("Start Time:");
-                        ui.label(
-                            DateTime::from_timestamp(cycle.get_start() as i64, 0)
-                                .unwrap()
-                                .with_timezone(&self.selected_project.as_ref().unwrap().tz)
-                                .to_string(),
-                        );
-                        ui.end_row();
                         ui.label("Epoch:");
                         ui.label(cycle.get_start_ts().to_string());
                         ui.end_row();
@@ -2921,6 +2913,14 @@ impl ValidationApp {
                 ui.separator();
 
                 egui::Grid::new("cycle_details_grid").striped(true).show(ui, |ui| {
+                    ui.label("Start Time:");
+                    ui.label(
+                        DateTime::from_timestamp(cycle.get_start() as i64, 0)
+                            .unwrap()
+                            .with_timezone(&self.selected_project.as_ref().unwrap().tz)
+                            .to_string(),
+                    );
+                    ui.end_row();
                     ui.label("Chamber height:");
                     ui.label(format!("{:.2}", cycle.chamber_height));
                     ui.end_row();
