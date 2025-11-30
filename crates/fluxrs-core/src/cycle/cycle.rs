@@ -2185,12 +2185,12 @@ pub async fn load_cycles(
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     project: Project,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    sender: ProgSender,
 ) -> rusqlite::Result<Vec<Cycle>, AppError> {
     let result = task::spawn_blocking(move || {
         // This closure is sync and runs on a blocking thread
         let conn_guard = conn.lock().expect("DB mutex poisoned");
-        load_cycles_sync(&conn_guard, &project, start.timestamp(), end.timestamp(), progress_sender)
+        load_cycles_sync(&conn_guard, &project, start.timestamp(), end.timestamp(), sender)
     })
     .await;
 
@@ -2207,7 +2207,7 @@ pub fn load_cycles_sync(
     project: &Project,
     start: i64,
     end: i64,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    sender: ProgSender,
 ) -> Result<Vec<Cycle>, AppError> {
     println!("loading cycles");
     let mut date: Option<String> = None;
@@ -2314,7 +2314,7 @@ pub fn load_cycles_sync(
         let day = utc_dt.format("%Y-%m-%d").to_string(); // Format as YYYY-MM-DD
         if let Some(prev_date) = date.clone() {
             if prev_date != day {
-                progress_sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
+                sender.send(ProcessEvent::Progress(ProgressEvent::Day(day.clone()))).ok();
             }
         }
 
@@ -2926,7 +2926,7 @@ pub fn process_cycles<V>(
     height_data: &HeightData,
     chamber_data: &HashMap<String, Chamber>,
     project: &Project,
-    progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+    sender: ProgSender,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>>
 where
     V: Borrow<GasData>, // <-- key trick
@@ -3070,6 +3070,7 @@ where
             cycle.gases = cycle.gas_v.keys().cloned().collect();
             cycle.main_gas = project.main_gas.unwrap();
             cycle.main_instrument = project.instrument.clone();
+            cycle.instruments = instruments.clone();
 
             let target = *start + *close;
 
@@ -3118,7 +3119,8 @@ where
             cycle.init(
                 project.mode == Mode::BestPearsonsR,
                 project.deadband,
-                progress_sender.clone(),
+                project,
+                sender.clone(),
             );
 
             cycle_vec.push(Some(cycle));
@@ -3128,7 +3130,7 @@ where
             // let date_str = dt_utc.format("%Y-%m-%d").to_string();
             let serial = instruments.get(instrument_id).unwrap();
             let msg = format!("{}, ID: {} {}", dt_loc, chamber, serial);
-            let _ = progress_sender.send(ProcessEvent::Query(QueryEvent::NoGasData(msg)));
+            let _ = sender.send(ProcessEvent::Query(QueryEvent::NoGasData(msg)));
             cycle_vec.push(None);
         }
     }
