@@ -1,15 +1,13 @@
-use crate::ui::validation_ui::ValidationApp;
 use chrono::offset::LocalResult;
 use chrono::{TimeZone, Utc};
 use chrono_tz::Tz;
 use csv::Writer;
 use fluxrs_core::data_formats::meteodata::MeteoSource;
-use fluxrs_core::db::fluxes_schema::{make_select_all_fluxes, OTHER_COLS};
+use fluxrs_core::db::fluxes_schema::make_select_all_fluxes;
 use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::gastype::GasType;
 use fluxrs_core::project::Project;
 use rusqlite::{types::ValueRef, Connection, Result};
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;

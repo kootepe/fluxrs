@@ -1,4 +1,3 @@
-use crate::constants::MIN_CALC_AREA_RANGE;
 use crate::cycle::cycletiming::CycleTiming;
 use crate::cycle::gaskey::GasKey;
 use crate::data_formats::gasdata::{query_gas2, query_gas_all};
@@ -19,9 +18,8 @@ use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::project::Project;
 use crate::stats::stats;
 use crate::stats::{ExpReg, LinReg, PolyReg, RobReg};
-use chrono_tz::{Tz, UTC};
 
-use crate::data_formats::chamberdata::{query_chambers, Chamber, ChamberOrigin, ChamberShape};
+use crate::data_formats::chamberdata::{query_chambers, Chamber, ChamberShape};
 use crate::data_formats::gasdata::GasData;
 use crate::data_formats::heightdata::HeightData;
 use crate::data_formats::meteodata::{
@@ -30,7 +28,7 @@ use crate::data_formats::meteodata::{
 use crate::data_formats::timedata::{get_instrument_by_project_and_id, TimeData};
 use crate::types::FastMap;
 
-use chrono::{DateTime, Duration, TimeDelta, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use rayon::prelude::*;
 use rusqlite::{params, Connection, Error, Result};
 use std::borrow::Borrow;
