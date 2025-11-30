@@ -100,7 +100,7 @@ impl Processor {
                         &meteo,
                         &height,
                         &chambers,
-                        project_clone,
+                        &project_clone,
                         progress_sender.clone(),
                     ) {
                         Ok(result) => {

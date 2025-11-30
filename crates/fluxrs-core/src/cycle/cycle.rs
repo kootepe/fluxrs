@@ -2907,7 +2907,7 @@ pub fn process_cycles<V>(
     meteo_data: &MeteoData,
     height_data: &HeightData,
     chamber_data: &HashMap<String, Chamber>,
-    project: Project,
+    project: &Project,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<Vec<Option<Cycle>>, Box<dyn std::error::Error + Send + Sync>>
 where
