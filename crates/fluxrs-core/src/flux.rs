@@ -1036,15 +1036,19 @@ impl RobustFlux {
         air_temperature: f64,
         air_pressure: f64,
         chamber: Chamber,
-    ) -> Option<Self> {
-        if x.len() != y.len() || x.len() < 3 {
-            return None;
+    ) -> FluxResult<Self> {
+        if x.len() != y.len() {
+            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        }
+        if x.len() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
         }
 
         let x0 = x[0];
         let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
 
-        let model = RobReg::train(&x_norm, y, 1.0, 10)?;
+        let model = RobReg::train(&x_norm, y, 1.0, 10)
+            .ok_or(FluxFitError::StatError("RobReg::train returned None"))?;
 
         let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
@@ -1064,7 +1068,7 @@ impl RobustFlux {
 
         let flux = flux_umol_m2_s(&channel, slope_at_mid, air_temperature, air_pressure, &chamber);
 
-        Some(Self {
+        Ok(Self {
             fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
