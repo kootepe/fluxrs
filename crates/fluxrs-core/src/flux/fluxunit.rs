@@ -22,7 +22,6 @@ pub enum FluxUnit {
     MmolM2H,
     MgM2S,
     MgM2H,
-
     NmolM2S,
     NmolM2H,
 }

@@ -29,7 +29,6 @@ impl fmt::Display for PolyFlux {
 
 #[derive(Clone)]
 pub struct PolyFlux {
-    pub fit_id: String,
     pub gas_channel: GasChannel,
     pub flux: f64,
     pub r2: f64,
@@ -56,7 +55,7 @@ impl FluxModel for PolyFlux {
     fn adj_r2(&self) -> Option<f64> {
         Some(self.adjusted_r2)
     }
-    fn fit_id(&self) -> FluxKind {
+    fn kind(&self) -> FluxKind {
         FluxKind::Poly
     }
     fn predict(&self, x: f64) -> Option<f64> {
@@ -119,7 +118,6 @@ impl FluxModel for PolyFlux {
 
 impl PolyFlux {
     pub fn from_data(
-        fit_id: &str,
         channel: GasChannel,
         x: &[f64],
         y: &[f64],
@@ -169,7 +167,6 @@ impl PolyFlux {
         let flux = flux_umol_m2_s(&channel, slope, air_temperature, air_pressure, &chamber);
 
         Ok(Self {
-            fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
             r2,

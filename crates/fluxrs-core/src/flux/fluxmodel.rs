@@ -8,7 +8,6 @@ use std::fmt;
 use crate::flux::fluxkind::FluxKind;
 
 pub trait FluxModel: Sync + Send + DynClone {
-    fn fit_id(&self) -> FluxKind;
     fn gas_channel(&self) -> GasChannel;
     fn flux(&self) -> Option<f64>;
     fn r2(&self) -> Option<f64>;
@@ -21,6 +20,7 @@ pub trait FluxModel: Sync + Send + DynClone {
     fn cv(&self) -> Option<f64>;
     fn aic(&self) -> Option<f64>;
     fn predict(&self, x: f64) -> Option<f64>;
+    fn kind(&self) -> FluxKind;
     fn set_range_start(&mut self, value: f64);
     fn set_range_end(&mut self, value: f64);
     fn range_start(&self) -> Option<f64>;
@@ -34,8 +34,7 @@ impl fmt::Display for dyn FluxModel {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{:?}, {:?}, flux: {:?}, r2: {:?}, len: {:?}",
-            self.fit_id(),
+            "{:?}, flux: {:?}, r2: {:?}, len: {:?}",
             self.gas_channel().gas,
             self.flux(),
             self.r2(),

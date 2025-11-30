@@ -4,7 +4,6 @@ use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
-use crate::gastype::GasType;
 use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, ExpReg, LinReg};
 
 use statrs::distribution::{ContinuousCDF, StudentsT};
@@ -15,7 +14,6 @@ use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct ExponentialFlux {
-    pub fit_id: String,
     pub gas_channel: GasChannel,
     pub flux: f64,
     pub r2: f64,
@@ -43,10 +41,9 @@ impl FluxModel for ExponentialFlux {
         Some(self.adjusted_r2)
     }
 
-    fn fit_id(&self) -> FluxKind {
-        FluxKind::Exponential // you’ll need to add this variant
+    fn kind(&self) -> FluxKind {
+        FluxKind::Exponential
     }
-
     fn gas_channel(&self) -> GasChannel {
         self.gas_channel.clone()
     }
@@ -114,7 +111,6 @@ impl FluxModel for ExponentialFlux {
 
 impl ExponentialFlux {
     pub fn from_data(
-        fit_id: &str,
         channel: GasChannel,
         x: &[f64],
         y: &[f64],
@@ -209,7 +205,6 @@ impl ExponentialFlux {
         let flux = flux_umol_m2_s(&channel, f0, air_temperature, air_pressure, &chamber);
 
         Ok(Self {
-            fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
             adjusted_r2,
@@ -226,7 +221,6 @@ impl ExponentialFlux {
     }
 
     pub fn from_values(
-        fit_id: &str,
         gas_channel: GasChannel,
         flux: f64,
         r2: f64,
@@ -241,7 +235,6 @@ impl ExponentialFlux {
         cv: f64,
     ) -> Option<Self> {
         Some(Self {
-            fit_id: fit_id.to_string(),
             gas_channel,
             flux,
             r2,

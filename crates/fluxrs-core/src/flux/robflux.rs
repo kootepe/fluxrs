@@ -29,7 +29,6 @@ impl fmt::Display for RobustFlux {
 
 #[derive(Clone)]
 pub struct RobustFlux {
-    pub fit_id: String,
     pub gas_channel: GasChannel,
     pub flux: f64,
     pub r2: f64,
@@ -55,8 +54,7 @@ impl FluxModel for RobustFlux {
     fn adj_r2(&self) -> Option<f64> {
         Some(self.adjusted_r2)
     }
-
-    fn fit_id(&self) -> FluxKind {
+    fn kind(&self) -> FluxKind {
         FluxKind::RobLin
     }
 
@@ -120,7 +118,6 @@ impl FluxModel for RobustFlux {
 
 impl RobustFlux {
     pub fn from_data(
-        fit_id: &str,
         channel: GasChannel,
         x: &[f64],
         y: &[f64],
@@ -162,7 +159,6 @@ impl RobustFlux {
         let flux = flux_umol_m2_s(&channel, slope_at_mid, air_temperature, air_pressure, &chamber);
 
         Ok(Self {
-            fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
             r2,
@@ -187,7 +183,6 @@ mod tests {
     #[test]
     fn test_robust_flux_fit() {
         let gas = GasType::CH4;
-        let fit_id = "robust";
         let x = vec![0.0, 1.0, 2.0, 3.0, 4.0];
         let y = vec![1.0, 2.0, 3.0, 4.0, 100.0]; // outlier included
 
@@ -197,20 +192,11 @@ mod tests {
         let pressure = 1013.25; // hPa
         let chamber = Chamber::default();
         let channel =
-            GasChannel::new(gas, concentrationunit::ConcentrationUnit::Ppb, fit_id.to_owned());
+            GasChannel::new(gas, concentrationunit::ConcentrationUnit::Ppb, "asd".to_owned());
 
-        let flux = RobustFlux::from_data(
-            fit_id,
-            channel,
-            &x,
-            &y,
-            start,
-            end,
-            temperature,
-            pressure,
-            chamber,
-        )
-        .expect("RobustFlux creation failed");
+        let flux =
+            RobustFlux::from_data(channel, &x, &y, start, end, temperature, pressure, chamber)
+                .expect("RobustFlux creation failed");
 
         // Check computed values
         dbg!(flux.r2, flux.adjusted_r2, flux.rmse, flux.sigma, flux.aic);
@@ -219,6 +205,5 @@ mod tests {
         assert!(flux.rmse >= 0.0);
         assert!(flux.sigma >= 0.0);
         assert!(flux.aic.is_finite());
-        assert_eq!(flux.fit_id(), FluxKind::RobLin);
     }
 }

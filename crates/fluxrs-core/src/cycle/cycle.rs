@@ -1296,7 +1296,6 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let data = LinearFlux::from_data(
-            "lin",
             channel,
             &x,
             &y,
@@ -1329,7 +1328,6 @@ impl Cycle {
         let channel = self.gas_channels.get(key).unwrap().clone();
         // Fit and insert if successful
         let data = PolyFlux::from_data(
-            "poly",
             channel,
             &x,
             &y,
@@ -1355,7 +1353,6 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let data = RobustFlux::from_data(
-            "roblin",
             channel,
             &x,
             &y,
@@ -1388,7 +1385,6 @@ impl Cycle {
         let channel = self.gas_channels.get(key).unwrap().clone();
 
         let data = ExponentialFlux::from_data(
-            "exp",
             channel,
             &x,
             &y,
@@ -1480,7 +1476,7 @@ impl Cycle {
         candidates
             .iter()
             .filter_map(|kind| self.fluxes.get(&(*key, *kind)))
-            .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.fit_id())))
+            .filter_map(|m| m.model.aic().map(|aic| (aic, m.model.kind())))
             .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(_, fit_id)| fit_id)
     }
@@ -1738,7 +1734,6 @@ pub fn insert_flux_results(
 
                 stmt.execute(params![
                     cycle_id,
-                    lin.fit_id,
                     lin.gas_channel.gas.to_string(),
                     lin.flux,
                     lin.r2,
@@ -2570,7 +2565,6 @@ pub fn load_cycles_sync(
                 cycle.set_calc_start(&gk, calc_range_start);
                 cycle.set_calc_end(&gk, calc_range_end);
                 let lin = LinearFlux {
-                    fit_id: "linear".to_string(),
                     gas_channel,
                     flux,
                     r2,
@@ -2628,7 +2622,6 @@ pub fn load_cycles_sync(
                 cycle.set_calc_end(&gk, calc_range_end);
 
                 let exp = ExponentialFlux {
-                    fit_id: "exp".to_string(),
                     gas_channel,
                     flux,
                     r2,
@@ -2683,7 +2676,6 @@ pub fn load_cycles_sync(
                 cycle.set_calc_start(&gk, calc_range_start);
                 cycle.set_calc_end(&gk, calc_range_end);
                 let roblin = RobustFlux {
-                    fit_id: "roblin".to_string(),
                     gas_channel,
                     flux,
                     r2,
@@ -2737,7 +2729,6 @@ pub fn load_cycles_sync(
                 cycle.set_calc_start(&gk, calc_range_start);
                 cycle.set_calc_end(&gk, calc_range_end);
                 let poly = PolyFlux {
-                    fit_id: "poly".to_string(),
                     gas_channel,
                     flux,
                     r2,
@@ -3267,7 +3258,6 @@ impl AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[derive(Debug, Clone, Copy)]
     struct DummyFlux {
@@ -3286,9 +3276,7 @@ mod tests {
         fn aic(&self) -> Option<f64> {
             Some(self.aic)
         }
-
-        // Minimal dummy implementations
-        fn fit_id(&self) -> FluxKind {
+        fn kind(&self) -> FluxKind {
             FluxKind::Linear
         }
 
