@@ -1011,11 +1011,10 @@ impl Cycle {
             self.calculate_concentration_at_t0();
             self.calculate_measurement_rs();
             self.check_main_r();
-            self.compute_all_fluxes();
+            self.compute_all_fluxes_tx(project, sender);
             self.calculate_max_y();
             self.calculate_min_y();
             self.check_errors();
-        } else {
         }
     }
 
@@ -1152,21 +1151,69 @@ impl Cycle {
 
         (filtered_dt, filtered_gas)
     }
+    pub fn compute_all_fluxes_tx(&mut self, project: &Project, sender: ProgSender) {
+        let keys = self.gases.to_vec();
+
+        let start = DateTime::from_timestamp(self.get_start() as i64, 0)
+            .unwrap()
+            .with_timezone(&project.tz)
+            .to_string();
+        for key in keys.iter() {
+            let instrument = self.instruments.get(&key.id).unwrap().clone();
+            // linear
+            if let Err(err) = self.calculate_lin_flux(key) {
+                let msg = format!(
+                    "Linear flux failed for cycle at {} {} {:?}: {}",
+                    start, instrument, key, err
+                );
+                let _ = sender.send(ProcessEvent::Progress(ProgressEvent::Generic(msg)));
+            }
+
+            // polynomial
+            if let Err(err) = self.calculate_poly_flux(key) {
+                let msg = format!(
+                    "Polynomial flux failed for {} {} {:?}: {}",
+                    start, instrument.serial, key, err
+                );
+                let _ = sender.send(ProcessEvent::Progress(ProgressEvent::Generic(msg)));
+            }
+
+            // robust linear
+            if let Err(err) = self.calculate_roblin_flux(key) {
+                let msg = format!(
+                    "Robust linear flux failed for {} {} {:?}: {}",
+                    start, instrument.serial, key, err
+                );
+                let _ = sender.send(ProcessEvent::Progress(ProgressEvent::Generic(msg)));
+            }
+
+            // exponential
+            if let Err(err) = self.calculate_exp_flux(key) {
+                let msg = format!(
+                    "Exponential flux failed for {} {} {:?}: {}",
+                    start, instrument.serial, key, err
+                );
+                let _ = sender.send(ProcessEvent::Progress(ProgressEvent::Generic(msg)));
+            }
+        }
+
+        // final Done event
+    }
 
     pub fn compute_all_fluxes(&mut self) {
         let keys = self.gases.to_vec();
         for key in &keys {
-            self.calculate_lin_flux(key);
-            self.calculate_poly_flux(key);
-            self.calculate_roblin_flux(key);
-            self.calculate_exp_flux(key);
+            let _ = self.calculate_lin_flux(key);
+            let _ = self.calculate_poly_flux(key);
+            let _ = self.calculate_roblin_flux(key);
+            let _ = self.calculate_exp_flux(key);
         }
     }
     pub fn compute_single_flux(&mut self, key: &GasKey) {
-        self.calculate_lin_flux(key);
-        self.calculate_poly_flux(key);
-        self.calculate_roblin_flux(key);
-        self.calculate_exp_flux(key);
+        let _ = self.calculate_lin_flux(key);
+        let _ = self.calculate_poly_flux(key);
+        let _ = self.calculate_roblin_flux(key);
+        let _ = self.calculate_exp_flux(key);
     }
 
     // pub fn get_calc_dt(&self, key: GasType) -> Vec<f64> {
