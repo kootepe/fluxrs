@@ -612,14 +612,16 @@ impl ExponentialFlux {
         air_temperature: f64,
         air_pressure: f64,
         chamber: Chamber,
-    ) -> Option<Self> {
-        if x.len() != y.len() || x.len() < 3 {
-            return None;
+    ) -> FluxResult<Self> {
+        if x.len() != y.len() {
+            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        }
+        if x.len() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
         }
 
         if !y.iter().all(|&v| v > 0.0) {
-            // exponential model requires positive y
-            return None;
+            return Err(FluxFitError::NonPositiveY);
         }
 
         let n = x.len() as f64;
@@ -663,26 +665,27 @@ impl ExponentialFlux {
         let rss_ln: f64 = ln_residuals.iter().map(|r| r.powi(2)).sum();
         let sigma_ln = (rss_ln / (n - 2.0)).sqrt();
         if !sigma_ln.is_finite() {
-            return None;
+            return Err(FluxFitError::NonFiniteSigma);
         }
         let x_mean = x_norm.iter().copied().sum::<f64>() / n;
         let ss_xx: f64 = x_norm.iter().map(|xi| (xi - x_mean).powi(2)).sum();
         if !ss_xx.is_finite() || ss_xx <= f64::EPSILON {
-            return None;
+            return Err(FluxFitError::DegenerateX);
         }
-
         let se_b = sigma_ln / ss_xx.sqrt();
         if !se_b.is_finite() || se_b <= 0.0 {
             // e.g. perfect fit (sigma = 0) or degenerate
             // you can decide how to handle this; example: p_value = 0 or 1
-            return None;
+            return Err(FluxFitError::NonFiniteSE);
         }
 
         let t_stat = ln_model.slope / se_b;
         if !t_stat.is_finite() {
-            return None;
+            return Err(FluxFitError::NonFiniteTStat);
         }
-        let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
+
+        let dist = StudentsT::new(0.0, 1.0, n - 2.0)
+            .map_err(|_| FluxFitError::StatError("failed to construct StudentsT"))?;
         let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
 
         // --- Flux calculation ---
@@ -694,7 +697,7 @@ impl ExponentialFlux {
         // Reuse your existing flux helper
         let flux = flux_umol_m2_s(&channel, f0, air_temperature, air_pressure, &chamber);
 
-        Some(Self {
+        Ok(Self {
             fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
@@ -752,19 +755,26 @@ impl ExponentialFlux {
         air_temperature: f64,
         air_pressure: f64,
         chamber: Chamber,
-    ) {
+    ) -> FluxResult<()> {
         if x.len() != y.len() || x.len() < 2 || !y.iter().all(|v| *v > 0.0) {
-            return;
+            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
         }
-
+        if x.len() < 2 {
+            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 2 });
+        }
+        if !y.iter().all(|v| *v > 0.0) {
+            return Err(FluxFitError::NonPositiveY);
+        }
         let x0 = x[0];
         let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
 
         self.model = ExpReg::train(&x_norm, &y);
         let f0 = self.model.a * self.model.b;
         self.flux = flux_umol_m2_s(&self.gas_channel, f0, air_temperature, air_pressure, &chamber);
+        Ok(())
     }
 }
+
 #[derive(Clone)]
 pub struct PolyFlux {
     pub fit_id: String,
