@@ -32,17 +32,13 @@ pub struct XYSeries {
 
 impl XYSeries {
     fn equal_len(&self) -> bool {
-        if self.x.len() != self.y.len() {
-            false
-        } else {
-            true
-        }
+        self.x.len() != self.y.len()
     }
     fn xlen(&self) -> usize {
         self.x.len()
     }
     fn ylen(&self) -> usize {
-        self.x.len()
+        self.y.len()
     }
 }
 
@@ -59,7 +55,7 @@ impl GasChannelData {
         self.data.equal_len()
     }
     pub fn xlen(&self) -> usize {
-        self.data.x.len()
+        self.data.xlen()
     }
     pub fn ylen(&self) -> usize {
         self.data.ylen()
@@ -122,7 +118,7 @@ pub fn flux_umol_m2_s(
     chamber: &Chamber,
 ) -> f64 {
     flux_umol_m2_s_core(
-        &channel,
+        channel,
         slope_x_per_s,
         air_temperature_c.value.unwrap(),
         air_pressure_hpa.value.unwrap(),
