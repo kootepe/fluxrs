@@ -12,9 +12,9 @@ impl UiColor for FluxKind {
     fn color(&self) -> Color32 {
         match self {
             FluxKind::Linear => Color32::RED,
-            FluxKind::Exponential => Color32::RED,
-            FluxKind::RobLin => Color32::RED,
-            FluxKind::Poly => Color32::RED,
+            FluxKind::Exponential => Color32::GREEN,
+            FluxKind::RobLin => Color32::YELLOW,
+            FluxKind::Poly => Color32::ORANGE,
         }
     }
     fn stroke(&self) -> Stroke {
