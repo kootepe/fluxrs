@@ -17,7 +17,8 @@ use crate::instruments::instruments::{Instrument, InstrumentType};
 use crate::mode::Mode;
 use crate::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use crate::project::Project;
-use crate::stats::{self, ExpReg, LinReg, PolyReg, RobReg};
+use crate::stats::stats;
+use crate::stats::{ExpReg, LinReg, PolyReg, RobReg};
 use chrono_tz::{Tz, UTC};
 
 use crate::data_formats::chamberdata::{query_chambers, Chamber, ChamberOrigin, ChamberShape};

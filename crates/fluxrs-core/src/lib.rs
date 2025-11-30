@@ -30,7 +30,7 @@ pub mod mode;
 pub mod project;
 // mod keybinds;
 pub mod processevent;
-mod stats;
+pub mod stats;
 pub mod traits;
 pub mod types;
 // pub mod ui;
