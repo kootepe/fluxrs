@@ -1,5 +1,5 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::flux::flux::flux_umol_m2_s;
+use crate::flux::flux::{flux_umol_m2_s, GasChannelData, MeteoConditions, TimeRange};
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
@@ -9,8 +9,6 @@ use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, ExpReg,
 use statrs::distribution::{ContinuousCDF, StudentsT};
 
 use std::any::Any;
-use std::fmt;
-use std::str::FromStr;
 
 #[derive(Clone)]
 pub struct ExponentialFlux {
@@ -111,22 +109,20 @@ impl FluxModel for ExponentialFlux {
 
 impl ExponentialFlux {
     pub fn from_data(
-        channel: GasChannel,
-        x: &[f64],
-        y: &[f64],
-        start: f64,
-        end: f64,
-        air_temperature: f64,
-        air_pressure: f64,
+        data: GasChannelData,
+        range: TimeRange,
+        meteo: MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<Self> {
-        if x.len() != y.len() {
-            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        if !data.equal_len() {
+            return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
         }
-        if x.len() < 3 {
-            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
+        if data.xlen() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: data.xlen(), needed: 3 });
         }
 
+        let x = data.x();
+        let y = data.y();
         if !y.iter().all(|&v| v > 0.0) {
             return Err(FluxFitError::NonPositiveY);
         }
@@ -202,10 +198,10 @@ impl ExponentialFlux {
         let f0 = model.a * model.b;
 
         // Reuse your existing flux helper
-        let flux = flux_umol_m2_s(&channel, f0, air_temperature, air_pressure, &chamber);
+        let flux = flux_umol_m2_s(&data.channel, f0, meteo.temperature, meteo.pressure, &chamber);
 
         Ok(Self {
-            gas_channel: channel,
+            gas_channel: data.channel,
             flux,
             adjusted_r2,
             r2,
@@ -215,8 +211,8 @@ impl ExponentialFlux {
             aic,
             rmse: rmse_val,
             cv,
-            range_start: start,
-            range_end: end,
+            range_start: range.start,
+            range_end: range.end,
         })
     }
 
@@ -254,12 +250,13 @@ impl ExponentialFlux {
     /// here using chamber-based flux helper and initial slope f0 = a * b.
     pub fn flux_from_vec(
         &mut self,
-        x: Vec<f64>,
-        y: Vec<f64>,
-        air_temperature: f64,
-        air_pressure: f64,
+        data: GasChannelData,
+        meteo: MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<()> {
+        let x = data.x();
+        let y = data.y();
+
         if x.len() != y.len() || x.len() < 2 || !y.iter().all(|v| *v > 0.0) {
             return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
         }
@@ -274,7 +271,8 @@ impl ExponentialFlux {
 
         self.model = ExpReg::train(&x_norm, &y);
         let f0 = self.model.a * self.model.b;
-        self.flux = flux_umol_m2_s(&self.gas_channel, f0, air_temperature, air_pressure, &chamber);
+        self.flux =
+            flux_umol_m2_s(&self.gas_channel, f0, meteo.temperature, meteo.pressure, &chamber);
         Ok(())
     }
 }

@@ -1,5 +1,6 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::flux::flux::flux_umol_m2_s;
+use crate::data_formats::meteodata::MeteoPoint;
+use crate::flux::flux::{flux_umol_m2_s, GasChannelData, MeteoConditions, TimeRange};
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
@@ -107,21 +108,21 @@ impl FluxModel for LinearFlux {
 
 impl LinearFlux {
     pub fn from_data(
-        channel: GasChannel,
-        x: &[f64],
-        y: &[f64],
-        start: f64,
-        end: f64,
-        air_temperature: f64,
-        air_pressure: f64,
+        data: GasChannelData,
+        range: TimeRange,
+        meteo: MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<Self> {
-        if x.len() != y.len() {
-            return return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        if !data.equal_len() {
+            return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
         }
-        if x.len() < 3 {
-            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
+
+        if data.xlen() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: data.xlen(), needed: 3 });
         }
+
+        let x = data.x();
+        let y = data.y();
 
         let x0 = x[0]; // normalize x
         let x_norm: Vec<f64> = x.iter().map(|&t| t - x0).collect();
@@ -171,10 +172,11 @@ impl LinearFlux {
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
         let adjusted_r2 = adjusted_r2(r2, n as usize, 1);
 
-        let flux = flux_umol_m2_s(&channel, model.slope, air_temperature, air_pressure, &chamber);
+        let flux =
+            flux_umol_m2_s(&data.channel, model.slope, meteo.temperature, meteo.pressure, &chamber);
 
         Ok(Self {
-            gas_channel: channel,
+            gas_channel: data.channel,
             flux,
             adjusted_r2,
             r2,
@@ -184,8 +186,8 @@ impl LinearFlux {
             aic,
             rmse: rmse_val,
             cv,
-            range_start: start,
-            range_end: end,
+            range_start: range.start,
+            range_end: range.end,
         })
     }
     pub fn from_values(

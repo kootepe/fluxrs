@@ -1,17 +1,13 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::flux::flux::flux_umol_m2_s;
+use crate::flux::flux::{flux_umol_m2_s, GasChannelData, MeteoConditions, TimeRange};
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
-use crate::gastype::GasType;
 use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, PolyReg};
-
-use statrs::distribution::{ContinuousCDF, StudentsT};
 
 use std::any::Any;
 use std::fmt;
-use std::str::FromStr;
 
 impl fmt::Display for PolyFlux {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -118,21 +114,19 @@ impl FluxModel for PolyFlux {
 
 impl PolyFlux {
     pub fn from_data(
-        channel: GasChannel,
-        x: &[f64],
-        y: &[f64],
-        start: f64,
-        end: f64,
-        air_temperature: f64,
-        air_pressure: f64,
+        data: GasChannelData,
+        range: TimeRange,
+        meteo: MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<Self> {
-        if x.len() != y.len() {
-            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        if !data.equal_len() {
+            return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
         }
-        if x.len() < 3 {
-            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
+        if data.xlen() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: data.xlen(), needed: 3 });
         }
+        let x = data.x();
+        let y = data.y();
 
         let x0 = x[0]; // normalize to start
         let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
@@ -161,19 +155,20 @@ impl PolyFlux {
         // Evaluate slope at midpoint of the fit range (normalized)
         // let x_mid = ((start - x0) + (end - x0)) / 2.0;
         // let slope_at_mid = model.a1 + 2.0 * model.a2 * x_mid;
-        let x_start = start - x0; // with your normalization, often 0.0
+        let x_start = range.start - x0; // with your normalization, often 0.0
         let slope = model.a1 + 2.0 * model.a2 * x_start;
 
-        let flux = flux_umol_m2_s(&channel, slope, air_temperature, air_pressure, &chamber);
+        let flux =
+            flux_umol_m2_s(&data.channel, slope, meteo.temperature, meteo.pressure, &chamber);
 
         Ok(Self {
-            gas_channel: channel,
+            gas_channel: data.channel,
             flux,
             r2,
             adjusted_r2,
             model,
-            range_start: start,
-            range_end: end,
+            range_start: range.start,
+            range_end: range.end,
             x_offset: x0,
             aic,
             sigma,

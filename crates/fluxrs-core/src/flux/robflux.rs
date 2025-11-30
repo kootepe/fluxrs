@@ -1,17 +1,15 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::flux::flux::flux_umol_m2_s;
+use crate::flux::flux::{flux_umol_m2_s, GasChannelData, MeteoConditions, TimeRange};
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
-use crate::gastype::GasType;
 use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, RobReg};
 
 use statrs::distribution::{ContinuousCDF, StudentsT};
 
 use std::any::Any;
 use std::fmt;
-use std::str::FromStr;
 
 impl fmt::Display for RobustFlux {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -118,21 +116,19 @@ impl FluxModel for RobustFlux {
 
 impl RobustFlux {
     pub fn from_data(
-        channel: GasChannel,
-        x: &[f64],
-        y: &[f64],
-        start: f64,
-        end: f64,
-        air_temperature: f64,
-        air_pressure: f64,
+        data: GasChannelData,
+        range: TimeRange,
+        meteo: MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<Self> {
-        if x.len() != y.len() {
-            return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        if !data.equal_len() {
+            return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
         }
-        if x.len() < 3 {
-            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
+        if data.xlen() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: data.xlen(), needed: 3 });
         }
+        let x = data.x();
+        let y = data.y();
 
         let x0 = x[0];
         let x_norm: Vec<f64> = x.iter().map(|t| t - x0).collect();
@@ -156,10 +152,16 @@ impl RobustFlux {
         // slope at midpoint of range (normalized x)
         let slope_at_mid = model.slope; // constant for linear model
 
-        let flux = flux_umol_m2_s(&channel, slope_at_mid, air_temperature, air_pressure, &chamber);
+        let flux = flux_umol_m2_s(
+            &data.channel,
+            slope_at_mid,
+            meteo.temperature,
+            meteo.pressure,
+            &chamber,
+        );
 
         Ok(Self {
-            gas_channel: channel,
+            gas_channel: data.channel,
             flux,
             r2,
             adjusted_r2,
@@ -168,42 +170,135 @@ impl RobustFlux {
             aic,
             rmse: rmse_val,
             cv,
-            range_start: start,
-            range_end: end,
+            range_start: range.start,
+            range_end: range.end,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::concentrationunit;
-
     use super::*;
+    use crate::concentrationunit::ConcentrationUnit;
+    use crate::data_formats::meteodata::{MeteoPoint, MeteoSource};
+    use crate::gastype::GasType;
+
+    // ---- Test helpers -----------------------------------------------------
+
+    fn test_channel() -> GasChannel {
+        GasChannel::new(GasType::CH4, ConcentrationUnit::Ppb, "test_channel".to_owned())
+    }
+
+    fn test_chamber() -> Chamber {
+        Chamber::default()
+    }
+
+    fn test_meteo() -> MeteoConditions {
+        MeteoConditions {
+            temperature: MeteoPoint {
+                value: Some(10.),
+                source: MeteoSource::Default,
+                distance_from_target: None,
+            },
+            pressure: MeteoPoint {
+                value: Some(980.),
+                source: MeteoSource::Default,
+                distance_from_target: None,
+            },
+        }
+    }
+
+    /// Simple helper returning (x, y) with one clear outlier in y.
+    fn time_series_with_outlier() -> (Vec<f64>, Vec<f64>) {
+        let x = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+        let y = vec![1.0, 2.0, 3.0, 4.0, 100.0]; // outlier at the last point
+        (x, y)
+    }
+
+    /// Convenience constructor for GasChannelData.
+    /// Adjust this to match your actual struct layout / constructor.
+    fn gas_channel_data(channel: GasChannel, x: Vec<f64>, y: Vec<f64>) -> GasChannelData {
+        // If you have `GasChannelData::new`, use that instead:
+        // GasChannelData::new(channel, x, y)
+
+        GasChannelData::new(channel, x, y)
+    }
+
+    fn assert_flux_stats_valid(flux: &RobustFlux) {
+        assert!((0.0..=1.0).contains(&flux.r2), "r2 must be between 0 and 1, got {}", flux.r2);
+        assert!(
+            flux.adjusted_r2 <= flux.r2,
+            "adjusted_r2 ({}) must be <= r2 ({})",
+            flux.adjusted_r2,
+            flux.r2
+        );
+        assert!(flux.rmse >= 0.0, "rmse must be non-negative, got {}", flux.rmse);
+        assert!(flux.sigma >= 0.0, "sigma must be non-negative, got {}", flux.sigma);
+        assert!(flux.aic.is_finite(), "aic must be finite, got {}", flux.aic);
+    }
+
+    // ---- Tests ------------------------------------------------------------
 
     #[test]
-    fn test_robust_flux_fit() {
-        let gas = GasType::CH4;
-        let x = vec![0.0, 1.0, 2.0, 3.0, 4.0];
-        let y = vec![1.0, 2.0, 3.0, 4.0, 100.0]; // outlier included
+    fn robust_flux_produces_valid_statistics_with_outlier() {
+        // ---------- Arrange ----------
+        let (x, y) = time_series_with_outlier();
 
-        let start = x[0];
-        let end = x[x.len() - 1];
-        let temperature = 20.0; // °C
-        let pressure = 1013.25; // hPa
-        let chamber = Chamber::default();
-        let channel =
-            GasChannel::new(gas, concentrationunit::ConcentrationUnit::Ppb, "asd".to_owned());
+        let range = TimeRange {
+            start: *x.first().expect("non-empty x"),
+            end: *x.last().expect("non-empty x"),
+        };
 
+        let meteo = test_meteo();
+        let chamber = test_chamber();
+        let channel = test_channel();
+        let data = gas_channel_data(channel, x, y);
+
+        // ---------- Act ----------
         let flux =
-            RobustFlux::from_data(channel, &x, &y, start, end, temperature, pressure, chamber)
-                .expect("RobustFlux creation failed");
+            RobustFlux::from_data(data, range, meteo, chamber).expect("RobustFlux creation failed");
 
-        // Check computed values
-        dbg!(flux.r2, flux.adjusted_r2, flux.rmse, flux.sigma, flux.aic);
-        assert!(flux.r2 >= 0.0 && flux.r2 <= 1.0);
-        assert!(flux.adjusted_r2 <= flux.r2);
-        assert!(flux.rmse >= 0.0);
-        assert!(flux.sigma >= 0.0);
-        assert!(flux.aic.is_finite());
+        // ---------- Assert ----------
+        assert_flux_stats_valid(&flux);
+    }
+
+    #[test]
+    fn robust_flux_errors_on_length_mismatch() {
+        let x = vec![0.0, 1.0, 2.0];
+        let y = vec![1.0, 2.0]; // shorter
+
+        let range = TimeRange { start: 0.0, end: 2.0 };
+        let meteo = test_meteo();
+        let chamber = test_chamber();
+        let channel = test_channel();
+        let data = gas_channel_data(channel, x, y);
+
+        let result = RobustFlux::from_data(data, range, meteo, chamber);
+
+        match result {
+            Err(FluxFitError::LengthMismatch { .. }) => {},
+            Err(e) => panic!("Expected LengthMismatch error, got {}", e),
+            Ok(_) => panic!("Expected LengthMismatch error, got Ok(_)"),
+        }
+    }
+
+    #[test]
+    fn robust_flux_errors_on_not_enough_points() {
+        let x = vec![0.0, 1.0]; // only 2 points
+        let y = vec![1.0, 2.0];
+
+        let range = TimeRange { start: 0.0, end: 1.0 };
+        let meteo = test_meteo();
+        let chamber = test_chamber();
+        let channel = test_channel();
+        let data = gas_channel_data(channel, x, y);
+
+        let result = RobustFlux::from_data(data, range, meteo, chamber);
+
+        match result {
+            Err(FluxFitError::NotEnoughPoints { .. }) => {},
+            Err(e) => panic!("Expected NotEnoughPoints error, got {}", e),
+            Ok(_) => panic!("Expected NotEnoughPoints error, got Ok(_)"),
+        }
     }
 }

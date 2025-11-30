@@ -1,6 +1,76 @@
 use crate::data_formats::chamberdata::Chamber;
+use crate::data_formats::meteodata::MeteoPoint;
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
+
+pub struct MeteoConditions {
+    pub temperature: MeteoPoint,
+    pub pressure: MeteoPoint,
+}
+
+impl MeteoConditions {
+    pub fn new(temperature: MeteoPoint, pressure: MeteoPoint) -> Self {
+        Self { temperature, pressure }
+    }
+}
+
+pub struct TimeRange {
+    pub start: f64,
+    pub end: f64,
+}
+
+impl TimeRange {
+    pub fn new(start: f64, end: f64) -> Self {
+        Self { start, end }
+    }
+}
+
+pub struct XYSeries {
+    y: Vec<f64>,
+    x: Vec<f64>,
+}
+
+impl XYSeries {
+    fn equal_len(&self) -> bool {
+        if self.x.len() != self.y.len() {
+            false
+        } else {
+            true
+        }
+    }
+    fn xlen(&self) -> usize {
+        self.x.len()
+    }
+    fn ylen(&self) -> usize {
+        self.x.len()
+    }
+}
+
+pub struct GasChannelData {
+    pub channel: GasChannel,
+    pub data: XYSeries,
+}
+
+impl GasChannelData {
+    pub fn new(channel: GasChannel, x: Vec<f64>, y: Vec<f64>) -> Self {
+        Self { channel, data: XYSeries { x, y } }
+    }
+    pub fn equal_len(&self) -> bool {
+        self.data.equal_len()
+    }
+    pub fn xlen(&self) -> usize {
+        self.data.x.len()
+    }
+    pub fn ylen(&self) -> usize {
+        self.data.ylen()
+    }
+    pub fn x(&self) -> &[f64] {
+        &self.data.x
+    }
+    pub fn y(&self) -> &[f64] {
+        &self.data.y
+    }
+}
 
 #[derive(Clone)]
 pub struct FluxRecord {
@@ -47,11 +117,17 @@ fn flux_umol_m2_s_core(
 pub fn flux_umol_m2_s(
     channel: &GasChannel,
     slope_x_per_s: f64,
-    air_temperature_c: f64,
-    air_pressure_hpa: f64,
+    air_temperature_c: MeteoPoint,
+    air_pressure_hpa: MeteoPoint,
     chamber: &Chamber,
 ) -> f64 {
-    flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber)
+    flux_umol_m2_s_core(
+        &channel,
+        slope_x_per_s,
+        air_temperature_c.value.unwrap(),
+        air_pressure_hpa.value.unwrap(),
+        chamber,
+    )
 }
 
 /// Flux in mg m⁻² s⁻¹
