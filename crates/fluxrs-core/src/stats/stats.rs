@@ -108,6 +108,47 @@ pub fn median(data: &[f64]) -> f64 {
         sorted[mid]
     }
 }
+
+pub fn rmse(y: &[f64], y_hat: &[f64]) -> Option<f64> {
+    if y.len() != y_hat.len() || y.is_empty() {
+        return None;
+    }
+
+    let sum_sq: f64 = y.iter().zip(y_hat.iter()).map(|(&yi, &yhi)| (yi - yhi).powi(2)).sum();
+
+    Some((sum_sq / y.len() as f64).sqrt())
+}
+
+pub fn aic_from_rss(rss: f64, n: usize, k: usize) -> f64 {
+    if rss <= 0.0 || n == 0 {
+        return f64::INFINITY; // Avoid log(0) or divide-by-zero
+    }
+    n as f64 * (rss / n as f64).ln() + 2.0 * k as f64
+}
+
+pub fn r2_from_predictions(y: &[f64], y_hat: &[f64]) -> Option<f64> {
+    if y.len() != y_hat.len() || y.len() < 2 {
+        return None;
+    }
+
+    let y_mean = y.iter().sum::<f64>() / y.len() as f64;
+
+    let ss_res: f64 = y.iter().zip(y_hat).map(|(&yi, &yhi)| (yi - yhi).powi(2)).sum();
+    let ss_tot: f64 = y.iter().map(|&yi| (yi - y_mean).powi(2)).sum();
+
+    if ss_tot == 0.0 {
+        return None;
+    }
+
+    Some(1.0 - ss_res / ss_tot)
+}
+pub fn adjusted_r2(r2: f64, n: usize, k: usize) -> f64 {
+    if n <= k + 1 {
+        return r2; // Not enough data to adjust
+    }
+    1.0 - (1.0 - r2) * (n as f64 - 1.0) / (n as f64 - k as f64 - 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::pearson_correlation;

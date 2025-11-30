@@ -1,11 +1,11 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::flux::flux::{adjusted_r2, aic_from_rss, flux_umol_m2_s, r2_from_predictions, rmse};
+use crate::flux::flux::flux_umol_m2_s;
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
 use crate::gastype::GasType;
-use crate::stats::{ExpReg, LinReg};
+use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, ExpReg, LinReg};
 
 use statrs::distribution::{ContinuousCDF, StudentsT};
 

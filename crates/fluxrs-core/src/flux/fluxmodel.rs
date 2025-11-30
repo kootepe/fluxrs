@@ -1,10 +1,11 @@
-use crate::flux::fluxkind::FluxKind;
 use crate::gaschannel::GasChannel;
 
 use dyn_clone::DynClone;
 
 use std::any::Any;
 use std::fmt;
+
+use crate::flux::fluxkind::FluxKind;
 
 pub trait FluxModel: Sync + Send + DynClone {
     fn fit_id(&self) -> FluxKind;

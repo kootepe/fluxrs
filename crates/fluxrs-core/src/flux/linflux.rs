@@ -1,17 +1,15 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::flux::flux::{adjusted_r2, aic_from_rss, flux_umol_m2_s, r2_from_predictions, rmse};
+use crate::flux::flux::flux_umol_m2_s;
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
-use crate::gastype::GasType;
-use crate::stats::LinReg;
+use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, LinReg};
 
 use statrs::distribution::{ContinuousCDF, StudentsT};
 
 use std::any::Any;
 use std::fmt;
-use std::str::FromStr;
 
 impl fmt::Display for LinearFlux {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
