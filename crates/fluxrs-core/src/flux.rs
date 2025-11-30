@@ -374,9 +374,12 @@ impl LinearFlux {
         air_temperature: f64,
         air_pressure: f64,
         chamber: Chamber,
-    ) -> Option<Self> {
-        if x.len() != y.len() || x.len() < 3 {
-            return None;
+    ) -> FluxResult<Self> {
+        if x.len() != y.len() {
+            return return Err(FluxFitError::LengthMismatch { len_x: x.len(), len_y: y.len() });
+        }
+        if x.len() < 3 {
+            return Err(FluxFitError::NotEnoughPoints { len: x.len(), needed: 3 });
         }
 
         let x0 = x[0]; // normalize x
@@ -400,25 +403,26 @@ impl LinearFlux {
 
         // no variance in x, no meaningful regression
         if !ss_xx.is_finite() || ss_xx <= f64::EPSILON {
-            return None;
+            return Err(FluxFitError::DegenerateX);
         }
         let sigma = (rss / (n - 2.0)).sqrt();
         if !sigma.is_finite() {
-            return None;
+            return Err(FluxFitError::NonFiniteSigma);
         }
 
         let se_slope = sigma / ss_xx.sqrt();
         if !se_slope.is_finite() || se_slope <= 0.0 {
             // e.g. perfect fit (sigma = 0) or degenerate
             // you can decide how to handle this; example: p_value = 0 or 1
-            return None;
+            return Err(FluxFitError::NonFiniteSE);
         }
 
         let t_stat = model.slope / se_slope;
         if !t_stat.is_finite() {
-            return None;
+            return Err(FluxFitError::NonFiniteTStat);
         }
-        let dist = StudentsT::new(0.0, 1.0, n - 2.0).ok()?;
+        let dist = StudentsT::new(0.0, 1.0, n - 2.0)
+            .map_err(|_| FluxFitError::StatError("failed to construct StudentsT"))?;
         let p_value = 2.0 * (1.0 - dist.cdf(t_stat.abs()));
 
         let aic = aic_from_rss(rss, n as usize, 2);
@@ -428,7 +432,7 @@ impl LinearFlux {
 
         let flux = flux_umol_m2_s(&channel, model.slope, air_temperature, air_pressure, &chamber);
 
-        Some(Self {
+        Ok(Self {
             fit_id: fit_id.to_string(),
             gas_channel: channel,
             flux,
@@ -458,8 +462,8 @@ impl LinearFlux {
         aic: f64,
         rmse: f64,
         cv: f64,
-    ) -> Option<Self> {
-        Some(Self {
+    ) -> Self {
+        Self {
             fit_id: fit_id.to_string(),
             gas_channel,
             flux,
@@ -473,7 +477,7 @@ impl LinearFlux {
             aic,
             rmse,
             cv,
-        })
+        }
     }
     pub fn flux_from_vec(
         &mut self,
