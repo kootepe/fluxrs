@@ -6,6 +6,7 @@ use crate::db::fluxes_schema::{
     make_update_fluxes,
 };
 use crate::errorcode::{ErrorCode, ErrorMask};
+use crate::flux::flux::{GasChannelData, MeteoConditions, TimeRange};
 use crate::flux::{
     ExponentialFlux, FluxFitError, FluxKind, FluxModel, FluxRecord, FluxResult, LinearFlux,
     PolyFlux, RobustFlux,
@@ -1293,16 +1294,10 @@ impl Cycle {
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        let data = LinearFlux::from_data(
-            channel,
-            &x,
-            &y,
-            *s,
-            *e,
-            self.air_temperature.value.unwrap(),
-            self.air_pressure.value.unwrap(),
-            self.chamber,
-        )?;
+        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let range = TimeRange::new(*s, *e);
+        let data = LinearFlux::from_data(xydata, range, meteo, self.chamber)?;
 
         self.fluxes.insert(
             (*key, FluxKind::Linear),
@@ -1324,18 +1319,12 @@ impl Cycle {
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        // Fit and insert if successful
-        let data = PolyFlux::from_data(
-            channel,
-            &x,
-            &y,
-            *s,
-            *e,
-            self.air_temperature.value.unwrap(),
-            self.air_pressure.value.unwrap(),
-            self.chamber,
-        )?;
 
+        let channel = self.gas_channels.get(key).unwrap().clone();
+        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let range = TimeRange::new(*s, *e);
+        let data = PolyFlux::from_data(xydata, range, meteo, self.chamber)?;
         self.fluxes
             .insert((*key, FluxKind::Poly), FluxRecord { model: Box::new(data), is_valid: true });
         Ok(())
@@ -1350,16 +1339,10 @@ impl Cycle {
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        let data = RobustFlux::from_data(
-            channel,
-            &x,
-            &y,
-            *s,
-            *e,
-            self.air_temperature.value.unwrap(),
-            self.air_pressure.value.unwrap(),
-            self.chamber,
-        )?;
+        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let range = TimeRange::new(*s, *e);
+        let data = RobustFlux::from_data(xydata, range, meteo, self.chamber)?;
 
         self.fluxes
             .insert((*key, FluxKind::RobLin), FluxRecord { model: Box::new(data), is_valid: true });
@@ -1382,16 +1365,10 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
 
-        let data = ExponentialFlux::from_data(
-            channel,
-            &x,
-            &y,
-            *s,
-            *e,
-            self.air_temperature.value.unwrap(),
-            self.air_pressure.value.unwrap(),
-            self.chamber,
-        )?;
+        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let range = TimeRange::new(*s, *e);
+        let data = ExponentialFlux::from_data(xydata, range, meteo, self.chamber)?;
 
         self.fluxes.insert(
             (*key, FluxKind::Exponential),
