@@ -393,6 +393,18 @@ impl ValidationApp {
                 plot_ui.polygon(main_polygon);
                 plot_ui.polygon(left_polygon);
                 plot_ui.polygon(right_polygon);
+                if self.show_fits.show_linfit {
+                    self.plot_model_fit(plot_ui, key, FluxKind::Linear);
+                }
+                if self.show_fits.show_roblinfit {
+                    self.plot_model_fit(plot_ui, key, FluxKind::RobLin);
+                }
+                if self.show_fits.show_polyfit {
+                    self.plot_model_fit(plot_ui, key, FluxKind::Poly);
+                }
+                if self.show_fits.show_expfit {
+                    self.plot_model_fit(plot_ui, key, FluxKind::Exponential);
+                }
             }
             if let Some(data) = cycle.gas_v.get(key) {
                 let dt_v = &cycle.get_dt_v(&key.id);
@@ -431,19 +443,6 @@ impl ValidationApp {
                             .color(egui::Color32::RED)
                             .radius(3.0),
                     );
-                }
-
-                if self.show_fits.show_linfit {
-                    self.plot_model_fit(plot_ui, key, FluxKind::Linear);
-                }
-                if self.show_fits.show_roblinfit {
-                    self.plot_model_fit(plot_ui, key, FluxKind::RobLin);
-                }
-                if self.show_fits.show_polyfit {
-                    self.plot_model_fit(plot_ui, key, FluxKind::Poly);
-                }
-                if self.show_fits.show_expfit {
-                    self.plot_model_fit(plot_ui, key, FluxKind::Exponential);
                 }
 
                 plot_ui.vline(adj_open_line);
