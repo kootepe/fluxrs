@@ -20,7 +20,37 @@ use std::sync::{Arc, Mutex};
 use rusqlite;
 use std::fmt;
 
+#[derive(Debug)]
+pub enum QueryError {
+    Db(rusqlite::Error),
+    MissingInstrumentId,
+    SelectedInstrumentNotFound { instrument: Instrument },
+    JoinError(String),
+    // add other variants as needed
+}
 
+impl From<rusqlite::Error> for QueryError {
+    fn from(err: rusqlite::Error) -> Self {
+        QueryError::Db(err)
+    }
+}
+
+impl fmt::Display for QueryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueryError::Db(e) => write!(f, "Database error: {e}"),
+            QueryError::MissingInstrumentId => write!(f, "Instrument ID was NULL in database row"),
+            QueryError::SelectedInstrumentNotFound { instrument } => {
+                write!(f, "No data found for selected instrument {instrument}")
+            },
+            QueryError::JoinError(s) => write!(f, "Join error: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for QueryError {}
+
+pub type Result<T> = std::result::Result<T, QueryError>;
 #[derive(Clone, Debug)]
 pub struct GasData {
     pub header: StringRecord,
