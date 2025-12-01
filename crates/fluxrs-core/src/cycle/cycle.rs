@@ -1,5 +1,6 @@
 use crate::cycle::cycletiming::CycleTiming;
 use crate::cycle::gaskey::GasKey;
+use crate::data_formats::gasdata::QueryError;
 use crate::data_formats::gasdata::{query_gas2, query_gas_all};
 use crate::db::fluxes_schema::{
     make_insert_flux_history, make_insert_flux_results, make_insert_or_ignore_fluxes,
@@ -3188,7 +3189,6 @@ impl StdError for AppError {
     }
 }
 
-// --- Specific conversions you care about ---
 impl From<rusqlite::Error> for AppError {
     fn from(e: rusqlite::Error) -> Self {
         match e {
@@ -3199,6 +3199,13 @@ impl From<rusqlite::Error> for AppError {
         }
     }
 }
+
+impl From<QueryError> for AppError {
+    fn from(e: QueryError) -> Self {
+        AppError::Msg(e.to_string())
+    }
+}
+
 impl From<std::io::Error> for AppError {
     fn from(e: std::io::Error) -> Self {
         AppError::Other(Box::new(e))

@@ -178,9 +178,9 @@ pub async fn query_gas_async(
     .await;
     match result {
         Ok(inner) => inner,
-        Err(e) => {
+        Err(join_err) => {
             // Convert JoinError into rusqlite::Error::ExecuteReturnedResults or custom error
-            Err(rusqlite::Error::ExecuteReturnedResults) // or log `e` if needed
+            Err(QueryError::JoinError(join_err.to_string()))
         },
     }
 }
@@ -192,6 +192,8 @@ pub fn query_gas2(
     project: Project,
 ) -> Result<HashMap<String, Arc<GasData>>> {
     println!("Querying gas data");
+    let selected = project.instrument.clone();
+    let mut saw_selected_instrument = false;
     let mut grouped_data: HashMap<String, GasData> = HashMap::new();
 
     // Static columns must match dynamic index logic below
@@ -247,6 +249,11 @@ pub fn query_gas2(
                 process::exit(1);
             },
         };
+        if let Some(main_instrument) = project.instrument.id {
+            if instrument_id.unwrap() == main_instrument {
+                saw_selected_instrument = true;
+            }
+        }
         let available_gases = instrument_type.available_gases();
 
         let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
@@ -283,7 +290,9 @@ pub fn query_gas2(
             }
         }
     }
-
+    if !saw_selected_instrument {
+        return Err(QueryError::SelectedInstrumentNotFound { instrument: project.instrument });
+    }
     // Convert to Arc-wrapped values without cloning GasData
     let grouped_arc: HashMap<String, Arc<GasData>> =
         grouped_data.into_iter().map(|(k, v)| (k, Arc::new(v))).collect();
