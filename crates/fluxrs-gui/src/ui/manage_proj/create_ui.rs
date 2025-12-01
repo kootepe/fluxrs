@@ -156,6 +156,14 @@ impl ProjectApp {
 
                 ui.horizontal(|ui| {
                     if ui.add_enabled(enable_add_proj, egui::Button::new("Add Project")).clicked() {
+                        if !self.selected_instrument.validate_serial(&self.selected_serial) {
+                            let msg = format!(
+                                "Serial {} is not a valid serial for {}.",
+                                self.selected_serial, self.selected_instrument
+                            );
+                            self.message = Some(MsgType::Bad(msg.to_string()));
+                            return;
+                        }
                         if let Some(project) = self.build_project_from_form() {
                             match self.save_project_to_db(&project) {
                                 Ok(_) => {

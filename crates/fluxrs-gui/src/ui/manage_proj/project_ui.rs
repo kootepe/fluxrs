@@ -185,6 +185,7 @@ impl ProjectApp {
     pub fn update_project(&self) -> Option<AppEvent> {
         Some(AppEvent::SelectProject(self.project.clone()))
     }
+
     pub fn build_project_from_form(&self) -> Option<Project> {
         let instrument = Instrument {
             model: self.selected_instrument,

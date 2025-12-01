@@ -118,6 +118,13 @@ impl Config {
 
         // Project::save expects Option<String> for db path in your API
         let db = Some(self.db_path.display().to_string());
+        if !p.instrument.validate_serial(&p.instrument_serial) {
+            let msg = format!(
+                "Serial {} is not a valid serial for {}.",
+                p.instrument_serial, p.instrument
+            );
+            return Err(CmdError::Msg(msg));
+        }
         match Project::save(db, &project) {
             Ok(_) => {
                 println!("Project '{}' created successfully.", project.name);
