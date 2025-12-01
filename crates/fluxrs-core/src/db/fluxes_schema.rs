@@ -204,6 +204,9 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
 pub fn make_select_all_fluxes() -> String {
     format!(
         "SELECT {},
+        c.close_offset              AS close_offset,
+        c.open_offset               AS open_offset,
+        c.end_offset                AS end_offset,
         main_i.instrument_model     AS main_instrument_model,
         main_i.instrument_serial    AS main_instrument_serial,
         i.instrument_model          AS instrument_model,
@@ -213,6 +216,7 @@ pub fn make_select_all_fluxes() -> String {
 
         LEFT JOIN instruments main_i ON f.main_instrument_link = main_i.id
         LEFT JOIN instruments i ON f.instrument_link = i.id
+        LEFT JOIN cycles c              ON f.cycle_link           = c.id
 
         WHERE f.project_link = ?1
         ORDER BY start_time",
