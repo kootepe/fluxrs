@@ -32,7 +32,7 @@ pub struct XYSeries {
 
 impl XYSeries {
     fn equal_len(&self) -> bool {
-        self.x.len() != self.y.len()
+        self.x.len() == self.y.len()
     }
     fn xlen(&self) -> usize {
         self.x.len()
