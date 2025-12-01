@@ -1,23 +1,25 @@
 use crate::constants::ERROR_INT;
 use crate::cycle::gaskey::GasKey;
 use crate::instruments::instruments::get_or_insert_instrument;
-use crate::instruments::instruments::{Instrument, InstrumentMeasurement};
+use crate::instruments::instruments::{Instrument, InstrumentMeasurement, InstrumentType};
 use crate::project::Project;
 use crate::traits::EqualLen;
 use crate::types::FastMap;
+
 use chrono::prelude::DateTime;
 use chrono::Utc;
-use chrono_tz::Tz;
-use rusqlite::{params, params_from_iter, Connection, Result};
+use csv::StringRecord;
+use rusqlite::{params, params_from_iter, Connection};
+use tokio::task;
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::process;
 use std::sync::{Arc, Mutex};
-use tokio::task;
 
-use csv::StringRecord;
+use rusqlite;
+use std::fmt;
 
-use crate::instruments::instruments::InstrumentType;
 
 #[derive(Clone, Debug)]
 pub struct GasData {
