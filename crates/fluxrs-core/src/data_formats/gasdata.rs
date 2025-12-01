@@ -166,7 +166,13 @@ pub fn query_gas2(
 
     // Static columns must match dynamic index logic below
     let mut stmt = conn.prepare(
-        "SELECT m.datetime, m.co2, m.ch4, m.h2o, m.n2o, m.diag, i.instrument_serial, i.instrument_model, i.id AS instrument_id
+        "SELECT m.datetime,
+                    m.co2, m.ch4,
+                    m.h2o, m.n2o,
+                    m.diag,
+                    i.instrument_serial,
+                    i.instrument_model,
+                    i.id AS instrument_id
          FROM measurements m
          LEFT JOIN instruments i ON m.instrument_link = i.id
          WHERE m.datetime BETWEEN ?1 AND ?2
