@@ -128,6 +128,26 @@ impl InstrumentType {
             InstrumentType::LI7820 => InstrumentConfig::li7820(),
         }
     }
+
+    pub fn validate_serial(&self, serial: &str) -> bool {
+        let s = serial.trim().to_ascii_uppercase();
+
+        fn check(s: &str, prefix: &str) -> bool {
+            if !s.starts_with(prefix) {
+                return false;
+            }
+
+            let rest = &s[prefix.len()..];
+
+            // Must be exactly 5 digits
+            rest.len() == 5 && rest.chars().all(|c| c.is_ascii_digit())
+        }
+
+        match self {
+            InstrumentType::LI7810 => check(&s, "TG10-"),
+            InstrumentType::LI7820 => check(&s, "TG20-"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
