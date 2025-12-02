@@ -76,8 +76,8 @@ impl Recalcer {
             press_point = press_point.or_default(DEFAULT_PRESSURE);
 
             // Assign final values to cycle
-            c.air_temperature = temp_point;
-            c.air_pressure = press_point;
+            c.meteo.temperature = temp_point;
+            c.meteo.pressure = press_point;
 
             if let Some(chamber) = self.data.chambers.get(&c.chamber_id) {
                 c.chamber = *chamber
