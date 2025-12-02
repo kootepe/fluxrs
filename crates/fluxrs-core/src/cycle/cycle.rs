@@ -1294,10 +1294,10 @@ impl Cycle {
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let xydata = &GasChannelData::new(channel, &x, &y);
         let meteo = &self.meteo;
-        let range = TimeRange::new(*s, *e);
-        let data = LinearFlux::from_data(xydata, range, meteo, self.chamber)?;
+        let range = &TimeRange::new(*s, *e);
+        let data = LinearFlux::from_data(xydata, range, meteo, &self.chamber)?;
 
         self.fluxes.insert(
             (*key, FluxKind::Linear),
@@ -1321,7 +1321,7 @@ impl Cycle {
         let channel = self.gas_channels.get(key).unwrap().clone();
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let xydata = GasChannelData::new(channel, &x, &y);
         let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
         let data = PolyFlux::from_data(xydata, range, meteo, self.chamber)?;
@@ -1339,10 +1339,10 @@ impl Cycle {
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let xydata = GasChannelData::new(channel, &x, &y);
         let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
-        let data = RobustFlux::from_data(xydata, range, meteo, self.chamber)?;
+        let data = RobustFlux::from_data(&xydata, &range, meteo, &self.chamber)?;
 
         self.fluxes
             .insert((*key, FluxKind::RobLin), FluxRecord { model: Box::new(data), is_valid: true });
@@ -1365,10 +1365,10 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
 
-        let xydata = GasChannelData::new(channel, x.clone(), y);
+        let xydata = GasChannelData::new(channel, &x, &y);
         let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
-        let data = ExponentialFlux::from_data(xydata, range, meteo, self.chamber)?;
+        let data = ExponentialFlux::from_data(&xydata, &range, meteo, &self.chamber)?;
 
         self.fluxes.insert(
             (*key, FluxKind::Exponential),
