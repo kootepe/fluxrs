@@ -11,7 +11,6 @@ use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
 use rusqlite::Connection;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tokio::sync::mpsc;
 
 impl ValidationApp {
     pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {

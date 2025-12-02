@@ -159,10 +159,10 @@ impl PolyFlux {
         let slope = model.a1 + 2.0 * model.a2 * x_start;
 
         let flux =
-            flux_umol_m2_s(&data.channel, slope, &meteo.temperature, &meteo.pressure, &chamber);
+            flux_umol_m2_s(&data.channel, slope, &meteo.temperature, &meteo.pressure, chamber);
 
         Ok(Self {
-            gas_channel: data.channel,
+            gas_channel: data.channel.clone(),
             flux,
             r2,
             adjusted_r2,

@@ -3039,7 +3039,7 @@ impl ProcessEventSink for ValidationApp {
                 self.recalc.calc_in_progress = false;
             },
             QueryEvent::QueryComplete => {
-                // self.query_in_progress = false;
+                self.query_in_progress = false;
                 self.log_messages.push_front(good_message("Finished queries."));
                 self.recalc.query_in_progress = false;
             },
