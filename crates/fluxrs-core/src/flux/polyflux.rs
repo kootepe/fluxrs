@@ -114,10 +114,10 @@ impl FluxModel for PolyFlux {
 
 impl PolyFlux {
     pub fn from_data(
-        data: GasChannelData,
-        range: TimeRange,
+        data: &GasChannelData,
+        range: &TimeRange,
         meteo: &MeteoConditions,
-        chamber: Chamber,
+        chamber: &Chamber,
     ) -> FluxResult<Self> {
         if !data.equal_len() {
             return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });

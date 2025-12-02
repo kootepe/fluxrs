@@ -1322,9 +1322,9 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let xydata = GasChannelData::new(channel, &x, &y);
-        let meteo = &self.meteo;
+        let meteo = self.meteo;
         let range = TimeRange::new(*s, *e);
-        let data = PolyFlux::from_data(xydata, range, meteo, self.chamber)?;
+        let data = PolyFlux::from_data(&xydata, &range, &meteo, &self.chamber)?;
         self.fluxes
             .insert((*key, FluxKind::Poly), FluxRecord { model: Box::new(data), is_valid: true });
         Ok(())
@@ -1340,9 +1340,9 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let xydata = GasChannelData::new(channel, &x, &y);
-        let meteo = &self.meteo;
+        let meteo = self.meteo;
         let range = TimeRange::new(*s, *e);
-        let data = RobustFlux::from_data(&xydata, &range, meteo, &self.chamber)?;
+        let data = RobustFlux::from_data(&xydata, &range, &meteo, &self.chamber)?;
 
         self.fluxes
             .insert((*key, FluxKind::RobLin), FluxRecord { model: Box::new(data), is_valid: true });
@@ -1366,9 +1366,9 @@ impl Cycle {
         let channel = self.gas_channels.get(key).unwrap().clone();
 
         let xydata = GasChannelData::new(channel, &x, &y);
-        let meteo = &self.meteo;
+        let meteo = self.meteo;
         let range = TimeRange::new(*s, *e);
-        let data = ExponentialFlux::from_data(&xydata, &range, meteo, &self.chamber)?;
+        let data = ExponentialFlux::from_data(&xydata, &range, &meteo, &self.chamber)?;
 
         self.fluxes.insert(
             (*key, FluxKind::Exponential),
