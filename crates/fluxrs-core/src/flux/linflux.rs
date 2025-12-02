@@ -1,5 +1,4 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::data_formats::meteodata::MeteoPoint;
 use crate::flux::flux::{flux_umol_m2_s, GasChannelData, MeteoConditions, TimeRange};
 use crate::flux::fluxfiterror::{FluxFitError, FluxResult};
 use crate::flux::fluxkind::FluxKind;
@@ -108,10 +107,10 @@ impl FluxModel for LinearFlux {
 
 impl LinearFlux {
     pub fn from_data(
-        data: GasChannelData,
-        range: TimeRange,
-        meteo: MeteoConditions,
-        chamber: Chamber,
+        data: &GasChannelData,
+        range: &TimeRange,
+        meteo: &MeteoConditions,
+        chamber: &Chamber,
     ) -> FluxResult<Self> {
         if !data.equal_len() {
             return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
@@ -172,11 +171,16 @@ impl LinearFlux {
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
         let adjusted_r2 = adjusted_r2(r2, n as usize, 1);
 
-        let flux =
-            flux_umol_m2_s(&data.channel, model.slope, meteo.temperature, meteo.pressure, &chamber);
+        let flux = flux_umol_m2_s(
+            &data.channel,
+            model.slope,
+            &meteo.temperature,
+            &meteo.pressure,
+            chamber,
+        );
 
         Ok(Self {
-            gas_channel: data.channel,
+            gas_channel: data.channel.clone(),
             flux,
             adjusted_r2,
             r2,

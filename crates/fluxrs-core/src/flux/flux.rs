@@ -150,8 +150,8 @@ fn flux_umol_m2_s_core(
 pub fn flux_umol_m2_s(
     channel: &GasChannel,
     slope_x_per_s: f64,
-    air_temperature_c: MeteoPoint,
-    air_pressure_hpa: MeteoPoint,
+    air_temperature_c: &MeteoPoint,
+    air_pressure_hpa: &MeteoPoint,
     chamber: &Chamber,
 ) -> f64 {
     flux_umol_m2_s_core(
@@ -172,7 +172,7 @@ pub fn flux_mg_m2_s(
     chamber: &Chamber,
 ) -> f64 {
     let flux_umol =
-        flux_umol_m2_s_core(&channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
+        flux_umol_m2_s_core(channel, slope_x_per_s, air_temperature_c, air_pressure_hpa, chamber);
 
     // convert µmol m⁻² s⁻¹ → mg m⁻² s⁻¹
     //

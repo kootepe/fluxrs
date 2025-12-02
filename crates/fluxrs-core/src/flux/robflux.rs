@@ -6,8 +6,6 @@ use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
 use crate::stats::{adjusted_r2, aic_from_rss, r2_from_predictions, rmse, RobReg};
 
-use statrs::distribution::{ContinuousCDF, StudentsT};
-
 use std::any::Any;
 use std::fmt;
 
@@ -116,10 +114,10 @@ impl FluxModel for RobustFlux {
 
 impl RobustFlux {
     pub fn from_data(
-        data: GasChannelData,
-        range: TimeRange,
-        meteo: MeteoConditions,
-        chamber: Chamber,
+        data: &GasChannelData,
+        range: &TimeRange,
+        meteo: &MeteoConditions,
+        chamber: &Chamber,
     ) -> FluxResult<Self> {
         if !data.equal_len() {
             return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
@@ -155,13 +153,13 @@ impl RobustFlux {
         let flux = flux_umol_m2_s(
             &data.channel,
             slope_at_mid,
-            meteo.temperature,
-            meteo.pressure,
+            &meteo.temperature,
+            &meteo.pressure,
             &chamber,
         );
 
         Ok(Self {
-            gas_channel: data.channel,
+            gas_channel: data.channel.clone(),
             flux,
             r2,
             adjusted_r2,
@@ -217,7 +215,7 @@ mod tests {
 
     /// Convenience constructor for GasChannelData.
     /// Adjust this to match your actual struct layout / constructor.
-    fn gas_channel_data(channel: GasChannel, x: Vec<f64>, y: Vec<f64>) -> GasChannelData {
+    fn gas_channel_data<'a>(channel: GasChannel, x: &'a [f64], y: &'a [f64]) -> GasChannelData<'a> {
         // If you have `GasChannelData::new`, use that instead:
         // GasChannelData::new(channel, x, y)
 
@@ -252,11 +250,11 @@ mod tests {
         let meteo = test_meteo();
         let chamber = test_chamber();
         let channel = test_channel();
-        let data = gas_channel_data(channel, x, y);
+        let data = gas_channel_data(channel, &x, &y);
 
         // ---------- Act ----------
-        let flux =
-            RobustFlux::from_data(data, range, meteo, chamber).expect("RobustFlux creation failed");
+        let flux = RobustFlux::from_data(&data, &range, &meteo, &chamber)
+            .expect("RobustFlux creation failed");
 
         // ---------- Assert ----------
         assert_flux_stats_valid(&flux);
@@ -271,9 +269,9 @@ mod tests {
         let meteo = test_meteo();
         let chamber = test_chamber();
         let channel = test_channel();
-        let data = gas_channel_data(channel, x, y);
+        let data = gas_channel_data(channel, &x, &y);
 
-        let result = RobustFlux::from_data(data, range, meteo, chamber);
+        let result = RobustFlux::from_data(&data, &range, &meteo, &chamber);
 
         match result {
             Err(FluxFitError::LengthMismatch { .. }) => {},
@@ -291,9 +289,9 @@ mod tests {
         let meteo = test_meteo();
         let chamber = test_chamber();
         let channel = test_channel();
-        let data = gas_channel_data(channel, x, y);
+        let data = gas_channel_data(channel, &x, &y);
 
-        let result = RobustFlux::from_data(data, range, meteo, chamber);
+        let result = RobustFlux::from_data(&data, &range, &meteo, &chamber);
 
         match result {
             Err(FluxFitError::NotEnoughPoints { .. }) => {},

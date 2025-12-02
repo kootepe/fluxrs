@@ -116,7 +116,7 @@ impl PolyFlux {
     pub fn from_data(
         data: GasChannelData,
         range: TimeRange,
-        meteo: MeteoConditions,
+        meteo: &MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<Self> {
         if !data.equal_len() {
@@ -138,7 +138,7 @@ impl PolyFlux {
         let y_hat: Vec<f64> = x_norm.iter().map(|&xi| model.calculate(xi)).collect();
         let r2 = r2_from_predictions(y, &y_hat).unwrap_or(0.0);
         let y_mean = y.iter().copied().sum::<f64>() / n;
-        let rmse = rmse(&y, &y_hat).unwrap_or(0.0);
+        let rmse = rmse(y, &y_hat).unwrap_or(0.0);
         let cv = rmse / y_mean;
 
         let n = y.len();
@@ -159,7 +159,7 @@ impl PolyFlux {
         let slope = model.a1 + 2.0 * model.a2 * x_start;
 
         let flux =
-            flux_umol_m2_s(&data.channel, slope, meteo.temperature, meteo.pressure, &chamber);
+            flux_umol_m2_s(&data.channel, slope, &meteo.temperature, &meteo.pressure, &chamber);
 
         Ok(Self {
             gas_channel: data.channel,

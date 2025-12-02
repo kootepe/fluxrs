@@ -109,10 +109,10 @@ impl FluxModel for ExponentialFlux {
 
 impl ExponentialFlux {
     pub fn from_data(
-        data: GasChannelData,
-        range: TimeRange,
-        meteo: MeteoConditions,
-        chamber: Chamber,
+        data: &GasChannelData,
+        range: &TimeRange,
+        meteo: &MeteoConditions,
+        chamber: &Chamber,
     ) -> FluxResult<Self> {
         if !data.equal_len() {
             return Err(FluxFitError::LengthMismatch { len_x: data.xlen(), len_y: data.ylen() });
@@ -198,10 +198,10 @@ impl ExponentialFlux {
         let f0 = model.a * model.b;
 
         // Reuse your existing flux helper
-        let flux = flux_umol_m2_s(&data.channel, f0, meteo.temperature, meteo.pressure, &chamber);
+        let flux = flux_umol_m2_s(&data.channel, f0, &meteo.temperature, &meteo.pressure, &chamber);
 
         Ok(Self {
-            gas_channel: data.channel,
+            gas_channel: data.channel.clone(),
             flux,
             adjusted_r2,
             r2,
@@ -251,7 +251,7 @@ impl ExponentialFlux {
     pub fn flux_from_vec(
         &mut self,
         data: GasChannelData,
-        meteo: MeteoConditions,
+        meteo: &MeteoConditions,
         chamber: Chamber,
     ) -> FluxResult<()> {
         let x = data.x();
@@ -272,7 +272,7 @@ impl ExponentialFlux {
         self.model = ExpReg::train(&x_norm, &y);
         let f0 = self.model.a * self.model.b;
         self.flux =
-            flux_umol_m2_s(&self.gas_channel, f0, meteo.temperature, meteo.pressure, &chamber);
+            flux_umol_m2_s(&self.gas_channel, f0, &meteo.temperature, &meteo.pressure, &chamber);
         Ok(())
     }
 }
