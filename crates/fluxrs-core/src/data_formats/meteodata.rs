@@ -59,7 +59,7 @@ impl MeteoSource {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MeteoPoint {
     pub value: Option<f64>,
     pub source: MeteoSource,
