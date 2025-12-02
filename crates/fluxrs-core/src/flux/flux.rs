@@ -1,8 +1,9 @@
 use crate::data_formats::chamberdata::Chamber;
-use crate::data_formats::meteodata::MeteoPoint;
+use crate::data_formats::meteodata::{MeteoPoint, MeteoSource};
 use crate::flux::fluxmodel::FluxModel;
 use crate::gaschannel::GasChannel;
 
+#[derive(Clone, Copy)]
 pub struct MeteoConditions {
     pub temperature: MeteoPoint,
     pub pressure: MeteoPoint,
@@ -11,6 +12,36 @@ pub struct MeteoConditions {
 impl MeteoConditions {
     pub fn new(temperature: MeteoPoint, pressure: MeteoPoint) -> Self {
         Self { temperature, pressure }
+    }
+    pub fn pressure(&self) -> MeteoPoint {
+        self.pressure
+    }
+    pub fn temperature(&self) -> MeteoPoint {
+        self.temperature
+    }
+    pub fn pressure_val(&self) -> Option<f64> {
+        self.pressure.value
+    }
+    pub fn temperature_val(&self) -> Option<f64> {
+        self.temperature.value
+    }
+    pub fn temperature_source(&self) -> MeteoSource {
+        self.temperature.source
+    }
+    pub fn pressure_source(&self) -> MeteoSource {
+        self.pressure.source
+    }
+    pub fn temperature_distance(&self) -> Option<i64> {
+        self.temperature.distance_from_target
+    }
+    pub fn pressure_distance(&self) -> Option<i64> {
+        self.pressure.distance_from_target
+    }
+}
+
+impl Default for MeteoConditions {
+    fn default() -> Self {
+        MeteoConditions { temperature: MeteoPoint::default(), pressure: MeteoPoint::default() }
     }
 }
 
