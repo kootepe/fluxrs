@@ -150,7 +150,9 @@ fn flux_umol_m2_s_core(
 pub fn flux_umol_m2_s(
     channel: &GasChannel,
     slope_x_per_s: f64,
+    // must have value at this point
     air_temperature_c: &MeteoPoint,
+    // must have value at this point
     air_pressure_hpa: &MeteoPoint,
     chamber: &Chamber,
 ) -> f64 {
