@@ -62,12 +62,12 @@ impl TimeRange {
     }
 }
 
-pub struct XYSeries {
-    y: Vec<f64>,
-    x: Vec<f64>,
+pub struct XYSeries<'a> {
+    y: &'a [f64],
+    x: &'a [f64],
 }
 
-impl XYSeries {
+impl<'a> XYSeries<'a> {
     fn equal_len(&self) -> bool {
         self.x.len() == self.y.len()
     }
@@ -79,13 +79,13 @@ impl XYSeries {
     }
 }
 
-pub struct GasChannelData {
+pub struct GasChannelData<'a> {
     pub channel: GasChannel,
-    pub data: XYSeries,
+    pub data: XYSeries<'a>,
 }
 
-impl GasChannelData {
-    pub fn new(channel: GasChannel, x: Vec<f64>, y: Vec<f64>) -> Self {
+impl<'a> GasChannelData<'a> {
+    pub fn new(channel: GasChannel, x: &'a [f64], y: &'a [f64]) -> Self {
         Self { channel, data: XYSeries { x, y } }
     }
     pub fn equal_len(&self) -> bool {
@@ -98,10 +98,10 @@ impl GasChannelData {
         self.data.ylen()
     }
     pub fn x(&self) -> &[f64] {
-        &self.data.x
+        self.data.x
     }
     pub fn y(&self) -> &[f64] {
-        &self.data.y
+        self.data.y
     }
 }
 
