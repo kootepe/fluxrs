@@ -1294,10 +1294,10 @@ impl Cycle {
         }
 
         let channel = self.gas_channels.get(key).unwrap().clone();
-        let xydata = &GasChannelData::new(channel, &x, &y);
-        let meteo = &self.meteo;
-        let range = &TimeRange::new(*s, *e);
-        let data = LinearFlux::from_data(xydata, range, meteo, &self.chamber)?;
+        let xydata = GasChannelData::new(channel, &x, &y);
+        let meteo = self.meteo;
+        let range = TimeRange::new(*s, *e);
+        let data = LinearFlux::from_data(&xydata, &range, &meteo, &self.chamber)?;
 
         self.fluxes.insert(
             (*key, FluxKind::Linear),
