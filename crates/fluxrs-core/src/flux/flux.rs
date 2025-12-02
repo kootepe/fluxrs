@@ -19,6 +19,12 @@ impl MeteoConditions {
     pub fn temperature(&self) -> MeteoPoint {
         self.temperature
     }
+    pub fn set_pressure(&mut self, val: f64) {
+        self.pressure.value = Some(val)
+    }
+    pub fn set_temperature(&mut self, val: f64) {
+        self.temperature.value = Some(val)
+    }
     pub fn pressure_val(&self) -> Option<f64> {
         self.pressure.value
     }
