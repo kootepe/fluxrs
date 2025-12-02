@@ -83,8 +83,7 @@ pub struct Cycle {
     pub instruments: FastMap<i64, Instrument>,
     pub chamber: Chamber,
     pub project_id: Option<i64>,
-    pub air_temperature: MeteoPoint,
-    pub air_pressure: MeteoPoint,
+    pub meteo: MeteoConditions,
     pub chamber_height: f64,
     pub snow_depth_m: f64,
     pub error_code: ErrorMask,
@@ -1296,7 +1295,7 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let xydata = GasChannelData::new(channel, x.clone(), y);
-        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
         let data = LinearFlux::from_data(xydata, range, meteo, self.chamber)?;
 
@@ -1323,7 +1322,7 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let xydata = GasChannelData::new(channel, x.clone(), y);
-        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
         let data = PolyFlux::from_data(xydata, range, meteo, self.chamber)?;
         self.fluxes
@@ -1341,7 +1340,7 @@ impl Cycle {
 
         let channel = self.gas_channels.get(key).unwrap().clone();
         let xydata = GasChannelData::new(channel, x.clone(), y);
-        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
         let data = RobustFlux::from_data(xydata, range, meteo, self.chamber)?;
 
@@ -1367,7 +1366,7 @@ impl Cycle {
         let channel = self.gas_channels.get(key).unwrap().clone();
 
         let xydata = GasChannelData::new(channel, x.clone(), y);
-        let meteo = MeteoConditions::new(self.air_temperature.clone(), self.air_pressure.clone());
+        let meteo = &self.meteo;
         let range = TimeRange::new(*s, *e);
         let data = ExponentialFlux::from_data(xydata, range, meteo, self.chamber)?;
 
@@ -1638,8 +1637,7 @@ impl CycleBuilder {
             measurement_gas_v: FastMap::default(),
             measurement_diag_v: FastMap::default(),
             gases: vec![],
-            air_pressure: MeteoPoint::default(),
-            air_temperature: MeteoPoint::default(),
+            meteo: MeteoConditions::default(),
             chamber_height: 1.,
             is_valid: true,
             gas_is_valid: FastMap::default(),
@@ -1830,12 +1828,12 @@ fn execute_history_insert(
             cycle.get_end_lag() as i64,
             cycle.get_start_lag() as i64,
             cycle.get_min_calc_len(),
-            cycle.air_pressure.value.unwrap(),
-            cycle.air_pressure.source.as_int(),
-            cycle.air_pressure.distance_from_target,
-            cycle.air_temperature.value.unwrap(),
-            cycle.air_temperature.source.as_int(),
-            cycle.air_temperature.distance_from_target,
+            cycle.meteo.pressure.value.unwrap(),
+            cycle.meteo.pressure.source.as_int(),
+            cycle.meteo.pressure.distance_from_target,
+            cycle.meteo.temperature.value.unwrap(),
+            cycle.meteo.temperature.source.as_int(),
+            cycle.meteo.temperature.distance_from_target,
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -1951,12 +1949,12 @@ fn execute_insert(
             cycle.get_end_lag() as i64,
             cycle.get_start_lag() as i64,
             cycle.get_min_calc_len(),
-            cycle.air_pressure.value.unwrap(),
-            cycle.air_pressure.source.as_int(),
-            cycle.air_pressure.distance_from_target,
-            cycle.air_temperature.value.unwrap(),
-            cycle.air_temperature.source.as_int(),
-            cycle.air_temperature.distance_from_target,
+            cycle.meteo.pressure.value.unwrap(),
+            cycle.meteo.pressure.source.as_int(),
+            cycle.meteo.pressure.distance_from_target,
+            cycle.meteo.temperature.value.unwrap(),
+            cycle.meteo.temperature.source.as_int(),
+            cycle.meteo.temperature.distance_from_target,
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2073,12 +2071,12 @@ fn execute_update(
             cycle.get_end_lag() as i64,
             cycle.get_start_lag() as i64,
             cycle.get_min_calc_len(),
-            cycle.air_pressure.value.unwrap(),
-            cycle.air_pressure.source.as_int(),
-            cycle.air_pressure.distance_from_target,
-            cycle.air_temperature.value.unwrap(),
-            cycle.air_temperature.source.as_int(),
-            cycle.air_temperature.distance_from_target,
+            cycle.meteo.pressure.value.unwrap(),
+            cycle.meteo.pressure.source.as_int(),
+            cycle.meteo.pressure.distance_from_target,
+            cycle.meteo.temperature.value.unwrap(),
+            cycle.meteo.temperature.source.as_int(),
+            cycle.meteo.temperature.distance_from_target,
             cycle.chamber_height,
             cycle.snow_depth_m,
             cycle.error_code.0,
@@ -2391,6 +2389,7 @@ pub fn load_cycles_sync(
             pressure_point.source = MeteoSource::from_int(pressure_source).unwrap();
             pressure_point.distance_from_target = pressure_dist;
 
+            let meteo = MeteoConditions::new(temp_point, pressure_point);
             let timing = CycleTiming::new_from_fields(
                 start_timestamp,
                 close_offset,
@@ -2412,8 +2411,7 @@ pub fn load_cycles_sync(
                 instruments: instruments.clone(),
                 chamber,
                 project_id: Some(project.id.unwrap()),
-                air_temperature: temp_point,
-                air_pressure: pressure_point,
+                meteo,
                 chamber_height,
                 snow_depth_m,
                 error_code,
@@ -3046,6 +3044,7 @@ where
 
             let nearest = meteo_data.get_nearest(target);
 
+            // NOTE: clear this mess up...
             let (temp_point, press_point) = nearest.unwrap_or((
                 MeteoPoint {
                     value: Some(DEFAULT_TEMP),
@@ -3059,8 +3058,8 @@ where
                 },
             ));
 
-            cycle.air_temperature = temp_point.or_default(DEFAULT_TEMP);
-            cycle.air_pressure = press_point.or_default(DEFAULT_PRESSURE);
+            cycle.meteo.temperature = temp_point.or_default(DEFAULT_TEMP);
+            cycle.meteo.pressure = press_point.or_default(DEFAULT_PRESSURE);
 
             // Height
             let maybe_height = height_data.get_nearest_previous_height(target, &cycle.chamber_id);

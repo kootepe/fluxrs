@@ -2940,8 +2940,8 @@ impl ValidationApp {
                     ui.end_row();
 
                     ui.label("Air temperature");
-                    let temp_text = format!("{}", cycle.air_temperature);
-                    if cycle.air_temperature.source != MeteoSource::Raw {
+                    let temp_text = format!("{}", cycle.meteo.temperature());
+                    if cycle.meteo.temperature_source() != MeteoSource::Raw {
                         ui.colored_label(Color32::ORANGE, temp_text);
                     } else {
                         ui.label(temp_text);
@@ -2949,8 +2949,8 @@ impl ValidationApp {
                     ui.end_row();
 
                     ui.label("Air pressure");
-                    let press_text = format!("{}", cycle.air_pressure);
-                    if cycle.air_pressure.source != MeteoSource::Raw {
+                    let press_text = format!("{}", cycle.meteo.pressure());
+                    if cycle.meteo.pressure.source != MeteoSource::Raw {
                         ui.colored_label(Color32::ORANGE, press_text);
                     } else {
                         ui.label(press_text);
