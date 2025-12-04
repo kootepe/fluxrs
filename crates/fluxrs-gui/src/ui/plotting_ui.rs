@@ -12,7 +12,6 @@ use fluxrs_core::flux::{FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
 use fluxrs_core::gastype::GasType;
 use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::mode::Mode;
-use fluxrs_core::types::FastMap;
 
 use chrono::DateTime;
 use chrono_tz::Tz;
