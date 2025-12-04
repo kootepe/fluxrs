@@ -1,11 +1,12 @@
-use crate::cycle::gaskey::GasKey;
-use crate::flux::FluxKind;
-
-use crate::cycle::cycle::Cycle;
-use crate::errorcode::ErrorCode;
+use fluxrs_core::cycle::cycle::Cycle;
+use fluxrs_core::cycle::gaskey::GasKey;
+use fluxrs_core::errorcode::ErrorCode;
+use fluxrs_core::flux::FluxKind;
+use fluxrs_core::types::FastMap;
 
 use std::cell::Cell;
-use std::collections::HashMap;
+
+use crate::ui::toggle_traces::TraceToggler;
 
 #[derive(Default, Clone, Debug)]
 pub struct Index(Cell<usize>);
@@ -52,10 +53,7 @@ impl CycleNavigator {
     pub fn recompute_visible_indexes(
         &mut self,
         cycles: &[Cycle],
-        visible_traces: &HashMap<String, bool>,
-        show_valids: bool,
-        show_invalids: bool,
-        show_bad: bool,
+        toggler: &TraceToggler,
         p_val_thresh: f64,
         rmse_thresh: f64,
         r2_thresh: f64,
@@ -67,17 +65,7 @@ impl CycleNavigator {
         self.visible_cycles.clear();
 
         for (index, cycle) in cycles.iter().enumerate() {
-            if is_cycle_visible(
-                cycle,
-                visible_traces,
-                show_valids,
-                show_invalids,
-                show_bad,
-                p_val_thresh,
-                rmse_thresh,
-                r2_thresh,
-                t0_thresh,
-            ) {
+            if toggler.is_cycle_visible(cycle, p_val_thresh, rmse_thresh, r2_thresh, t0_thresh) {
                 self.visible_cycles.push(index);
             }
         }
@@ -187,51 +175,9 @@ impl CycleNavigator {
     }
 }
 
-fn is_cycle_visible(
-    cycle: &Cycle,
-    visible_traces: &HashMap<String, bool>,
-    show_valids: bool,
-    show_invalids: bool,
-    show_bad: bool,
-    p_val_thresh: f64,
-    rmse_thresh: f64,
-    r2_thresh: f64,
-    t0_thresh: f64,
-) -> bool {
-    let main_gas = cycle.main_gas;
-    let main_id = cycle.main_instrument.id.unwrap();
-    let kind =
-        cycle.best_model_by_aic(&(GasKey::from((&main_gas, &main_id)))).unwrap_or(FluxKind::Linear);
-    let key = GasKey::from((&main_gas, &main_id));
-    // let p_val = cycle
-    //     .fluxes
-    //     .get(&(GasKey::from((&main_gas, main_instr)), best_model))
-    //     .map_or(0.0, |f| f.model.p_value().unwrap_or(0.0));
-    // let r2 = cycle.measurement_r2.get(&(GasKey::from((&main_gas, main_instr)))).unwrap_or(&0.0);
-    // let rmse = cycle
-    //     .fluxes
-    //     .get(&(GasKey::from((&main_gas, main_instr)), best_model))
-    //     .map_or(0.0, |f| f.model.p_value().unwrap_or(0.0));
-    // let t0 = cycle.t0_concentration.get(&(GasKey::from((&main_gas, main_instr)))).unwrap_or(&0.0);
-    // let stats_valid =
-    //     p_val < p_val_thresh && *r2 > r2_thresh && rmse < rmse_thresh && *t0 < t0_thresh;
-    let is_valid =
-        cycle.is_valid_by_threshold(&key, kind, p_val_thresh, r2_thresh, rmse_thresh, t0_thresh)
-            && cycle.error_code.0 == 0;
-
-    let trace_visible = visible_traces.get(&cycle.chamber_id).copied().unwrap_or(true);
-    let bad_ok = show_bad || !cycle.error_code.contains(ErrorCode::FailedMeasurement);
-    let valid_ok = show_valids || !is_valid;
-    let invalid_ok = show_invalids || is_valid;
-    trace_visible && valid_ok && invalid_ok && bad_ok
-}
-
 pub fn compute_visible_indexes(
     cycles: &[Cycle],
-    visible_traces: &HashMap<String, bool>,
-    show_valids: bool,
-    show_invalids: bool,
-    show_bad: bool,
+    toggler: &TraceToggler,
     p_val_thresh: f64,
     rmse_thresh: f64,
     r2_thresh: f64,
@@ -241,17 +187,7 @@ pub fn compute_visible_indexes(
         .iter()
         .enumerate()
         .filter(|(_, cycle)| {
-            is_cycle_visible(
-                cycle,
-                visible_traces,
-                show_valids,
-                show_invalids,
-                show_bad,
-                p_val_thresh,
-                rmse_thresh,
-                r2_thresh,
-                t0_thresh,
-            )
+            toggler.is_cycle_visible(cycle, p_val_thresh, rmse_thresh, r2_thresh, t0_thresh)
         })
         .map(|(i, _)| i)
         .collect()

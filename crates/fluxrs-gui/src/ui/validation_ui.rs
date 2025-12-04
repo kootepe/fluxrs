@@ -1,4 +1,5 @@
 use crate::appview::AppState;
+use crate::cycle_navigator::CycleNavigator;
 use crate::ui::enable_plots::EnabledPlots;
 use crate::ui::plot_fits::EnableFit;
 use crate::ui::plot_width::PlotAdjust;
@@ -13,7 +14,6 @@ use crate::utils::{bad_message, good_message, warn_message};
 use crate::keybinds::{Action, KeyBindings};
 use fluxrs_core::cycle::cycle::{AppError, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;
-use fluxrs_core::cycle_navigator::CycleNavigator;
 use fluxrs_core::data_formats::chamberdata::ChamberOrigin;
 use fluxrs_core::data_formats::meteodata::MeteoSource;
 use fluxrs_core::datatype::DataType;
@@ -46,6 +46,8 @@ use std::env;
 use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
+
+use crate::ui::toggle_traces::TraceToggler;
 
 // logs which item on the plot is being dragged
 pub enum Adjuster {
@@ -106,15 +108,16 @@ pub struct ValidationApp {
     pub t0_thresh: f32,
     pub cycles: Vec<Cycle>,
     pub cycle_nav: CycleNavigator,
-    pub plot_w: PlotAdjust,
+    pub toggler: TraceToggler,
+    pub plot_widths: PlotAdjust,
     pub font_size: f32,
     pub dirty_cycles: HashSet<usize>,
     pub zoom_to_measurement: u8,
     pub should_reset_bounds: bool,
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
-    pub chamber_colors: HashMap<String, Color32>, // Stores colors per chamber
-    pub visible_traces: HashMap<String, bool>,
+    pub chamber_colors: FastMap<String, Color32>, // Stores colors per chamber
+    pub visible_traces: FastMap<String, bool>,
     pub all_traces: HashSet<String>,
     pub start_date: DateTime<Tz>,
     pub end_date: DateTime<Tz>,
@@ -177,14 +180,15 @@ impl Default for ValidationApp {
             t0_thresh: 50000.,
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
+            toggler: TraceToggler::new(),
             font_size: 14.,
-            plot_w: PlotAdjust::new(),
+            plot_widths: PlotAdjust::new(),
             zoom_to_measurement: 0,
             should_reset_bounds: false,
             selected_point: None,
             dragged_point: None,
-            chamber_colors: HashMap::new(),
-            visible_traces: HashMap::new(),
+            chamber_colors: FastMap::default(),
+            visible_traces: FastMap::default(),
             all_traces: HashSet::new(),
             start_date: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
             end_date: UTC.with_ymd_and_hms(2024, 9, 30, 23, 59, 59).unwrap(),
@@ -251,18 +255,18 @@ impl ValidationApp {
             ui.label("Unfinished, flux plot dimensions also adjust all plots that are not gas or lag plot");
             egui::Grid::new("plots").show(ui, |ui| {
                 ui.label("Lag plot width: ");
-                ui.add(egui::DragValue::new(&mut self.plot_w.lag_w).speed(1.).range(150.0..=1920.0));
+                ui.add(egui::DragValue::new(&mut self.plot_widths.lag_w).speed(1.).range(150.0..=1920.0));
                 ui.label("Flux plot width:");
-                ui.add(egui::DragValue::new(&mut self.plot_w.flux_w).speed(1.).range(150.0..=1920.0));
+                ui.add(egui::DragValue::new(&mut self.plot_widths.flux_w).speed(1.).range(150.0..=1920.0));
                 ui.label("Gas plot width:");
-                ui.add(egui::DragValue::new(&mut self.plot_w.gas_w).speed(1.).range(150.0..=1920.0));
+                ui.add(egui::DragValue::new(&mut self.plot_widths.gas_w).speed(1.).range(150.0..=1920.0));
                 ui.end_row();
                 ui.label("Lag plot height:");
-                ui.add(egui::DragValue::new(&mut self.plot_w.lag_h).speed(1.).range(150.0..=1920.0));
+                ui.add(egui::DragValue::new(&mut self.plot_widths.lag_h).speed(1.).range(150.0..=1920.0));
                 ui.label("Flux plot height:");
-                ui.add(egui::DragValue::new(&mut self.plot_w.flux_h).speed(1.).range(150.0..=1920.0));
+                ui.add(egui::DragValue::new(&mut self.plot_widths.flux_h).speed(1.).range(150.0..=1920.0));
                 ui.label("Gas plot height:");
-                ui.add(egui::DragValue::new(&mut self.plot_w.gas_h).speed(1.).range(150.0..=1920.0));
+                ui.add(egui::DragValue::new(&mut self.plot_widths.gas_h).speed(1.).range(150.0..=1920.0));
             });
         });
         }
@@ -712,8 +716,8 @@ impl ValidationApp {
                                 self.selected_project.as_ref().unwrap().tz,
                                 self.get_start(),
                                 self.get_end(),
-                                self.plot_w.gas_w,
-                                self.plot_w.gas_h,
+                                self.plot_widths.gas_w,
+                                self.plot_widths.gas_h,
                             );
                             let response =
                                 gas_plot.show(ui, |plot_ui| self.render_gas_plot_ui(plot_ui, &key));
@@ -738,8 +742,8 @@ impl ValidationApp {
                                 "flux".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let flux_unit = self.flux_unit;
                             let fluxkind = FluxKind::Linear;
@@ -774,8 +778,8 @@ impl ValidationApp {
                                 "Poly Flux".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let flux_unit = self.flux_unit;
                             let fluxkind = FluxKind::Poly;
@@ -811,8 +815,8 @@ impl ValidationApp {
                                 "RobLin Flux".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let flux_unit = self.flux_unit;
                             let fluxkind = FluxKind::RobLin;
@@ -847,8 +851,8 @@ impl ValidationApp {
                                 "Exponential Flux".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let flux_unit = self.flux_unit;
                             let fluxkind = FluxKind::Exponential;
@@ -883,8 +887,8 @@ impl ValidationApp {
                                 "Linear p-value".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = lin_p_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -918,8 +922,8 @@ impl ValidationApp {
                                 "Measurement r2".to_owned(),
                                 &key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.measurement_r_w,
-                                self.plot_w.measurement_r_h,
+                                self.plot_widths.measurement_r_w,
+                                self.plot_widths.measurement_r_h,
                             );
                             // ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                             let response = measurement_r_plot.show(ui, |plot_ui| {
@@ -950,8 +954,8 @@ impl ValidationApp {
                                 format!("{} r2", selected_model),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.calc_r_w,
-                                self.plot_w.calc_r_h,
+                                self.plot_widths.calc_r_w,
+                                self.plot_widths.calc_r_h,
                             );
                             let response = calc_r_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -984,8 +988,8 @@ impl ValidationApp {
                                 "Concentration t0".to_owned(),
                                 &key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.conc_t0_w,
-                                self.plot_w.conc_t0_h,
+                                self.plot_widths.conc_t0_w,
+                                self.plot_widths.conc_t0_h,
                             );
                             let response = conc_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1012,8 +1016,8 @@ impl ValidationApp {
                                 "Lin adjusted r2".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1044,8 +1048,8 @@ impl ValidationApp {
                                 "Lin sigma".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1076,8 +1080,8 @@ impl ValidationApp {
                                 "Lin AIC".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = lin_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1108,8 +1112,8 @@ impl ValidationApp {
                                 "Lin RMSE".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = lin_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1140,8 +1144,8 @@ impl ValidationApp {
                                 "Lin cv".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = lin_cv_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1172,8 +1176,8 @@ impl ValidationApp {
                                 "Poly adjusted r2".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1204,8 +1208,8 @@ impl ValidationApp {
                                 "Poly sigma".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1236,8 +1240,8 @@ impl ValidationApp {
                                 "Poly AIC".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = poly_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1268,8 +1272,8 @@ impl ValidationApp {
                                 "Poly RMSE".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = poly_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1300,8 +1304,8 @@ impl ValidationApp {
                                 "Poly cv".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = poly_cv_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1333,8 +1337,8 @@ impl ValidationApp {
                                 "Roblin Adjusted r2".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1365,8 +1369,8 @@ impl ValidationApp {
                                 "RobLin sigma".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1397,8 +1401,8 @@ impl ValidationApp {
                                 "RobLin AIC".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = roblin_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1429,8 +1433,8 @@ impl ValidationApp {
                                 "RobLin RMSE".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = roblin_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1461,8 +1465,8 @@ impl ValidationApp {
                                 "RobLin cv".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = roblin_cv_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1493,8 +1497,8 @@ impl ValidationApp {
                                 "Exp adjusted r2".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = adj_r2_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1525,8 +1529,8 @@ impl ValidationApp {
                                 "Exp sigma".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = sigma_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1557,8 +1561,8 @@ impl ValidationApp {
                                 "Exp AIC".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = exp_aic_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1589,8 +1593,8 @@ impl ValidationApp {
                                 "Exp RMSE".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = exp_rmse_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1621,8 +1625,8 @@ impl ValidationApp {
                                 "Exp cv".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = exp_cv_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1653,8 +1657,8 @@ impl ValidationApp {
                                 "Exponential p-value".to_owned(),
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.plot_w.flux_w,
-                                self.plot_w.flux_h,
+                                self.plot_widths.flux_w,
+                                self.plot_widths.flux_h,
                             );
                             let response = exp_p_val_plot.show(ui, |plot_ui| {
                                 self.render_attribute_plot(
@@ -1691,8 +1695,8 @@ impl ValidationApp {
                     let lag_plot = init_lag_plot(
                         &main_key,
                         main_instrument.clone(),
-                        self.plot_w.lag_w,
-                        self.plot_w.lag_h,
+                        self.plot_widths.lag_w,
+                        self.plot_widths.lag_h,
                     );
                     let response = lag_plot.show(ui, |plot_ui| {
                         self.render_lag_plot(plot_ui);
@@ -1708,8 +1712,8 @@ impl ValidationApp {
                         format!("Best flux {}", flux_unit),
                         key,
                         main_instrument.clone(),
-                        self.plot_w.flux_w,
-                        self.plot_w.flux_h,
+                        self.plot_widths.flux_w,
+                        self.plot_widths.flux_h,
                     );
                     let response2 = flux_plot.show(ui, |plot_ui| {
                         self.render_best_flux_plot(plot_ui, key, |cycle, gas| {

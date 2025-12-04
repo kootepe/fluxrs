@@ -1,31 +1,32 @@
+use crate::cycle_navigator::compute_visible_indexes;
+use crate::flux_extension::UiColor;
+use crate::gastype_extension::GasColor;
 use crate::ui::validation_ui::Adjuster;
 use crate::ui::validation_ui::ValidationApp;
 use crate::ui::validation_ui::{create_polygon, create_vline, is_inside_polygon};
+
 use fluxrs_core::cycle::cycle::{insert_flux_history, update_fluxes, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;
-use fluxrs_core::cycle_navigator::compute_visible_indexes;
 use fluxrs_core::errorcode::ErrorCode;
 use fluxrs_core::flux::{FluxKind, FluxModel, LinearFlux, PolyFlux, RobustFlux};
 use fluxrs_core::gastype::GasType;
 use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::mode::Mode;
+use fluxrs_core::types::FastMap;
 
-use crate::flux_extension::UiColor;
-use crate::gastype_extension::GasColor;
 use chrono::DateTime;
 use chrono_tz::Tz;
 use ecolor::Hsva;
+use eframe::egui::{Color32, Layout, PointerButton, Pos2, RichText, Ui, Vec2};
 use egui::widgets::Label;
 use egui::{Align2, Rgba};
-use std::collections::HashMap;
-
-use std::ops::RangeInclusive;
-
-use eframe::egui::{Color32, Layout, PointerButton, Pos2, RichText, Ui, Vec2};
 use egui_plot::{
     Bar, BarChart, CoordinatesFormatter, Corner, GridInput, GridMark, Line, LineStyle, MarkerShape,
     Plot, PlotBounds, PlotPoint, PlotPoints, PlotTransform, PlotUi, Points, Text,
 };
+
+use std::collections::HashMap;
+use std::ops::RangeInclusive;
 
 type DataTrace = (HashMap<String, Vec<[f64; 2]>>, HashMap<String, Vec<[f64; 2]>>);
 type DataTraceKind =
@@ -561,10 +562,7 @@ impl ValidationApp {
         // PREVIEW visible indexes before applying them
         let new_visible_indexes = compute_visible_indexes(
             &self.cycles,
-            &self.visible_traces,
-            self.show_valids,
-            self.show_invalids,
-            self.show_bad,
+            &self.toggler,
             self.p_val_thresh as f64,
             self.rmse_thresh as f64,
             self.r2_thresh as f64,
@@ -581,10 +579,7 @@ impl ValidationApp {
         // Now apply the new visible set
         self.cycle_nav.recompute_visible_indexes(
             &self.cycles,
-            &self.visible_traces,
-            self.show_valids,
-            self.show_invalids,
-            self.show_bad,
+            &self.toggler,
             self.p_val_thresh as f64,
             self.rmse_thresh as f64,
             self.r2_thresh as f64,
@@ -1776,7 +1771,7 @@ impl ValidationApp {
         }
     }
 
-    pub fn render_legend(&mut self, ui: &mut Ui, _traces: &HashMap<String, Color32>) {
+    pub fn render_legend(&mut self, ui: &mut Ui, _traces: &FastMap<String, Color32>) {
         let legend_width = ui.available_width();
         let color_box_size = Vec2::new(16.0, 16.0);
 

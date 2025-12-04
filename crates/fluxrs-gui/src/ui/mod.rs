@@ -12,5 +12,6 @@ pub mod plot_width;
 pub mod plotting_ui;
 pub mod recalc;
 pub mod table_ui;
+pub mod toggle_traces;
 pub mod tz_picker;
 pub mod validation_ui;
