@@ -8,6 +8,10 @@
   - with migrations
 - File reading no longer frees the UI too early
 - Added sanity checks to expflux
+- Searching lag from previous cycle now actually uses the previous cycles lag
+- Added custom errors for flux calculations
+- Sanity checks for instrument serials
+
 
 ## v0.4.8
 - All data formats now allow inserting the same file multiple times, but only
