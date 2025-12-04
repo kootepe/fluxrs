@@ -1,7 +1,6 @@
 use crate::keybinds::Action;
 use crate::ui::main_app::save_app_state;
 use crate::ui::main_app::MainApp;
-use crate::ui::validation_ui::keybind_triggered;
 use egui::FontFamily;
 use std::path::Path;
 

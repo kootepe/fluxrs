@@ -3,7 +3,7 @@ use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::ui::dl_ui::DownloadApp;
 use crate::ui::manage_proj::project_ui::ProjectApp;
 use crate::ui::table_ui::TableApp;
-use crate::ui::validation_ui::ValidationApp;
+use crate::ui::validation::ValidationApp;
 use chrono_tz::UTC;
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
 use fluxrs_core::project::Project;

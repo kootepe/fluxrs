@@ -1,9 +1,10 @@
-use crate::cycle_navigator::compute_visible_indexes;
+use super::Adjuster;
+use super::ValidationApp;
+use super::{create_polygon, create_vline, is_inside_polygon};
+
+use super::cycle_navigator::compute_visible_indexes;
 use crate::flux_extension::UiColor;
 use crate::gastype_extension::GasColor;
-use crate::ui::validation_ui::Adjuster;
-use crate::ui::validation_ui::ValidationApp;
-use crate::ui::validation_ui::{create_polygon, create_vline, is_inside_polygon};
 
 use fluxrs_core::cycle::cycle::{insert_flux_history, update_fluxes, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;

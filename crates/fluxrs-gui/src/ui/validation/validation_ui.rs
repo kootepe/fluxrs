@@ -1,12 +1,15 @@
-use crate::appview::AppState;
-use crate::cycle_navigator::CycleNavigator;
-use crate::ui::enable_plots::EnabledPlots;
-use crate::ui::plot_fits::EnableFit;
-use crate::ui::plot_width::PlotAdjust;
-use crate::ui::plotting_ui::{
+use super::CycleFilter;
+use super::CycleNavigator;
+use super::EnableFit;
+use super::EnabledPlots;
+use super::FileApp;
+use super::PlotAdjust;
+use super::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
+
+use crate::appview::AppState;
 use crate::ui::recalc::RecalculateApp;
 use crate::ui::tz_picker::TimezonePickerState;
 use crate::utils::{bad_message, good_message, warn_message};
@@ -46,8 +49,6 @@ use std::env;
 use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
-
-use crate::ui::toggle_traces::CycleFilter;
 
 // logs which item on the plot is being dragged
 pub enum Adjuster {
@@ -119,10 +120,6 @@ pub struct ValidationApp {
     pub chamber_colors: FastMap<String, Color32>, // Stores colors per chamber
     pub start_date: DateTime<Tz>,
     pub end_date: DateTime<Tz>,
-    pub opened_files: Option<Vec<PathBuf>>,
-    pub open_file_dialog: Option<FileDialog>,
-    pub initial_path: Option<PathBuf>,
-    pub selected_data_type: Option<DataType>,
     pub log_messages: VecDeque<RichText>,
     pub keep_calc_constant_deadband: bool,
     pub selected_project: Option<Project>,
@@ -147,6 +144,7 @@ pub struct ValidationApp {
     pub tz_state: TimezonePickerState,
     pub tz_for_files: Option<Tz>,
     pub flux_unit: FluxUnit,
+    pub file_app: FileApp,
 }
 
 impl Default for ValidationApp {
@@ -185,10 +183,6 @@ impl Default for ValidationApp {
             chamber_colors: FastMap::default(),
             start_date: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
             end_date: UTC.with_ymd_and_hms(2024, 9, 30, 23, 59, 59).unwrap(),
-            opened_files: None,
-            open_file_dialog: None,
-            initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
-            selected_data_type: None,
             log_messages: VecDeque::new(),
             selected_project: None,
             show_fits: EnableFit::new(),
@@ -213,6 +207,7 @@ impl Default for ValidationApp {
             tz_state: TimezonePickerState::default(),
             tz_for_files: Some(UTC), // sensible default
             flux_unit: FluxUnit::default(),
+            file_app: FileApp::default(),
         }
     }
 }
@@ -1857,7 +1852,23 @@ impl ValidationApp {
             }
         }
     }
+    pub fn file_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        // whatever you already had here
+        self.handle_progress_messages();
 
+        self.file_app.file_ui(
+            ui,
+            ctx,
+            self.init_enabled,
+            &mut self.init_in_progress,
+            &mut self.selected_project,
+            &mut self.log_messages,
+            self.prog_sender.clone(),
+            &self.runtime,
+        );
+
+        self.log_display(ui);
+    }
     pub fn log_display(&mut self, ui: &mut egui::Ui) {
         ui.separator();
         if ui.button("Clear Log").clicked() {

@@ -1,8 +1,7 @@
+use super::CycleFilter;
 use fluxrs_core::cycle::cycle::Cycle;
 
 use std::cell::Cell;
-
-use crate::ui::toggle_traces::CycleFilter;
 
 #[derive(Default, Clone, Debug)]
 pub struct Index(Cell<usize>);
