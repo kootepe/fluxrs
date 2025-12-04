@@ -1,4 +1,4 @@
-use crate::ui::validation::ValidationApp;
+use super::ValidationApp;
 use eframe::egui::Context;
 use egui::Color32;
 use fluxrs_core::cycle_processor::{Datasets, Infra, Processor};

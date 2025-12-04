@@ -1,6 +1,4 @@
 pub mod dl_ui;
-pub mod init_ui;
-pub mod load_ui;
 pub mod main_app;
 pub mod main_frame;
 pub mod manage_proj;

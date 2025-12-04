@@ -2,6 +2,8 @@ pub mod cycle_navigator;
 pub mod enable_plots;
 pub mod file_app;
 pub mod gasmetrics;
+pub mod init_ui;
+pub mod load_ui;
 pub mod plot_fits;
 pub mod plot_width;
 pub mod plotting_ui;

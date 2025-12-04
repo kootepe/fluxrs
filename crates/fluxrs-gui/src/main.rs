@@ -1,6 +1,5 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 mod appview;
-mod cycle_navigator;
 mod flux_extension;
 mod gastype_extension;
 mod keybinds;

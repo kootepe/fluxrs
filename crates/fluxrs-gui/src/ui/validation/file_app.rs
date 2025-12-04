@@ -1,7 +1,7 @@
 use crate::ui::tz_picker::timezone_combo;
-use crate::ui::validation::ValidationApp;
+use crate::ui::tz_picker::TimezonePickerState;
 use chrono_tz::{Tz, UTC};
-use egui::{Align2, Context, Frame, Id, RichText, Ui};
+use egui::{Context, RichText, Ui};
 use egui_file::FileDialog;
 use fluxrs_core::data_formats::chamberdata::upload_chamber_metadata_async;
 use fluxrs_core::data_formats::heightdata::upload_height_data_async;
@@ -13,15 +13,15 @@ use fluxrs_core::instruments::instruments::InstrumentType;
 use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
 use fluxrs_core::project::Project;
 use rusqlite::Connection;
+use tokio::sync::mpsc;
+
 use std::borrow::Cow;
 use std::collections::VecDeque;
+use std::env;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
-use tokio::sync::mpsc;
-
-use crate::ui::tz_picker::TimezonePickerState;
 
 pub struct FileApp {
     pub opened_files: Option<Vec<PathBuf>>,
@@ -45,7 +45,7 @@ impl FileApp {
         Self {
             opened_files: None,
             open_file_dialog: None,
-            initial_path: None,
+            initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             selected_data_type: None,
 
             tz_prompt_open: false,
@@ -79,6 +79,9 @@ impl FileApp {
         if let Some(project) = selected_project.as_mut() {
             project.upload_from = Some(project.upload_from.unwrap_or(project.instrument.model));
             let current_value = project.upload_from.unwrap();
+            if self.tz_state.selected.is_none() {
+                self.tz_state.selected = Some(project.tz)
+            }
 
             egui::ComboBox::from_label("Instrument")
                 .selected_text(current_value.to_string())
@@ -121,7 +124,7 @@ impl FileApp {
             .response
         });
 
-        self.handle_file_selection(ctx, log_messages);
+        self.handle_file_selection(ctx, log_messages, selected_project);
         self.start_processing_if_ready(
             selected_project,
             log_messages,
@@ -144,7 +147,12 @@ impl FileApp {
         self.open_file_dialog = Some(dialog);
     }
 
-    pub fn handle_file_selection(&mut self, ctx: &Context, log_messages: &mut VecDeque<RichText>) {
+    pub fn handle_file_selection(
+        &mut self,
+        ctx: &Context,
+        log_messages: &mut VecDeque<RichText>,
+        project: &mut Option<Project>,
+    ) {
         if let Some(dialog) = &mut self.open_file_dialog {
             dialog.show(ctx);
 
@@ -156,8 +164,8 @@ impl FileApp {
                     if !selected_paths.is_empty() {
                         self.opened_files = Some(selected_paths.clone());
 
-                        // 👇 Only open the timezone prompt if we actually need it
-                        if !self.current_gas_instrument_has_tz() {
+                        // Only open the timezone prompt if we actually need it
+                        if !self.current_gas_instrument_has_tz(project) {
                             // non-gas OR gas instrument without its own TZ
                             self.tz_prompt_open = true;
                             self.tz_state.focus_search_once = true;
@@ -278,18 +286,17 @@ impl FileApp {
 
     // Check that current datatype is gas and then check if the current
     // instrument has has_tz as true. If both are true, returns true and tz_prompt will not prompt.
-    fn current_gas_instrument_has_tz(&self) -> bool {
-        false
-        // let is_gas = self.selected_data_type == Some(DataType::Gas);
-        // if !is_gas {
-        //     return false;
-        // }
-        //
-        // self.selected_project
-        //     .as_ref()
-        //     .and_then(|p| p.upload_from)
-        //     .map(|instrument| instrument.get_config().has_tz)
-        //     .unwrap_or(false)
+    fn current_gas_instrument_has_tz(&self, project: &mut Option<Project>) -> bool {
+        let is_gas = self.selected_data_type == Some(DataType::Gas);
+        if !is_gas {
+            return false;
+        }
+
+        project
+            .as_ref()
+            .and_then(|p| p.upload_from)
+            .map(|instrument| instrument.get_config().has_tz)
+            .unwrap_or(false)
     }
 
     fn start_processing_if_ready(

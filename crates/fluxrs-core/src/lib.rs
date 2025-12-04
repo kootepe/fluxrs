@@ -3,11 +3,7 @@ use rusqlite::{Connection, Result};
 use std::error::Error;
 use std::fs::File;
 use std::process;
-use tokio::sync::mpsc;
-// use ui::manage_proj::project::Project;
-// use ui::manage_proj::project_ui::ProjectApp;
 
-// pub mod appview;
 pub mod concentrationunit;
 pub mod constants;
 pub mod cycle;

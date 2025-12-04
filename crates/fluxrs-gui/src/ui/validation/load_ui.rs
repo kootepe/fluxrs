@@ -1,4 +1,4 @@
-use crate::ui::validation::ValidationApp;
+use super::ValidationApp;
 use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
 use egui::Color32;
