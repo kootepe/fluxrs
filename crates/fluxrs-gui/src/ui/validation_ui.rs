@@ -47,7 +47,7 @@ use std::fmt;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use crate::ui::toggle_traces::TraceToggler;
+use crate::ui::toggle_traces::CycleFilter;
 
 // logs which item on the plot is being dragged
 pub enum Adjuster {
@@ -108,7 +108,7 @@ pub struct ValidationApp {
     pub t0_thresh: f32,
     pub cycles: Vec<Cycle>,
     pub cycle_nav: CycleNavigator,
-    pub toggler: TraceToggler,
+    pub toggler: CycleFilter,
     pub plot_widths: PlotAdjust,
     pub font_size: f32,
     pub dirty_cycles: HashSet<usize>,
@@ -117,8 +117,6 @@ pub struct ValidationApp {
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: FastMap<String, Color32>, // Stores colors per chamber
-    pub visible_traces: FastMap<String, bool>,
-    pub all_traces: HashSet<String>,
     pub start_date: DateTime<Tz>,
     pub end_date: DateTime<Tz>,
     pub opened_files: Option<Vec<PathBuf>>,
@@ -126,9 +124,6 @@ pub struct ValidationApp {
     pub initial_path: Option<PathBuf>,
     pub selected_data_type: Option<DataType>,
     pub log_messages: VecDeque<RichText>,
-    pub show_valids: bool,
-    pub show_invalids: bool,
-    pub show_bad: bool,
     pub keep_calc_constant_deadband: bool,
     pub selected_project: Option<Project>,
     pub show_fits: EnableFit,
@@ -180,7 +175,7 @@ impl Default for ValidationApp {
             t0_thresh: 50000.,
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
-            toggler: TraceToggler::new(),
+            toggler: CycleFilter::new(),
             font_size: 14.,
             plot_widths: PlotAdjust::new(),
             zoom_to_measurement: 0,
@@ -188,8 +183,6 @@ impl Default for ValidationApp {
             selected_point: None,
             dragged_point: None,
             chamber_colors: FastMap::default(),
-            visible_traces: FastMap::default(),
-            all_traces: HashSet::new(),
             start_date: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
             end_date: UTC.with_ymd_and_hms(2024, 9, 30, 23, 59, 59).unwrap(),
             opened_files: None,
@@ -197,9 +190,6 @@ impl Default for ValidationApp {
             initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             selected_data_type: None,
             log_messages: VecDeque::new(),
-            show_invalids: true,
-            show_valids: true,
-            show_bad: false,
             selected_project: None,
             show_fits: EnableFit::new(),
             keep_calc_constant_deadband: true,
@@ -242,7 +232,7 @@ impl ValidationApp {
         // egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
         if self.show_legend {
             egui::Window::new("Legend").title_bar(false).resizable(false).show(ctx, |ui| {
-                self.render_legend(ui, &self.chamber_colors.clone());
+                self.render_legend(ui);
             });
         }
 
@@ -306,10 +296,12 @@ impl ValidationApp {
 
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                show_valids_clicked = ui.checkbox(&mut self.show_valids, "Show valids").clicked();
+                show_valids_clicked =
+                    ui.checkbox(&mut self.toggler.show_valids, "Show valids").clicked();
                 show_invalids_clicked =
-                    ui.checkbox(&mut self.show_invalids, "Show invalids").clicked();
-                show_bad = ui.checkbox(&mut self.show_bad, "Show bad measurements").clicked();
+                    ui.checkbox(&mut self.toggler.show_invalids, "Show invalids").clicked();
+                show_bad =
+                    ui.checkbox(&mut self.toggler.show_bad, "Show bad measurements").clicked();
             });
             ui.vertical(|ui| {
                 show_linear_model =
@@ -396,15 +388,15 @@ impl ValidationApp {
         if !ui.ctx().wants_keyboard_input() {
             ui.input(|i| {
                 if self.keybinds.action_triggered(Action::ToggleShowInvalids, i) {
-                    self.show_invalids = !self.show_invalids;
+                    self.toggler.show_invalids = !self.toggler.show_invalids;
                     show_invalids_clicked = true;
                 }
                 if self.keybinds.action_triggered(Action::ToggleShowValids, i) {
-                    self.show_valids = !self.show_valids;
+                    self.toggler.show_valids = !self.toggler.show_valids;
                     show_valids_clicked = true;
                 }
                 if self.keybinds.action_triggered(Action::ToggleShowBad, i) {
-                    self.show_bad = !self.show_bad;
+                    self.toggler.show_bad = !self.toggler.show_bad;
                     show_bad = true;
                 }
                 if self.keybinds.action_triggered(Action::ToggleShowLegend, i) {
@@ -709,9 +701,9 @@ impl ValidationApp {
                     }
                     let keys: Vec<_> = self.plot_enabler.gases.iter().copied().collect();
                     for key in &keys {
-                        if self.plot_enabler.is_gas_enabled(&key) {
+                        if self.plot_enabler.is_gas_enabled(key) {
                             let gas_plot = init_gas_plot(
-                                &key,
+                                key,
                                 instruments.get(&key.id).unwrap().clone(),
                                 self.selected_project.as_ref().unwrap().tz,
                                 self.get_start(),
@@ -720,7 +712,7 @@ impl ValidationApp {
                                 self.plot_widths.gas_h,
                             );
                             let response =
-                                gas_plot.show(ui, |plot_ui| self.render_gas_plot_ui(plot_ui, &key));
+                                gas_plot.show(ui, |plot_ui| self.render_gas_plot_ui(plot_ui, key));
                             if response.response.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                                 // Hide cursor

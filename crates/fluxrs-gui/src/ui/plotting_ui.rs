@@ -549,9 +549,10 @@ impl ValidationApp {
 
     pub fn update_plots(&mut self) {
         // println!("Update plots");
-        self.all_traces = self.cycles.iter().map(|cycle| cycle.chamber_id.clone()).collect();
+        self.toggler
+            .set_all_traces(self.cycles.iter().map(|cycle| cycle.chamber_id.clone()).collect());
 
-        for chamber_id in &self.all_traces {
+        for chamber_id in self.toggler.all_traces() {
             self.chamber_colors
                 .entry(chamber_id.clone())
                 .or_insert_with(|| generate_color(chamber_id));
@@ -1771,23 +1772,11 @@ impl ValidationApp {
         }
     }
 
-    pub fn render_legend(&mut self, ui: &mut Ui, _traces: &FastMap<String, Color32>) {
+    pub fn render_legend(&mut self, ui: &mut Ui) {
         let legend_width = ui.available_width();
         let color_box_size = Vec2::new(16.0, 16.0);
 
-        let mut sorted_traces: Vec<String> = self.all_traces.iter().cloned().collect();
-
-        // Sort numerically
-        sorted_traces.sort_by(|a, b| {
-            let num_a = a.parse::<f64>().ok();
-            let num_b = b.parse::<f64>().ok();
-            match (num_a, num_b) {
-                (Some(a), Some(b)) => a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.cmp(b),
-            }
-        });
+        let sorted_traces: Vec<String> = self.toggler.get_sorted_traces();
 
         ui.allocate_ui_with_layout(
             Vec2::new(legend_width, ui.available_height()),
@@ -1795,8 +1784,10 @@ impl ValidationApp {
             |ui| {
                 ui.add(Label::new("Legend").selectable(false));
 
-                if self.visible_traces.is_empty() {
-                    self.visible_traces = sorted_traces.iter().map(|s| (s.clone(), true)).collect();
+                if self.toggler.visible_traces().is_empty() {
+                    self.toggler.set_visible_traces(
+                        sorted_traces.iter().map(|s| (s.clone(), true)).collect(),
+                    );
                 }
 
                 // Split sorted_traces into chunks of 30
@@ -1808,8 +1799,7 @@ impl ValidationApp {
                     for column in columns {
                         ui.vertical(|ui| {
                             for chamber_id in column {
-                                let mut visible =
-                                    self.visible_traces.get(&chamber_id).copied().unwrap_or(true);
+                                let mut visible = self.toggler.get_visible_trace(&chamber_id);
 
                                 ui.horizontal(|ui| {
                                     let color = *self.chamber_colors.get(&chamber_id).unwrap();
@@ -1817,15 +1807,14 @@ impl ValidationApp {
                                     let response = ui.checkbox(&mut visible, "");
 
                                     if response.clicked() {
-                                        self.toggle_visibility(&chamber_id);
+                                        self.toggler.toggle_visibility(&chamber_id);
                                         self.update_plots();
                                     }
 
                                     if response.double_clicked() {
-                                        self.visible_traces
-                                            .iter_mut()
-                                            .for_each(|(_, v)| *v = false);
-                                        self.visible_traces.insert(chamber_id.clone(), true);
+                                        self.toggler.hide_all_traces();
+                                        // set the clicked trace as visible
+                                        self.toggler.set_trace_visible(chamber_id.clone(), true);
                                         self.update_plots();
                                     }
 
@@ -1840,26 +1829,13 @@ impl ValidationApp {
                 });
 
                 if ui.button("Select All").clicked() {
-                    for key in sorted_traces {
-                        self.visible_traces.insert(key, true);
+                    for name in sorted_traces {
+                        self.toggler.set_trace_visible(name, true)
                     }
                     self.update_plots();
                 }
             },
         );
-    }
-    pub fn toggle_visibility(&mut self, chamber_id: &String) {
-        // Count currently visible traces
-        let visible_count = self.visible_traces.values().filter(|&&v| v).count();
-
-        // Get the current visibility state
-        let is_visible = self.visible_traces.get(chamber_id).copied().unwrap_or(true);
-
-        if is_visible && visible_count == 1 {
-            return;
-        }
-
-        self.visible_traces.insert(chamber_id.clone(), !is_visible);
     }
 
     pub fn plot_model_fit(&self, plot_ui: &mut egui_plot::PlotUi, key: &GasKey, kind: FluxKind) {

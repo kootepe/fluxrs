@@ -1,12 +1,8 @@
 use fluxrs_core::cycle::cycle::Cycle;
-use fluxrs_core::cycle::gaskey::GasKey;
-use fluxrs_core::errorcode::ErrorCode;
-use fluxrs_core::flux::FluxKind;
-use fluxrs_core::types::FastMap;
 
 use std::cell::Cell;
 
-use crate::ui::toggle_traces::TraceToggler;
+use crate::ui::toggle_traces::CycleFilter;
 
 #[derive(Default, Clone, Debug)]
 pub struct Index(Cell<usize>);
@@ -53,7 +49,7 @@ impl CycleNavigator {
     pub fn recompute_visible_indexes(
         &mut self,
         cycles: &[Cycle],
-        toggler: &TraceToggler,
+        toggler: &CycleFilter,
         p_val_thresh: f64,
         rmse_thresh: f64,
         r2_thresh: f64,
@@ -177,7 +173,7 @@ impl CycleNavigator {
 
 pub fn compute_visible_indexes(
     cycles: &[Cycle],
-    toggler: &TraceToggler,
+    toggler: &CycleFilter,
     p_val_thresh: f64,
     rmse_thresh: f64,
     r2_thresh: f64,
