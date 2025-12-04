@@ -37,11 +37,12 @@ impl TimeFormatParser for ParserType {
         path: &Path,
         tz: &Tz,
         project: &Project,
+        conn: &Connection,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>> {
         match self {
-            ParserType::Oulanka(p) => p.parse(path, tz, project, progress_sender),
-            ParserType::Default(p) => p.parse(path, tz, project, progress_sender),
+            ParserType::Oulanka(p) => p.parse(path, tz, project, conn, progress_sender),
+            ParserType::Default(p) => p.parse(path, tz, project, conn, progress_sender),
         }
     }
 }
@@ -52,6 +53,7 @@ pub trait TimeFormatParser {
         path: &Path,
         tz: &Tz,
         project_name: &Project,
+        conn: &Connection,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>>;
 
@@ -104,6 +106,7 @@ impl OulankaManualFormat {
         path: &Path,
         tz: &Tz,
         project: &Project,
+        conn: &Connection,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>> {
         let mut rdr =
@@ -269,12 +272,13 @@ impl TimeFormatParser for OulankaManualFormat {
         path: &Path,
         tz: &Tz,
         project: &Project,
+        conn: &Connection,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>> {
         let file = std::fs::File::open(path)
             .map_err(|e| format!("failed to open file {}: {}", path.display(), e))?;
 
-        self.parse_reader(file, path, tz, project, progress_sender)
+        self.parse_reader(file, path, tz, project, conn, progress_sender)
             .map_err(|e| format!("{}", e).into())
     }
 }
@@ -404,6 +408,7 @@ impl TimeFormatParser for DefaultFormat {
         path: &Path,
         tz: &Tz,
         project: &Project,
+        conn: &Connection,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) -> Result<TimeData, Box<dyn Error>> {
         let file = std::fs::File::open(path)
@@ -696,6 +701,7 @@ pub fn try_all_formats(
     path: &Path,
     tz: &Tz,
     project: &Project,
+    conn: &Connection,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) -> Result<(TimeData, &'static str), Box<dyn Error>> {
     let parsers =
@@ -707,7 +713,7 @@ pub fn try_all_formats(
             parser.name(),
             path.to_string_lossy()
         ))));
-        match parser.parse(path, tz, project, progress_sender.clone()) {
+        match parser.parse(path, tz, project, conn, progress_sender.clone()) {
             Ok(data) => return Ok((data, parser.name())),
             Err(e) => {
                 let _ = progress_sender
@@ -779,7 +785,7 @@ pub fn upload_cycle_data_async(
                 continue; // or return if not inside a loop
             },
         };
-        match try_all_formats(path, &tz, project, progress_sender.clone()) {
+        match try_all_formats(path, &tz, project, &tx, progress_sender.clone()) {
             //   Pass `path` directly
             Ok((res, _)) => {
                 if res.validate_lengths() {
@@ -866,8 +872,33 @@ mod tests {
     use std::io::Cursor;
     use std::path::Path;
 
+    use chrono_tz::UTC;
+    use rusqlite::Connection;
+    use tokio::sync::mpsc;
+
+    /// Make sure the same DB file your code uses exists
+    /// and has the `instruments` table.
+    fn setup_test_db() {
+        let conn = Connection::open("fluxrs.db").unwrap();
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS instruments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                instrument_model TEXT NOT NULL,
+                instrument_serial TEXT NOT NULL,
+                project_link INTEGER NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+
+        // Optional but nice for test determinism:
+        conn.execute("DELETE FROM instruments", []).unwrap();
+    }
+
     fn mock_project() -> Project {
-        Project::default()
+        // Adjust this to your actual Project struct.
+        // The key bit is `id: Some(0)` to satisfy the test assertion.
+        Project { id: Some(0), ..Project::default() }
     }
 
     fn mock_path() -> &'static Path {
@@ -876,6 +907,8 @@ mod tests {
 
     #[test]
     fn parses_valid_csv_with_two_chambers() {
+        setup_test_db();
+
         let csv = "\
 ,240621
 ,120
@@ -888,17 +921,26 @@ CH2,1250,0";
         let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
+
+        let conn = Connection::open("fluxrs.db").unwrap();
         let result =
-            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), &conn, progress_sender);
 
         assert!(result.is_ok(), "Expected successful parsing");
         let data = result.unwrap();
         assert_eq!(data.chamber_id.len(), 2);
         assert_eq!(data.project_id[0], 0);
+
+        // Optional: instrument inserted exactly once
+        let conn = Connection::open("fluxrs.db").unwrap();
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM instruments", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
     fn fails_on_invalid_date() {
+        // No DB needed; we fail before hitting the DB
         let csv = "\
 ,notadate
 ,120
@@ -910,14 +952,17 @@ CH1,1234,0";
         let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
+        let conn = Connection::open("fluxrs.db").unwrap();
+
         let result =
-            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), &conn, progress_sender);
 
         assert!(result.is_err(), "Expected parsing to fail on invalid date");
     }
 
     #[test]
     fn fails_on_invalid_instrument_model() {
+        // No DB needed; we fail before hitting the DB
         let csv = "\
 ,240621
 ,120
@@ -929,14 +974,18 @@ CH1,1234,0";
         let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
+        let conn = Connection::open("fluxrs.db").unwrap();
+
         let result =
-            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), &conn, progress_sender);
 
         assert!(result.is_err(), "Expected parsing to fail on invalid instrument model");
     }
 
     #[test]
     fn skips_rows_with_invalid_time_format() {
+        setup_test_db();
+
         let csv = "\
 ,240621
 ,120
@@ -949,11 +998,14 @@ CH2,1250,";
         let (progress_sender, _) = mpsc::unbounded_channel();
         let parser = OulankaManualFormat;
         let reader = Cursor::new(csv);
-        let result =
-            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), progress_sender);
+        let conn = Connection::open("fluxrs.db").unwrap();
 
-        assert!(result.is_ok());
+        let result =
+            parser.parse_reader(reader, mock_path(), &UTC, &mock_project(), &conn, progress_sender);
+
+        assert!(result.is_ok(), "Expected successful parsing");
         let data = result.unwrap();
         assert_eq!(data.chamber_id.len(), 1); // Only CH2 should succeed
+        assert_eq!(data.chamber_id[0], "CH2");
     }
 }
