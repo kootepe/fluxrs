@@ -1,4 +1,5 @@
 use super::Adjuster;
+use super::AsyncCtx;
 use super::ValidationApp;
 use super::{create_polygon, create_vline, is_inside_polygon};
 
@@ -42,7 +43,7 @@ impl ValidationApp {
         self.cycle_nav.current_index().map(|i| self.dirty_cycles.contains(&i)).unwrap_or(false)
     }
 
-    pub fn commit_all_dirty_cycles(&mut self) {
+    pub fn commit_all_dirty_cycles(&mut self, async_ctx: &AsyncCtx) {
         let Some(project) = self.selected_project.clone() else { return };
 
         let dirty: Vec<_> =
@@ -52,7 +53,7 @@ impl ValidationApp {
             return;
         }
 
-        self.async_ctx.runtime.spawn_blocking(move || {
+        async_ctx.runtime.spawn_blocking(move || {
             if let Ok(mut conn) = rusqlite::Connection::open("fluxrs.db") {
                 if let Err(e) = update_fluxes(&mut conn, &dirty, &project) {
                     eprintln!("Failed to commit dirty cycles: {e}");
@@ -84,7 +85,7 @@ impl ValidationApp {
             plot_ui.set_auto_bounds(true);
         }
     }
-    pub fn select_cycle_by_timestamp(&mut self, timestamp: f64) {
+    pub fn select_cycle_by_timestamp(&mut self, timestamp: f64, async_ctx: &AsyncCtx) {
         if let Some((idx, _)) = self
             .cycles
             .iter()
@@ -92,7 +93,7 @@ impl ValidationApp {
             .find(|(_, cycle)| cycle.get_start_ts() as f64 == timestamp)
         {
             if Some(idx) != self.cycle_nav.current_index() {
-                self.commit_current_cycle();
+                self.commit_current_cycle(async_ctx);
                 self.cycle_nav.jump_to_visible_index(idx);
             }
         }
@@ -486,7 +487,7 @@ impl ValidationApp {
     }
 
     /// Commits the current cycle to the DB if a project is selected
-    pub fn commit_current_cycle(&mut self) {
+    pub fn commit_current_cycle(&mut self, async_ctx: &AsyncCtx) {
         let Some(project) = self.selected_project.clone() else {
             eprintln!("[warn] No project selected, skipping commit.");
             return;
@@ -508,50 +509,22 @@ impl ValidationApp {
 
         self.dirty_cycles.remove(&current_index); // it's clean now
 
-        self.async_ctx.runtime.spawn_blocking(move || {
-            match rusqlite::Connection::open("fluxrs.db") {
-                Ok(mut conn) => {
-                    if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], &project) {
-                        eprintln!("[error] Failed to update cycle: {e}");
-                    }
-                    if let Err(e) = insert_flux_history(&mut conn, &[cycle], &project) {
-                        eprintln!("[error] Failed to insert history cycle: {e}");
-                    }
-                },
-                Err(e) => {
-                    eprintln!("[error] Failed to open DB: {e}");
-                },
-            }
+        async_ctx.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
+            Ok(mut conn) => {
+                if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], &project) {
+                    eprintln!("[error] Failed to update cycle: {e}");
+                }
+                if let Err(e) = insert_flux_history(&mut conn, &[cycle], &project) {
+                    eprintln!("[error] Failed to insert history cycle: {e}");
+                }
+            },
+            Err(e) => {
+                eprintln!("[error] Failed to open DB: {e}");
+            },
         });
     }
-    pub fn _update_current_cycle(&mut self) {
-        let Some(project) = self.selected_project.clone() else {
-            eprintln!("No project selected!");
-            return;
-        };
 
-        if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
-            cycle.manual_adjusted = true;
-
-            // Clone after updating (optional depending on what update_cycle does)
-            let cycle_clone = cycle.clone();
-
-            self.async_ctx.runtime.spawn_blocking(move || {
-                match rusqlite::Connection::open("fluxrs.db") {
-                    Ok(mut conn) => {
-                        if let Err(e) = update_fluxes(&mut conn, &[cycle_clone], &project) {
-                            eprintln!("Flux update error: {}", e);
-                        }
-                    },
-                    Err(e) => {
-                        eprintln!("Failed to open database: {}", e);
-                    },
-                }
-            });
-        }
-    }
-
-    pub fn update_plots(&mut self) {
+    pub fn update_plots(&mut self, async_ctx: &AsyncCtx) {
         // println!("Update plots");
         self.toggler
             .set_all_traces(self.cycles.iter().map(|cycle| cycle.chamber_id.clone()).collect());
@@ -577,7 +550,7 @@ impl ValidationApp {
         // Only commit if current index is about to become invisible
         if let Some(idx) = current_index {
             if !new_visible_indexes.contains(&idx) && self.dirty_cycles.contains(&idx) {
-                self.commit_current_cycle();
+                self.commit_current_cycle(async_ctx);
             }
         }
 
@@ -1076,6 +1049,7 @@ impl ValidationApp {
         &mut self,
         plot_ui: &mut egui_plot::PlotUi,
         key: &GasKey,
+        async_ctx: &AsyncCtx,
         selector: F,
     ) where
         F: Fn(&Cycle, &GasKey) -> f64, // Selector function for extracting data
@@ -1156,7 +1130,7 @@ impl ValidationApp {
                 }
 
                 // **Find the matching cycle index**
-                self.select_cycle_by_timestamp(x_coord);
+                self.select_cycle_by_timestamp(x_coord, async_ctx);
             }
         }
 
@@ -1206,6 +1180,7 @@ impl ValidationApp {
         &mut self,
         plot_ui: &mut egui_plot::PlotUi,
         key: &GasKey,
+        async_ctx: &AsyncCtx,
         selector: F,
         plot_name: &str,
         symbol: Option<MarkerShape>,
@@ -1285,7 +1260,7 @@ impl ValidationApp {
                 }
 
                 // **Find the matching cycle index**
-                self.select_cycle_by_timestamp(x_coord);
+                self.select_cycle_by_timestamp(x_coord, async_ctx);
             }
         }
 
@@ -1358,7 +1333,7 @@ impl ValidationApp {
 
         merged_traces
     }
-    pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi) {
+    pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi, async_ctx: &AsyncCtx) {
         let main_gas = self.selected_project.as_ref().unwrap().main_gas.unwrap();
         let id = self.selected_project.as_ref().unwrap().instrument.id.unwrap();
 
@@ -1465,7 +1440,7 @@ impl ValidationApp {
                 ]);
 
                 // Use CycleNavigator to jump
-                self.select_cycle_by_timestamp(x_coord);
+                self.select_cycle_by_timestamp(x_coord, async_ctx);
             }
         }
 
@@ -1775,7 +1750,7 @@ impl ValidationApp {
         }
     }
 
-    pub fn render_legend(&mut self, ui: &mut Ui) {
+    pub fn render_legend(&mut self, ui: &mut Ui, async_ctx: &AsyncCtx) {
         let legend_width = ui.available_width();
         let color_box_size = Vec2::new(16.0, 16.0);
 
@@ -1811,14 +1786,14 @@ impl ValidationApp {
 
                                     if response.clicked() {
                                         self.toggler.toggle_visibility(&chamber_id);
-                                        self.update_plots();
+                                        self.update_plots(&async_ctx);
                                     }
 
                                     if response.double_clicked() {
                                         self.toggler.hide_all_traces();
                                         // set the clicked trace as visible
                                         self.toggler.set_trace_visible(chamber_id.clone(), true);
-                                        self.update_plots();
+                                        self.update_plots(&async_ctx);
                                     }
 
                                     let (rect, _) =
@@ -1835,7 +1810,7 @@ impl ValidationApp {
                     for name in sorted_traces {
                         self.toggler.set_trace_visible(name, true)
                     }
-                    self.update_plots();
+                    self.update_plots(&async_ctx);
                 }
             },
         );

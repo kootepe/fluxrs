@@ -14,13 +14,13 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 impl ValidationApp {
-    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context) {
+    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context, async_ctx: &mut AsyncCtx) {
         // Show info if no project selected
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-        self.handle_progress_messages();
+        self.handle_progress_messages(async_ctx);
 
         // Show spinner if processing is ongoing
         if self.init_in_progress || !self.init_enabled {
@@ -43,7 +43,7 @@ impl ValidationApp {
         }
 
         // Main UI layout
-        let sender = self.async_ctx.prog_sender.clone();
+        let sender = async_ctx.prog_sender.clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 self.date_picker(ui);
@@ -59,7 +59,7 @@ impl ValidationApp {
                     )
                     .clicked()
                 {
-                    self.commit_all_dirty_cycles();
+                    self.commit_all_dirty_cycles(async_ctx);
                     self.init_enabled = false;
                     self.init_in_progress = true;
                     self.query_in_progress = true;
@@ -78,7 +78,7 @@ impl ValidationApp {
                     };
                     let arc_conn = Arc::new(Mutex::new(conn));
 
-                    self.async_ctx.runtime.spawn(async move {
+                    async_ctx.runtime.spawn(async move {
                         let cycles_result = query_cycles_async(
                             arc_conn.clone(),
                             start_date.to_utc(),
@@ -161,7 +161,7 @@ impl ValidationApp {
             self.recalc.ui(
                 ui,
                 ctx,
-                &self.async_ctx.runtime,
+                &async_ctx.runtime,
                 self.start_date.to_utc(),
                 self.end_date.to_utc(),
                 self.get_project().clone(),

@@ -1,3 +1,4 @@
+use super::validation::AsyncCtx;
 use crate::keybinds::Action;
 use crate::ui::main_app::save_app_state;
 use crate::ui::main_app::MainApp;
@@ -8,6 +9,7 @@ use std::path::Path;
 pub struct FluxApp {
     pub main_app: MainApp,
     pub show_settings: bool,
+    pub async_ctx: AsyncCtx,
 }
 impl FluxApp {
     pub fn new() -> Self {
@@ -89,14 +91,14 @@ impl eframe::App for FluxApp {
         });
 
         if self.show_settings {
-            self.main_app.settings_ui(ctx);
+            self.main_app.settings_ui(ctx, &self.async_ctx);
         }
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.main_app.ui(ui, ctx);
+            self.main_app.ui(ui, ctx, &mut self.async_ctx);
         });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.main_app.validation_panel.commit_all_dirty_cycles(); // <-- do cleanup here
+        self.main_app.validation_panel.commit_all_dirty_cycles(&self.async_ctx); // <-- do cleanup here
         let app = &self.main_app.validation_panel;
         let path = Path::new("app_state.json");
         save_app_state(app, path);

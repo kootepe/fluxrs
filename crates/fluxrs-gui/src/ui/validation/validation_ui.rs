@@ -94,8 +94,21 @@ pub struct AsyncCtx {
     pub prog_receiver: Option<ProgReceiver>,
 }
 
+impl Default for AsyncCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AsyncCtx {
+    pub fn new() -> Self {
+        let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        Self { prog_sender, prog_receiver: Some(prog_receiver), runtime }
+    }
+}
+
 pub struct ValidationApp {
-    pub async_ctx: AsyncCtx,
     pub recalc: RecalculateApp,
     pub init_enabled: bool,
     pub init_in_progress: bool,
@@ -155,11 +168,10 @@ pub struct ValidationApp {
 impl Default for ValidationApp {
     fn default() -> Self {
         let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
-        let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
-        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-        let async_ctx = AsyncCtx { runtime, prog_sender, prog_receiver: Some(prog_receiver) };
+        // let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
+        // let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        // let async_ctx = AsyncCtx { runtime, prog_sender, prog_receiver: Some(prog_receiver) };
         Self {
-            async_ctx,
             recalc: RecalculateApp::new(),
             dirty_cycles: HashSet::new(),
             task_done_sender,
@@ -218,7 +230,7 @@ impl Default for ValidationApp {
     }
 }
 impl ValidationApp {
-    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, async_ctx: &mut AsyncCtx) {
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
@@ -233,7 +245,7 @@ impl ValidationApp {
         // egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
         if self.show_legend {
             egui::Window::new("Legend").title_bar(false).resizable(false).show(ctx, |ui| {
-                self.render_legend(ui);
+                self.render_legend(ui, &async_ctx);
             });
         }
 
@@ -459,7 +471,7 @@ impl ValidationApp {
                     } else {
                         self.increment_deadband(1.);
                     }
-                    self.update_plots();
+                    self.update_plots(&async_ctx);
                 }
                 if self.keybinds.action_triggered(Action::DecrementDeadband, i) {
                     self.mark_dirty();
@@ -468,7 +480,7 @@ impl ValidationApp {
                     } else {
                         self.increment_deadband(-1.);
                     }
-                    self.update_plots();
+                    self.update_plots(&async_ctx);
                 }
                 if self.keybinds.action_triggered(Action::DecrementLag, i) {
                     self.mark_dirty();
@@ -487,7 +499,7 @@ impl ValidationApp {
                     if self.mode_pearsons() {
                         self.set_all_calc_range_to_best_r();
                     }
-                    self.update_plots();
+                    self.update_plots(&async_ctx);
                 }
 
                 // BUG: calc area doesnt stick to deadband when incrementing
@@ -509,7 +521,7 @@ impl ValidationApp {
                         self.set_all_calc_range_to_best_r();
                     }
 
-                    self.update_plots();
+                    self.update_plots(&async_ctx);
                 }
 
                 if self.keybinds.action_triggered(Action::SearchLag, i) {
@@ -519,7 +531,7 @@ impl ValidationApp {
                             &cycle.main_gas,
                             &cycle.main_instrument.id.unwrap(),
                         )));
-                        self.update_plots();
+                        self.update_plots(&async_ctx);
                     }
                 }
                 if self.keybinds.action_triggered(Action::SearchLagPrevious, i) {
@@ -558,7 +570,7 @@ impl ValidationApp {
                                     target as i64,
                                 );
                                 self.mark_dirty();
-                                self.update_plots();
+                                self.update_plots(&async_ctx);
                             }
                         }
                     }
@@ -568,13 +580,13 @@ impl ValidationApp {
         ui.add_space(10.);
 
         if show_invalids_clicked {
-            self.update_plots();
+            self.update_plots(&async_ctx);
         }
         if show_valids_clicked {
-            self.update_plots();
+            self.update_plots(&async_ctx);
         }
         if show_bad {
-            self.update_plots();
+            self.update_plots(&async_ctx);
         }
         if reload_gas {
             self.reload_gas();
@@ -584,7 +596,7 @@ impl ValidationApp {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.toggle_manual_valid();
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
 
@@ -595,69 +607,69 @@ impl ValidationApp {
                 // cycle.toggle_manual_valid();
                 cycle.error_code.toggle(ErrorCode::FailedMeasurement);
 
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
         if reset_cycle {
             self.mark_dirty();
             // NOTE: hitting reset on a cycle that has no changes, will cause it to be archived
             self.reset_cycle();
-            self.update_plots();
+            self.update_plots(&async_ctx);
         }
 
         if highest_r {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.recalc_r();
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
         if add_to_end {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.increment_end_lag_reload(120.);
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
         if remove_from_end {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.increment_end_lag_reload(-120.);
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
         if add_to_start {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.increment_start_lag_reload(-120.);
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
         if remove_from_start {
             self.mark_dirty();
             if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                 cycle.increment_start_lag_reload(120.);
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
 
         if prev_clicked {
             self.zoom_to_measurement = 0;
             self.should_reset_bounds = true;
-            self.commit_current_cycle();
+            self.commit_current_cycle(&async_ctx);
             self.cycle_nav.step_back(); // Step to previous visible cycle
             if let Some(_index) = self.cycle_nav.current_index() {
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
 
         if next_clicked {
             self.zoom_to_measurement = 0;
             self.should_reset_bounds = true;
-            self.commit_current_cycle();
+            self.commit_current_cycle(&async_ctx);
             self.cycle_nav.step_forward(); // Step to next visible cycle
             if let Some(_index) = self.cycle_nav.current_index() {
-                self.update_plots();
+                self.update_plots(&async_ctx);
             }
         }
 
@@ -744,6 +756,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
@@ -780,6 +793,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
@@ -817,6 +831,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
@@ -853,6 +868,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         flux_value_for_plot(cycle, key, fluxkind, flux_unit)
                                     },
@@ -887,6 +903,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -923,6 +940,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     &key,
+                                    async_ctx,
                                     |cycle, gas_type| {
                                         *cycle.measurement_r2.get(gas_type).unwrap_or(&0.0)
                                     },
@@ -954,6 +972,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -988,6 +1007,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     &key,
+                                    async_ctx,
                                     |cycle, gas_type| {
                                         *cycle.t0_concentration.get(gas_type).unwrap_or(&0.0)
                                     },
@@ -1016,6 +1036,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1048,6 +1069,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1080,6 +1102,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1112,6 +1135,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1144,6 +1168,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1176,6 +1201,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1208,6 +1234,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1240,6 +1267,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1272,6 +1300,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1304,6 +1333,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1337,6 +1367,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1369,6 +1400,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1401,6 +1433,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1433,6 +1466,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1465,6 +1499,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1497,6 +1532,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1529,6 +1565,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1561,6 +1598,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1593,6 +1631,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1625,6 +1664,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1657,6 +1697,7 @@ impl ValidationApp {
                                 self.render_attribute_plot(
                                     plot_ui,
                                     key,
+                                    async_ctx,
                                     move |cycle, key| {
                                         cycle
                                             .fluxes
@@ -1692,7 +1733,7 @@ impl ValidationApp {
                         self.plot_widths.lag_h,
                     );
                     let response = lag_plot.show(ui, |plot_ui| {
-                        self.render_lag_plot(plot_ui);
+                        self.render_lag_plot(plot_ui, async_ctx);
                     });
                     if response.response.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -1709,7 +1750,7 @@ impl ValidationApp {
                         self.plot_widths.flux_h,
                     );
                     let response2 = flux_plot.show(ui, |plot_ui| {
-                        self.render_best_flux_plot(plot_ui, key, |cycle, gas| {
+                        self.render_best_flux_plot(plot_ui, key, async_ctx, |cycle, gas| {
                             let umol_m2_s = cycle.best_flux_by_aic(gas).unwrap_or(f64::NAN);
                             flux_unit.from_umol_m2_s(umol_m2_s, gas.gas_type)
                         });
@@ -1858,9 +1899,9 @@ impl ValidationApp {
             }
         }
     }
-    pub fn file_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    pub fn file_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, async_ctx: &mut AsyncCtx) {
         // whatever you already had here
-        self.handle_progress_messages();
+        self.handle_progress_messages(async_ctx);
 
         self.file_app.ui(
             ui,
@@ -1869,7 +1910,7 @@ impl ValidationApp {
             &mut self.init_in_progress,
             &mut self.selected_project,
             &mut self.log_messages,
-            &mut self.async_ctx,
+            async_ctx,
         );
 
         self.log_display(ui);
@@ -1894,11 +1935,11 @@ impl ValidationApp {
 
         ui.heading("Plot selection");
     }
-    pub fn handle_progress_messages(&mut self) {
-        if let Some(mut receiver) = self.async_ctx.prog_receiver.take() {
+    pub fn handle_progress_messages(&mut self, async_ctx: &mut AsyncCtx) {
+        if let Some(mut receiver) = async_ctx.prog_receiver.take() {
             drain_progress_messages(self, &mut receiver);
 
-            self.async_ctx.prog_receiver = Some(receiver);
+            async_ctx.prog_receiver = Some(receiver);
         }
     }
     // pub fn handle_progress_messages(&mut self) {

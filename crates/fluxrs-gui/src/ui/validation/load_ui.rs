@@ -1,4 +1,4 @@
-use super::ValidationApp;
+use super::{AsyncCtx, ValidationApp};
 use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
 use egui::Color32;
@@ -7,8 +7,8 @@ use fluxrs_core::processevent::ProcessEvent;
 use rusqlite::Connection;
 
 impl ValidationApp {
-    pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
-        self.handle_progress_messages();
+    pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context, async_ctx: &mut AsyncCtx) {
+        self.handle_progress_messages(async_ctx);
 
         if self.task_done_receiver.try_recv().is_ok() {
             self.init_in_progress = false;
@@ -28,7 +28,7 @@ impl ValidationApp {
                     }
                 }
             }
-            self.update_plots();
+            self.update_plots(&async_ctx);
         }
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
@@ -50,19 +50,19 @@ impl ValidationApp {
                 )
                 .clicked()
             {
-                self.commit_all_dirty_cycles();
+                self.commit_all_dirty_cycles(async_ctx);
                 let sender = self.task_done_sender.clone();
                 let result_slot = self.load_result.clone();
                 let start_date = self.start_date;
                 let end_date = self.end_date;
                 let project = self.get_project().clone();
-                let progress_sender = self.async_ctx.prog_sender.clone();
+                let progress_sender = async_ctx.prog_sender.clone();
 
                 self.init_enabled = false;
                 self.init_in_progress = true;
 
                 // TODO: Use AppError for clearer error messages.
-                self.async_ctx.runtime.spawn(async move {
+                async_ctx.runtime.spawn(async move {
                     let result: Result<Vec<Cycle>, AppError> = match Connection::open("fluxrs.db") {
                         Ok(conn) => load_cycles_sync(
                             &conn,

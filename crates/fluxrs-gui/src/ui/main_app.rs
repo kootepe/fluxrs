@@ -1,7 +1,7 @@
 use super::download_app::DownloadApp;
 use super::manage_proj::ProjectApp;
 use super::table_app::TableApp;
-use super::validation::ValidationApp;
+use super::validation::{AsyncCtx, ValidationApp};
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
@@ -49,7 +49,7 @@ pub struct MainApp {
 }
 
 impl MainApp {
-    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, async_ctx: &mut AsyncCtx) {
         self.apply_font_size(ctx, self.validation_panel.font_size);
         for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
             font_id.family = FontFamily::Monospace;
@@ -163,32 +163,32 @@ impl MainApp {
         let project = self.validation_panel.selected_project.clone();
         match self.live_panel {
             Panel::Validation => {
-                self.validation_panel.ui(ui, ctx);
+                self.validation_panel.ui(ui, ctx, async_ctx);
             },
             Panel::DataLoad => {
-                self.validation_panel.load_ui(ui, ctx);
+                self.validation_panel.load_ui(ui, ctx, async_ctx);
             },
             Panel::DataInit => {
-                self.validation_panel.init_ui(ui, ctx);
+                self.validation_panel.init_ui(ui, ctx, async_ctx);
             },
             Panel::FileInit => {
-                self.validation_panel.file_ui(ui, ctx);
+                self.validation_panel.file_ui(ui, ctx, async_ctx);
             },
             Panel::DataTable => {
                 self.table_panel.table_ui(ui, ctx, project);
             },
             Panel::DownloadData => {
-                self.dl_panel.dl_ui(ui, ctx, &mut self.validation_panel.async_ctx, project);
+                self.dl_panel.dl_ui(ui, ctx, async_ctx, project);
             },
             Panel::ProjInit => {
-                self.proj_panel.proj_ui(ui, ctx, &mut self.validation_panel.async_ctx);
+                self.proj_panel.proj_ui(ui, ctx, async_ctx);
             },
             Panel::Empty => {
                 self.empty_panel.ui(ui);
             },
         }
     }
-    pub fn settings_ui(&mut self, ctx: &egui::Context) {
+    pub fn settings_ui(&mut self, ctx: &egui::Context, async_ctx: &AsyncCtx) {
         egui::SidePanel::right("Settings panel").show(ctx, |ui| {
         ScrollArea::vertical().show(ui, |ui| {
 
@@ -234,11 +234,11 @@ impl MainApp {
                         .range(0.0..=100.)
                 );
                 if rmse_adjuster.changed() {
-                    self.validation_panel.update_plots();
+                    self.validation_panel.update_plots(&async_ctx);
                 }
                 if rmse_adjuster.double_clicked() {
                     self.validation_panel.rmse_thresh = 25.;
-                    self.validation_panel.update_plots();
+                    self.validation_panel.update_plots(&async_ctx);
                 }
                 ui.end_row();
 
@@ -249,11 +249,11 @@ impl MainApp {
                         .range(0.0..=1.0)
                 );
                 if r2_adjuster.changed() {
-                    self.validation_panel.update_plots()
+                    self.validation_panel.update_plots(&async_ctx)
                 }
                 if r2_adjuster.double_clicked() {
                     self.validation_panel.r2_thresh = 0.9;
-                    self.validation_panel.update_plots();
+                    self.validation_panel.update_plots(&async_ctx);
                 }
                 ui.end_row();
 
@@ -264,11 +264,11 @@ impl MainApp {
                         .range(0.0..=1.0)
                 );
                 if p_val_adjuster.changed() {
-                    self.validation_panel.update_plots()
+                    self.validation_panel.update_plots(&async_ctx)
                 }
                 if p_val_adjuster.double_clicked() {
                     self.validation_panel.p_val_thresh = 0.05;
-                    self.validation_panel.update_plots();
+                    self.validation_panel.update_plots(&async_ctx);
                 }
                         ui.end_row();
 
@@ -279,11 +279,11 @@ impl MainApp {
                         .range(0.0..=30000.0)
                 );
                 if t0_adjuster.changed() {
-                    self.validation_panel.update_plots()
+                    self.validation_panel.update_plots(&async_ctx)
                 }
                 if t0_adjuster.double_clicked() {
                     self.validation_panel.t0_thresh= 30000.;
-                    self.validation_panel.update_plots();
+                    self.validation_panel.update_plots(&async_ctx);
                 }
             });
                         ui.end_row();
