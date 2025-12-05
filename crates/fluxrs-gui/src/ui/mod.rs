@@ -1,4 +1,5 @@
 pub mod download_app;
+pub mod file_app;
 pub mod main_app;
 pub mod main_frame;
 pub mod manage_proj;

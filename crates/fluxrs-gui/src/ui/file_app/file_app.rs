@@ -13,8 +13,8 @@ use fluxrs_core::instruments::instruments::InstrumentType;
 use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
 use fluxrs_core::project::Project;
 use rusqlite::Connection;
-use tokio::sync::mpsc;
 
+use crate::ui::validation::AsyncCtx;
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::env;
@@ -53,7 +53,7 @@ impl FileApp {
             tz_for_files: None,
         }
     }
-    pub fn file_ui(
+    pub fn ui(
         &mut self,
         ui: &mut Ui,
         ctx: &Context,
@@ -61,8 +61,7 @@ impl FileApp {
         init_in_progress: &mut bool,
         selected_project: &mut Option<Project>,
         log_messages: &mut VecDeque<RichText>,
-        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-        runtime: &tokio::runtime::Runtime,
+        async_ctx: &mut AsyncCtx,
     ) {
         if selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
@@ -125,13 +124,7 @@ impl FileApp {
         });
 
         self.handle_file_selection(ctx, log_messages, selected_project);
-        self.start_processing_if_ready(
-            selected_project,
-            log_messages,
-            init_in_progress,
-            progress_sender,
-            runtime,
-        );
+        self.start_processing_if_ready(selected_project, log_messages, init_in_progress, async_ctx);
         self.show_timezone_prompt(ctx);
     }
 
@@ -197,72 +190,78 @@ impl FileApp {
         project: &Project,
         tz: Tz,
         log_messages: Arc<Mutex<VecDeque<RichText>>>,
-        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-        runtime: &tokio::runtime::Runtime,
+        async_ctx: &AsyncCtx,
     ) {
         let log_messages_clone = Arc::clone(&log_messages);
-        let sender_clone = progress_sender.clone();
         let project_clone = project.clone();
 
-        runtime.spawn(async move {
+        // Clone what we need to move into the async task
+        let sender = async_ctx.prog_sender.clone();
+        // You can either use the runtime directly or clone its handle:
+        let handle = async_ctx.runtime.handle().clone();
+
+        handle.spawn(async move {
+            // Clone again for the blocking section so we can reuse `sender` later if needed
+            let blocking_sender = sender.clone();
+
             let join_result =
                 tokio::task::spawn_blocking(move || match Connection::open("fluxrs.db") {
                     Ok(mut conn) => {
                         if let Some(data_type) = data_type {
                             match data_type {
                                 DataType::Gas => {
-                                    let _ = progress_sender
+                                    let _ = blocking_sender
                                         .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_gas_data_async(
                                         path_list,
                                         &mut conn,
                                         &project_clone,
                                         tz,
-                                        progress_sender,
+                                        blocking_sender.clone(),
                                     )
                                 },
                                 DataType::Cycle => {
-                                    let _ = progress_sender
+                                    let _ = blocking_sender
                                         .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_cycle_data_async(
                                         path_list,
                                         &mut conn,
                                         &project_clone,
                                         tz,
-                                        progress_sender,
+                                        blocking_sender.clone(),
                                     );
                                 },
                                 DataType::Meteo => {
-                                    let _ = progress_sender
+                                    let _ = blocking_sender
                                         .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_meteo_data_async(
                                         path_list,
                                         &mut conn,
                                         &project_clone,
                                         tz,
-                                        progress_sender,
+                                        blocking_sender.clone(),
                                     )
                                 },
                                 DataType::Height => {
-                                    let _ = progress_sender
+                                    let _ = blocking_sender
                                         .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_height_data_async(
                                         path_list,
                                         &mut conn,
                                         &project_clone,
                                         tz,
-                                        progress_sender,
+                                        blocking_sender.clone(),
                                     )
                                 },
                                 DataType::Chamber => {
-                                    let _ = progress_sender
+                                    let _ = blocking_sender
                                         .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_chamber_metadata_async(
                                         path_list,
                                         &mut conn,
                                         &project_clone,
                                         tz,
-                                        progress_sender,
+                                        blocking_sender.clone(),
                                     )
                                 },
                             }
@@ -277,8 +276,6 @@ impl FileApp {
 
             if let Err(e) = join_result {
                 let mut logs = log_messages_clone.lock().unwrap();
-                let _ =
-                    sender_clone.send(ProcessEvent::Done(Err("Thread join failure".to_owned())));
                 logs.push_front(format!("Join error: {e}").into());
             }
         });
@@ -304,8 +301,7 @@ impl FileApp {
         selected_project: &Option<Project>,
         log_messages: &mut VecDeque<RichText>,
         init_in_progress: &mut bool,
-        progress_sender: mpsc::UnboundedSender<ProcessEvent>,
-        runtime: &tokio::runtime::Runtime,
+        async_ctx: &mut AsyncCtx,
     ) {
         if *init_in_progress {
             return;
@@ -342,15 +338,7 @@ impl FileApp {
 
         *init_in_progress = true;
 
-        self.process_files_async(
-            paths,
-            self.selected_data_type,
-            &project,
-            tz,
-            arc_msgs,
-            progress_sender,
-            runtime,
-        );
+        self.process_files_async(paths, self.selected_data_type, &project, tz, arc_msgs, async_ctx);
 
         self.opened_files = None;
     }

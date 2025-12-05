@@ -2,12 +2,12 @@ use super::CycleFilter;
 use super::CycleNavigator;
 use super::EnableFit;
 use super::EnabledPlots;
-use super::FileApp;
 use super::PlotAdjust;
 use super::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
+use crate::ui::file_app::FileApp;
 
 use crate::appview::AppState;
 use crate::ui::recalc::RecalculateApp;
@@ -88,10 +88,14 @@ type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, AppError>>>>;
 pub type ProgReceiver = UnboundedReceiver<ProcessEvent>;
 pub type ProgSender = UnboundedSender<ProcessEvent>;
 
-pub struct ValidationApp {
+pub struct AsyncCtx {
     pub runtime: tokio::runtime::Runtime,
     pub prog_sender: ProgSender,
     pub prog_receiver: Option<ProgReceiver>,
+}
+
+pub struct ValidationApp {
+    pub async_ctx: AsyncCtx,
     pub recalc: RecalculateApp,
     pub init_enabled: bool,
     pub init_in_progress: bool,
@@ -150,12 +154,12 @@ pub struct ValidationApp {
 impl Default for ValidationApp {
     fn default() -> Self {
         let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
-        let (progress_sender, progress_receiver) = mpsc::unbounded_channel();
+        let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        let async_ctx = AsyncCtx { runtime, prog_sender, prog_receiver: Some(prog_receiver) };
         Self {
-            runtime: tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap(),
+            async_ctx,
             recalc: RecalculateApp::new(),
-            prog_receiver: Some(progress_receiver),
-            prog_sender: progress_sender,
             dirty_cycles: HashSet::new(),
             task_done_sender,
             task_done_receiver,
@@ -1856,15 +1860,14 @@ impl ValidationApp {
         // whatever you already had here
         self.handle_progress_messages();
 
-        self.file_app.file_ui(
+        self.file_app.ui(
             ui,
             ctx,
             self.init_enabled,
             &mut self.init_in_progress,
             &mut self.selected_project,
             &mut self.log_messages,
-            self.prog_sender.clone(),
-            &self.runtime,
+            &mut self.async_ctx,
         );
 
         self.log_display(ui);
@@ -1890,10 +1893,10 @@ impl ValidationApp {
         ui.heading("Plot selection");
     }
     pub fn handle_progress_messages(&mut self) {
-        if let Some(mut receiver) = self.prog_receiver.take() {
+        if let Some(mut receiver) = self.async_ctx.prog_receiver.take() {
             drain_progress_messages(self, &mut receiver);
 
-            self.prog_receiver = Some(receiver);
+            self.async_ctx.prog_receiver = Some(receiver);
         }
     }
     // pub fn handle_progress_messages(&mut self) {
