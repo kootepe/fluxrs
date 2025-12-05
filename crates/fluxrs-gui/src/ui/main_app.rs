@@ -1,6 +1,6 @@
+use super::download_app::DownloadApp;
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
-use crate::ui::dl_ui::DownloadApp;
 use crate::ui::manage_proj::project_ui::ProjectApp;
 use crate::ui::table_ui::TableApp;
 use crate::ui::validation::ValidationApp;
@@ -179,7 +179,7 @@ impl MainApp {
                 self.table_panel.table_ui(ui, ctx, project);
             },
             Panel::DownloadData => {
-                self.dl_panel.dl_ui(ui, ctx, project);
+                self.dl_panel.dl_ui(ui, ctx, &mut self.validation_panel.async_ctx, project);
             },
             Panel::ProjInit => {
                 self.proj_panel.proj_ui(
