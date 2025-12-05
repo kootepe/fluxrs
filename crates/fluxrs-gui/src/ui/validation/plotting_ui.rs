@@ -432,7 +432,7 @@ impl ValidationApp {
                             .name(format!("{}", key.gas_type))
                             .shape(MarkerShape::Circle)
                             .color(key.gas_type.color())
-                            .radius(2.0),
+                            .radius(self.plot_point_size),
                     );
                 }
 
@@ -442,7 +442,7 @@ impl ValidationApp {
                             .name(format!("{} (Error)", key.gas_type))
                             .shape(MarkerShape::Circle)
                             .color(egui::Color32::RED)
-                            .radius(3.0),
+                            .radius(self.plot_point_size),
                     );
                 }
 
@@ -1109,21 +1109,20 @@ impl ValidationApp {
                         Points::new(label.clone(), PlotPoints::from(point_list))
                             .name(label)
                             .shape(shape)
-                            .radius(3.)
+                            .radius(self.plot_point_size)
                             .color(*color),
                     );
                 }
             }
 
             if let Some(points) = invalid_traces.get(chamber_id) {
-                // Use a special style for invalids (no need to group)
                 let plot_points =
                     PlotPoints::from(points.iter().map(|(_, pt)| *pt).collect::<Vec<_>>());
 
                 plot_ui.points(
                     Points::new(format!("{} invalid", chamber_id), plot_points)
                         .shape(MarkerShape::Cross)
-                        .radius(3.)
+                        .radius(self.plot_point_size)
                         .color(*color),
                 );
             }
@@ -1182,7 +1181,7 @@ impl ValidationApp {
                 Points::new("currentpt", PlotPoints::from(vec![selected]))
                     .name("Current")
                     .shape(MarkerShape::Circle)
-                    .radius(5.0)
+                    .radius(self.plot_point_size + 2.)
                     .filled(false)
                     .color(egui::Color32::RED),
             );
@@ -1195,7 +1194,7 @@ impl ValidationApp {
                     Points::new("hovered_pt", PlotPoints::from(vec![hovered]))
                         .name("Closest")
                         .shape(MarkerShape::Circle)
-                        .radius(5.0)
+                        .radius(self.plot_point_size + 2.)
                         .filled(false)
                         .color(egui::Color32::GREEN),
                 );
@@ -1243,7 +1242,7 @@ impl ValidationApp {
                     Points::new("valid_pts", plot_points)
                         .name(format!("{} {}", plot_name, chamber_id))
                         .shape(marker)
-                        .radius(marker_size)
+                        .radius(self.plot_point_size)
                         .color(*color), // Normal color for valid points
                 );
             }
@@ -1256,7 +1255,7 @@ impl ValidationApp {
                     Points::new("invalid_pts", plot_points)
                     .name(format!("{} {} (Invalid)", plot_name, chamber_id))
                     .shape(MarkerShape::Cross) // Different shape for invalid points
-                    .radius(marker_size)
+                    .radius(self.plot_point_size)
                     .color(*color), // Highlight invalid points in red
                 );
             }
@@ -1307,7 +1306,7 @@ impl ValidationApp {
                 Points::new("currentpt", PlotPoints::from(vec![selected]))
                     .name("Current")
                     .shape(MarkerShape::Circle)
-                    .radius(5.0)
+                    .radius(self.plot_point_size + 2.)
                     .filled(false)
                     .color(egui::Color32::RED),
             );
@@ -1320,7 +1319,7 @@ impl ValidationApp {
                     Points::new("hovered_pt", PlotPoints::from(vec![hovered]))
                         .name("Closest")
                         .shape(MarkerShape::Circle)
-                        .radius(5.0)
+                        .radius(self.plot_point_size + 2.)
                         .filled(false)
                         .color(egui::Color32::GREEN),
                 );
@@ -1383,7 +1382,7 @@ impl ValidationApp {
                     Points::new("valid_pts", PlotPoints::from(points.clone()))
                         .name(format!("{} (Valid)", chamber_id))
                         .shape(MarkerShape::Circle)
-                        .radius(2.)
+                        .radius(self.plot_point_size)
                         .color(color),
                 );
             }
@@ -1393,7 +1392,7 @@ impl ValidationApp {
                     Points::new("invalid_pts", PlotPoints::from(points.clone()))
                         .name(format!("{} (Invalid)", chamber_id))
                         .shape(MarkerShape::Cross)
-                        .radius(3.)
+                        .radius(self.plot_point_size)
                         .color(color),
                 );
             }
@@ -1484,7 +1483,7 @@ impl ValidationApp {
                 Points::new("selected_pt", PlotPoints::from(vec![selected]))
                     .name("Selected Point")
                     .shape(MarkerShape::Circle)
-                    .radius(5.)
+                    .radius(self.plot_point_size + 2.)
                     .filled(false)
                     .color(Color32::RED),
             );
@@ -1497,7 +1496,7 @@ impl ValidationApp {
                     Points::new("hovered_pt", PlotPoints::from(vec![hovered]))
                         .name("Hovered Point")
                         .shape(MarkerShape::Circle)
-                        .radius(5.)
+                        .radius(self.plot_point_size + 2.)
                         .filled(false)
                         .color(Color32::GREEN),
                 );
@@ -2169,7 +2168,7 @@ fn marker_shape_for_flux_kind(kind: FluxKind) -> MarkerShape {
         FluxKind::Linear => MarkerShape::Circle,
         FluxKind::Poly => MarkerShape::Square,
         FluxKind::RobLin => MarkerShape::Diamond,
-        _ => MarkerShape::Cross, // Fallback
+        FluxKind::Exponential => MarkerShape::Plus,
     }
 }
 

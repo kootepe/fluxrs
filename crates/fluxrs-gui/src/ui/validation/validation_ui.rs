@@ -149,6 +149,7 @@ pub struct ValidationApp {
     pub tz_for_files: Option<Tz>,
     pub flux_unit: FluxUnit,
     pub file_app: FileApp,
+    pub plot_point_size: f32,
 }
 
 impl Default for ValidationApp {
@@ -212,6 +213,7 @@ impl Default for ValidationApp {
             tz_for_files: Some(UTC), // sensible default
             flux_unit: FluxUnit::default(),
             file_app: FileApp::default(),
+            plot_point_size: 3.,
         }
     }
 }

@@ -209,6 +209,19 @@ impl MainApp {
                 });
             });
             ui.group(|ui| {
+                ui.label("Adjust plot point size");
+                let pt_size = ui.add(
+                    egui::DragValue::new(&mut self.validation_panel.plot_point_size)
+                        .speed(0.1)
+                        .range(1.0..=10.)
+                );
+
+                if pt_size.double_clicked() {
+                    self.validation_panel.plot_point_size = 3.;
+                }
+                });
+
+            ui.group(|ui| {
                 ui.label("Adjust hiding thresholds");
                 ui.label("These are based on the main gas.");
                 ui.label("Will not mark measurements as invalid in the data, but allows hiding measurements in current view.");
