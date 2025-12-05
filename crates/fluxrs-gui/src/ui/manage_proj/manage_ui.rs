@@ -1,5 +1,7 @@
 use crate::ui::manage_proj::datepickerstate::DateRangePickerState;
 use crate::ui::manage_proj::project_ui::input_block_overlay;
+use crate::ui::validation::validation_ui::AsyncCtx;
+
 use crate::ui::recalc::RecalculateApp;
 use chrono::NaiveDateTime;
 use egui::{Align2, Color32, Context, Frame, Ui, Window};
@@ -56,9 +58,7 @@ impl DeleteMeasurementApp {
         project: Project,
         datatype: DataType,
         recalc: &mut RecalculateApp,
-        runtime: &tokio::runtime::Runtime,
-        progress_sender: UnboundedSender<ProcessEvent>,
-        progress_receiver: &mut Option<UnboundedReceiver<ProcessEvent>>,
+        async_ctx: &mut AsyncCtx,
     ) {
         self.project = project;
 
@@ -122,9 +122,9 @@ impl DeleteMeasurementApp {
                                 recalc.calc_enabled = false;
                                 recalc.query_in_progress = true;
                                 recalc.calculate_all(
-                                    runtime,
+                                    &async_ctx.runtime,
                                     self.project.clone(),
-                                    progress_sender.clone(),
+                                    async_ctx.prog_sender.clone(),
                                 );
                             },
                             _ => {
@@ -327,9 +327,7 @@ impl ManageApp {
         &mut self,
         ctx: &egui::Context,
         project: Project,
-        runtime: &tokio::runtime::Runtime,
-        progress_sender: UnboundedSender<ProcessEvent>,
-        progress_receiver: &mut Option<UnboundedReceiver<ProcessEvent>>,
+        async_ctx: &mut AsyncCtx,
     ) {
         self.project = project;
 
@@ -375,7 +373,7 @@ impl ManageApp {
                     container_response.widget_info(|| {
                         WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel")
                     });
-                    if let Some(receiver) = progress_receiver.as_mut() {
+                    if let Some(receiver) = async_ctx.prog_receiver.as_mut() {
                         drain_progress_messages(&mut self.recalc_app, receiver);
                     }
                     // let panel_switching_allowed = !self.validation_panel.init_in_progress;
@@ -423,9 +421,7 @@ impl ManageApp {
                             project_clone,
                             DataType::Gas,
                             &mut self.recalc_app,
-                            runtime,
-                            progress_sender.clone(),
-                            progress_receiver,
+                            async_ctx,
                         );
                     },
                     ManagePanel::DeleteCycle => {
@@ -435,9 +431,7 @@ impl ManageApp {
                             project_clone,
                             DataType::Cycle,
                             &mut self.recalc_app,
-                            runtime,
-                            progress_sender.clone(),
-                            progress_receiver,
+                            async_ctx,
                         );
                     },
                     ManagePanel::DeleteMeteo => {
@@ -447,9 +441,7 @@ impl ManageApp {
                             project_clone,
                             DataType::Meteo,
                             &mut self.recalc_app,
-                            runtime,
-                            progress_sender.clone(),
-                            progress_receiver,
+                            async_ctx,
                         );
                     },
                     ManagePanel::DeleteHeight => {
@@ -459,9 +451,7 @@ impl ManageApp {
                             project_clone,
                             DataType::Height,
                             &mut self.recalc_app,
-                            runtime,
-                            progress_sender.clone(),
-                            progress_receiver,
+                            async_ctx,
                         );
                     },
                     ManagePanel::DeleteChamber => {
@@ -471,9 +461,7 @@ impl ManageApp {
                             project_clone,
                             DataType::Chamber,
                             &mut self.recalc_app,
-                            runtime,
-                            progress_sender.clone(),
-                            progress_receiver,
+                            async_ctx,
                         );
                     },
                     ManagePanel::Empty => {},

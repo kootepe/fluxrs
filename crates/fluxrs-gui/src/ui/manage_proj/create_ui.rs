@@ -4,6 +4,7 @@ use crate::ui::tz_picker::timezone_combo;
 use egui::{Align2, Area, Color32, Context, Frame, Id, Window};
 use fluxrs_core::instruments::instruments::InstrumentType;
 use fluxrs_core::mode::Mode;
+use fluxrs_core::project::Project;
 use std::error::Error;
 
 impl ProjectApp {
@@ -165,7 +166,7 @@ impl ProjectApp {
                             return;
                         }
                         if let Some(project) = self.build_project_from_form() {
-                            match self.save_project_to_db(&project) {
+                            match Project::save(None, &project) {
                                 Ok(_) => {
                                     self.message = Some(MsgType::Good(format!(
                                         "Successfully created project '{}'",

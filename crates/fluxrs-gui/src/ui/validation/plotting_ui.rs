@@ -52,7 +52,7 @@ impl ValidationApp {
             return;
         }
 
-        self.runtime.spawn_blocking(move || {
+        self.async_ctx.runtime.spawn_blocking(move || {
             if let Ok(mut conn) = rusqlite::Connection::open("fluxrs.db") {
                 if let Err(e) = update_fluxes(&mut conn, &dirty, &project) {
                     eprintln!("Failed to commit dirty cycles: {e}");
@@ -508,18 +508,20 @@ impl ValidationApp {
 
         self.dirty_cycles.remove(&current_index); // it's clean now
 
-        self.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
-            Ok(mut conn) => {
-                if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], &project) {
-                    eprintln!("[error] Failed to update cycle: {e}");
-                }
-                if let Err(e) = insert_flux_history(&mut conn, &[cycle], &project) {
-                    eprintln!("[error] Failed to insert history cycle: {e}");
-                }
-            },
-            Err(e) => {
-                eprintln!("[error] Failed to open DB: {e}");
-            },
+        self.async_ctx.runtime.spawn_blocking(move || {
+            match rusqlite::Connection::open("fluxrs.db") {
+                Ok(mut conn) => {
+                    if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], &project) {
+                        eprintln!("[error] Failed to update cycle: {e}");
+                    }
+                    if let Err(e) = insert_flux_history(&mut conn, &[cycle], &project) {
+                        eprintln!("[error] Failed to insert history cycle: {e}");
+                    }
+                },
+                Err(e) => {
+                    eprintln!("[error] Failed to open DB: {e}");
+                },
+            }
         });
     }
     pub fn _update_current_cycle(&mut self) {
@@ -534,15 +536,17 @@ impl ValidationApp {
             // Clone after updating (optional depending on what update_cycle does)
             let cycle_clone = cycle.clone();
 
-            self.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
-                Ok(mut conn) => {
-                    if let Err(e) = update_fluxes(&mut conn, &[cycle_clone], &project) {
-                        eprintln!("Flux update error: {}", e);
-                    }
-                },
-                Err(e) => {
-                    eprintln!("Failed to open database: {}", e);
-                },
+            self.async_ctx.runtime.spawn_blocking(move || {
+                match rusqlite::Connection::open("fluxrs.db") {
+                    Ok(mut conn) => {
+                        if let Err(e) = update_fluxes(&mut conn, &[cycle_clone], &project) {
+                            eprintln!("Flux update error: {}", e);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Failed to open database: {}", e);
+                    },
+                }
             });
         }
     }

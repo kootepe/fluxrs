@@ -3,3 +3,5 @@ pub mod datepickerstate;
 pub mod delete_ui;
 pub mod manage_ui;
 pub mod project_ui;
+
+pub use project_ui::ProjectApp;

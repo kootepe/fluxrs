@@ -1,10 +1,9 @@
 use super::download_app::DownloadApp;
+use super::manage_proj::ProjectApp;
 use super::table_app::TableApp;
+use super::validation::ValidationApp;
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
-use crate::ui::manage_proj::project_ui::ProjectApp;
-use crate::ui::validation::ValidationApp;
-use chrono_tz::UTC;
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
 use fluxrs_core::project::Project;
 use std::fs;
@@ -182,13 +181,7 @@ impl MainApp {
                 self.dl_panel.dl_ui(ui, ctx, &mut self.validation_panel.async_ctx, project);
             },
             Panel::ProjInit => {
-                self.proj_panel.proj_ui(
-                    ui,
-                    ctx,
-                    &self.validation_panel.runtime,
-                    self.validation_panel.prog_sender.clone(),
-                    &mut self.validation_panel.prog_receiver,
-                );
+                self.proj_panel.proj_ui(ui, ctx, &mut self.validation_panel.async_ctx);
             },
             Panel::Empty => {
                 self.empty_panel.ui(ui);

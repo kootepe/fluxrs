@@ -1,4 +1,5 @@
 use super::ValidationApp;
+use crate::ui::validation::validation_ui::AsyncCtx;
 use eframe::egui::Context;
 use egui::Color32;
 use fluxrs_core::cycle_processor::{Datasets, Infra, Processor};
@@ -42,7 +43,7 @@ impl ValidationApp {
         }
 
         // Main UI layout
-        let sender = self.prog_sender.clone();
+        let sender = self.async_ctx.prog_sender.clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 self.date_picker(ui);
@@ -77,7 +78,7 @@ impl ValidationApp {
                     };
                     let arc_conn = Arc::new(Mutex::new(conn));
 
-                    self.runtime.spawn(async move {
+                    self.async_ctx.runtime.spawn(async move {
                         let cycles_result = query_cycles_async(
                             arc_conn.clone(),
                             start_date.to_utc(),
@@ -160,7 +161,7 @@ impl ValidationApp {
             self.recalc.ui(
                 ui,
                 ctx,
-                &self.runtime,
+                &self.async_ctx.runtime,
                 self.start_date.to_utc(),
                 self.end_date.to_utc(),
                 self.get_project().clone(),

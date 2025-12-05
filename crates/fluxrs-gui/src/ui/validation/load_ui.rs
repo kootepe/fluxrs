@@ -56,13 +56,13 @@ impl ValidationApp {
                 let start_date = self.start_date;
                 let end_date = self.end_date;
                 let project = self.get_project().clone();
-                let progress_sender = self.prog_sender.clone();
+                let progress_sender = self.async_ctx.prog_sender.clone();
 
                 self.init_enabled = false;
                 self.init_in_progress = true;
 
                 // TODO: Use AppError for clearer error messages.
-                self.runtime.spawn(async move {
+                self.async_ctx.runtime.spawn(async move {
                     let result: Result<Vec<Cycle>, AppError> = match Connection::open("fluxrs.db") {
                         Ok(conn) => load_cycles_sync(
                             &conn,
