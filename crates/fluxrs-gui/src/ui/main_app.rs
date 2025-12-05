@@ -1,8 +1,8 @@
 use super::download_app::DownloadApp;
+use super::table_app::TableApp;
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::ui::manage_proj::project_ui::ProjectApp;
-use crate::ui::table_ui::TableApp;
 use crate::ui::validation::ValidationApp;
 use chrono_tz::UTC;
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
