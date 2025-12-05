@@ -202,6 +202,8 @@ pub const FLUXES_COLUMNS_NO_LINK: &[&str] = &[
     "exp_b",
 ];
 pub fn make_select_all_fluxes() -> String {
+    let flux_cols_prefixed: Vec<String> =
+        FLUXES_COLUMNS_NO_LINK.iter().map(|c| format!("f.{c}")).collect();
     format!(
         "SELECT {},
         c.close_offset              AS close_offset,
@@ -219,8 +221,8 @@ pub fn make_select_all_fluxes() -> String {
         LEFT JOIN cycles c              ON f.cycle_link           = c.id
 
         WHERE f.project_link = ?1
-        ORDER BY start_time",
-        FLUXES_COLUMNS_NO_LINK.join(", ")
+        ORDER BY f.start_time",
+        flux_cols_prefixed.join(", ")
     )
 }
 
