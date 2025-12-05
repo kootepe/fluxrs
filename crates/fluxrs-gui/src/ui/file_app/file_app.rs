@@ -14,7 +14,7 @@ use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
 use fluxrs_core::project::Project;
 use rusqlite::Connection;
 
-use crate::ui::validation::AsyncCtx;
+use crate::ui::validation_app::AsyncCtx;
 use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::env;

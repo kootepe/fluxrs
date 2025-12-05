@@ -1,5 +1,5 @@
 use super::ValidationApp;
-use crate::ui::validation::validation_ui::AsyncCtx;
+use crate::ui::validation_app::validation_ui::AsyncCtx;
 use eframe::egui::Context;
 use egui::Color32;
 use fluxrs_core::cycle_processor::{Datasets, Infra, Processor};

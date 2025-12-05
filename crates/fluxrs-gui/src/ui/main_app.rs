@@ -1,7 +1,7 @@
 use super::download_app::DownloadApp;
 use super::manage_proj::ProjectApp;
 use super::table_app::TableApp;
-use super::validation::{AsyncCtx, ValidationApp};
+use super::validation_app::{AsyncCtx, ValidationApp};
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
 use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
@@ -212,7 +212,7 @@ impl MainApp {
                 ui.label("Adjust plot point size");
                 let pt_size = ui.add(
                     egui::DragValue::new(&mut self.validation_panel.plot_point_size)
-                        .speed(0.1)
+                        .speed(0.01)
                         .range(1.0..=10.)
                 );
 
