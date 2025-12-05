@@ -108,6 +108,26 @@ impl AsyncCtx {
     }
 }
 
+pub struct LoadAsyncState {
+    pub result: LoadResult,
+    pub done_sender: Sender<()>,
+    pub done_receiver: Receiver<()>,
+}
+
+impl LoadAsyncState {
+    pub fn new() -> Self {
+        let (done_sender, done_receiver) = std::sync::mpsc::channel();
+        let result = Arc::new(Mutex::new(None));
+        Self { done_sender, done_receiver, result }
+    }
+}
+
+impl Default for LoadAsyncState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct ValidationApp {
     pub recalc: RecalculateApp,
     pub init_enabled: bool,
@@ -115,9 +135,7 @@ pub struct ValidationApp {
     pub cycles_progress: usize,
     pub cycles_state: Option<(usize, usize)>,
     pub query_in_progress: bool,
-    pub load_result: LoadResult,
-    pub task_done_sender: Sender<()>,
-    pub task_done_receiver: Receiver<()>,
+    pub load_state: LoadAsyncState,
     pub plot_enabler: EnabledPlots,
 
     pub p_val_thresh: f32,
@@ -167,21 +185,18 @@ pub struct ValidationApp {
 
 impl Default for ValidationApp {
     fn default() -> Self {
-        let (task_done_sender, task_done_receiver) = std::sync::mpsc::channel();
         // let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
         // let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
         // let async_ctx = AsyncCtx { runtime, prog_sender, prog_receiver: Some(prog_receiver) };
         Self {
             recalc: RecalculateApp::new(),
             dirty_cycles: HashSet::new(),
-            task_done_sender,
-            task_done_receiver,
+            load_state: LoadAsyncState::default(),
             cycles_progress: 0,
             cycles_state: None,
             query_in_progress: false,
             init_enabled: true,
             init_in_progress: false,
-            load_result: Arc::new(Mutex::new(None)),
             plot_enabler: EnabledPlots::default(),
 
             p_val_thresh: 0.05,

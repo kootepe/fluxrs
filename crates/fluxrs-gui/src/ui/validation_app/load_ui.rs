@@ -10,11 +10,11 @@ impl ValidationApp {
     pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context, async_ctx: &mut AsyncCtx) {
         self.handle_progress_messages(async_ctx);
 
-        if self.task_done_receiver.try_recv().is_ok() {
+        if self.load_state.done_receiver.try_recv().is_ok() {
             self.init_in_progress = false;
             self.init_enabled = true;
 
-            if let Ok(mut result_lock) = self.load_result.lock() {
+            if let Ok(mut result_lock) = self.load_state.result.lock() {
                 if let Some(result) = result_lock.take() {
                     match result {
                         Ok(cycles) => {
@@ -28,7 +28,7 @@ impl ValidationApp {
                     }
                 }
             }
-            self.update_plots(&async_ctx);
+            self.update_plots(async_ctx);
         }
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
@@ -51,8 +51,8 @@ impl ValidationApp {
                 .clicked()
             {
                 self.commit_all_dirty_cycles(async_ctx);
-                let sender = self.task_done_sender.clone();
-                let result_slot = self.load_result.clone();
+                let sender = self.load_state.done_sender.clone();
+                let result_slot = self.load_state.result.clone();
                 let start_date = self.start_date;
                 let end_date = self.end_date;
                 let project = self.get_project().clone();

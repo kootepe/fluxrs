@@ -18,10 +18,8 @@ impl FluxApp {
 }
 impl eframe::App for FluxApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // self.apply_font_size(ctx, self.main_app.validation_panel.font_size);
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
-                // font_id.size = self.validation_panel.font_size;
                 font_id.family = FontFamily::Monospace;
             }
             egui::menu::bar(ui, |ui| {
@@ -101,6 +99,6 @@ impl eframe::App for FluxApp {
         self.main_app.validation_panel.commit_all_dirty_cycles(&self.async_ctx); // <-- do cleanup here
         let app = &self.main_app.validation_panel;
         let path = Path::new("app_state.json");
-        save_app_state(app, path);
+        let _ = save_app_state(app, path);
     }
 }
