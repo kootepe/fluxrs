@@ -113,7 +113,6 @@ impl Config {
             min_calc_len: p.min_calc_len,
             mode: p.mode,
             tz: p.tz,
-            upload_from: None,
         };
 
         // Project::save expects Option<String> for db path in your API
@@ -180,8 +179,11 @@ impl Config {
         self.progress_receiver = Some(progress_receiver);
 
         let sender_clone = progress_sender.clone();
+        let instrument = project.instrument.model;
         match u.file_type {
-            DataType::Gas => upload_gas_data_async(files, &mut conn, &project, tz, sender_clone),
+            DataType::Gas => {
+                upload_gas_data_async(files, &mut conn, &project, &instrument, tz, sender_clone)
+            },
             DataType::Cycle => {
                 upload_cycle_data_async(files, &mut conn, &project, tz, sender_clone)
             },

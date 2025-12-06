@@ -9,8 +9,9 @@ use fluxrs_core::data_formats::meteodata::upload_meteo_data_async;
 use fluxrs_core::data_formats::timedata::upload_cycle_data_async;
 use fluxrs_core::datatype::DataType;
 use fluxrs_core::instruments::instruments::upload_gas_data_async;
+use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::instruments::instruments::InstrumentType;
-use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
+use fluxrs_core::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use fluxrs_core::project::Project;
 use rusqlite::Connection;
 
@@ -28,6 +29,8 @@ pub struct FileApp {
     pub open_file_dialog: Option<FileDialog>,
     pub initial_path: Option<PathBuf>,
     pub selected_data_type: Option<DataType>,
+    pub selected_instrument: Option<InstrumentType>,
+    pub reading_in_progress: bool,
 
     pub tz_prompt_open: bool,
     pub tz_state: TimezonePickerState,
@@ -47,6 +50,8 @@ impl FileApp {
             open_file_dialog: None,
             initial_path: Some(env::current_dir().unwrap_or_else(|_| PathBuf::from("."))),
             selected_data_type: None,
+            selected_instrument: None,
+            reading_in_progress: false,
 
             tz_prompt_open: false,
             tz_state: TimezonePickerState::default(),
@@ -57,46 +62,44 @@ impl FileApp {
         &mut self,
         ui: &mut Ui,
         ctx: &Context,
-        init_enabled: bool,
-        init_in_progress: &mut bool,
-        selected_project: &mut Option<Project>,
-        log_messages: &mut VecDeque<RichText>,
         async_ctx: &mut AsyncCtx,
+        selected_project: &Option<Project>,
+        log_msgs: &mut VecDeque<RichText>,
     ) {
         if selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
 
-        if *init_in_progress || !init_enabled {
+        if self.reading_in_progress {
             ui.add(egui::Spinner::new());
             ui.label("Reading files.");
         }
 
         let mut gas_btn_text = "Select Analyzer Files".to_owned();
 
-        if let Some(project) = selected_project.as_mut() {
-            project.upload_from = Some(project.upload_from.unwrap_or(project.instrument.model));
-            let current_value = project.upload_from.unwrap();
-            if self.tz_state.selected.is_none() {
-                self.tz_state.selected = Some(project.tz)
+        if let Some(project) = selected_project {
+            // Pick default instrument only once
+            if self.selected_instrument.is_none() {
+                self.selected_instrument = Some(project.instrument.model);
             }
+            let current = self.selected_instrument.unwrap();
 
-            egui::ComboBox::from_label("Instrument")
-                .selected_text(current_value.to_string())
-                .show_ui(ui, |ui| {
+            egui::ComboBox::from_label("Instrument").selected_text(current.to_string()).show_ui(
+                ui,
+                |ui| {
                     for instrument in InstrumentType::available_instruments() {
-                        let selected = Some(instrument) == project.upload_from;
+                        let selected = Some(instrument) == self.selected_instrument;
                         if ui.selectable_label(selected, instrument.to_string()).clicked() {
-                            project.upload_from = Some(instrument);
+                            self.selected_instrument = Some(instrument);
                         }
                     }
-                });
-
-            gas_btn_text = format!("Select {} Files", &current_value);
+                },
+            );
+            gas_btn_text = format!("Select {} Files", current);
         }
 
-        let btns_enabled = init_enabled && !*init_in_progress;
+        let btns_enabled = !self.reading_in_progress;
         ui.add_enabled(btns_enabled, |ui: &mut egui::Ui| {
             ui.horizontal(|ui| {
                 if ui.button(&gas_btn_text).clicked() {
@@ -123,8 +126,8 @@ impl FileApp {
             .response
         });
 
-        self.handle_file_selection(ctx, log_messages, selected_project);
-        self.start_processing_if_ready(selected_project, log_messages, init_in_progress, async_ctx);
+        self.handle_file_selection(ctx, log_msgs, selected_project);
+        self.start_processing_if_ready(selected_project, log_msgs, async_ctx);
         self.show_timezone_prompt(ctx);
     }
 
@@ -144,7 +147,7 @@ impl FileApp {
         &mut self,
         ctx: &Context,
         log_messages: &mut VecDeque<RichText>,
-        project: &mut Option<Project>,
+        project: &Option<Project>,
     ) {
         if let Some(dialog) = &mut self.open_file_dialog {
             dialog.show(ctx);
@@ -158,7 +161,10 @@ impl FileApp {
                         self.opened_files = Some(selected_paths.clone());
 
                         // Only open the timezone prompt if we actually need it
-                        if !self.current_gas_instrument_has_tz(project) {
+                        let instrument = self
+                            .selected_instrument
+                            .unwrap_or(project.as_ref().unwrap().instrument.model);
+                        if !self.current_gas_instrument_has_tz(&instrument) {
                             // non-gas OR gas instrument without its own TZ
                             self.tz_prompt_open = true;
                             self.tz_state.focus_search_once = true;
@@ -184,16 +190,18 @@ impl FileApp {
     }
 
     pub fn process_files_async(
-        &self,
+        &mut self,
         path_list: Vec<PathBuf>,
         data_type: Option<DataType>,
         project: &Project,
+        instrument: &InstrumentType,
         tz: Tz,
         log_messages: Arc<Mutex<VecDeque<RichText>>>,
         async_ctx: &AsyncCtx,
     ) {
         let log_messages_clone = Arc::clone(&log_messages);
         let project_clone = project.clone();
+        let instrument_clone = *instrument;
 
         // Clone what we need to move into the async task
         let sender = async_ctx.prog_sender.clone();
@@ -208,21 +216,20 @@ impl FileApp {
                 tokio::task::spawn_blocking(move || match Connection::open("fluxrs.db") {
                     Ok(mut conn) => {
                         if let Some(data_type) = data_type {
+                            let _ = blocking_sender
+                                .send(ProcessEvent::Progress(ProgressEvent::DisableUI));
+                            let _ =
+                                blocking_sender.send(ProcessEvent::Query(QueryEvent::InitStarted));
                             match data_type {
-                                DataType::Gas => {
-                                    let _ = blocking_sender
-                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
-                                    upload_gas_data_async(
-                                        path_list,
-                                        &mut conn,
-                                        &project_clone,
-                                        tz,
-                                        blocking_sender.clone(),
-                                    )
-                                },
+                                DataType::Gas => upload_gas_data_async(
+                                    path_list,
+                                    &mut conn,
+                                    &project_clone,
+                                    &instrument_clone,
+                                    tz,
+                                    blocking_sender.clone(),
+                                ),
                                 DataType::Cycle => {
-                                    let _ = blocking_sender
-                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
                                     upload_cycle_data_async(
                                         path_list,
                                         &mut conn,
@@ -231,39 +238,27 @@ impl FileApp {
                                         blocking_sender.clone(),
                                     );
                                 },
-                                DataType::Meteo => {
-                                    let _ = blocking_sender
-                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
-                                    upload_meteo_data_async(
-                                        path_list,
-                                        &mut conn,
-                                        &project_clone,
-                                        tz,
-                                        blocking_sender.clone(),
-                                    )
-                                },
-                                DataType::Height => {
-                                    let _ = blocking_sender
-                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
-                                    upload_height_data_async(
-                                        path_list,
-                                        &mut conn,
-                                        &project_clone,
-                                        tz,
-                                        blocking_sender.clone(),
-                                    )
-                                },
-                                DataType::Chamber => {
-                                    let _ = blocking_sender
-                                        .send(ProcessEvent::Query(QueryEvent::InitStarted));
-                                    upload_chamber_metadata_async(
-                                        path_list,
-                                        &mut conn,
-                                        &project_clone,
-                                        tz,
-                                        blocking_sender.clone(),
-                                    )
-                                },
+                                DataType::Meteo => upload_meteo_data_async(
+                                    path_list,
+                                    &mut conn,
+                                    &project_clone,
+                                    tz,
+                                    blocking_sender.clone(),
+                                ),
+                                DataType::Height => upload_height_data_async(
+                                    path_list,
+                                    &mut conn,
+                                    &project_clone,
+                                    tz,
+                                    blocking_sender.clone(),
+                                ),
+                                DataType::Chamber => upload_chamber_metadata_async(
+                                    path_list,
+                                    &mut conn,
+                                    &project_clone,
+                                    tz,
+                                    blocking_sender.clone(),
+                                ),
                             }
                         }
                     },
@@ -278,83 +273,101 @@ impl FileApp {
                 let mut logs = log_messages_clone.lock().unwrap();
                 logs.push_front(format!("Join error: {e}").into());
             }
+            let _ = sender.send(ProcessEvent::Progress(ProgressEvent::EnableUI));
         });
     }
 
     // Check that current datatype is gas and then check if the current
     // instrument has has_tz as true. If both are true, returns true and tz_prompt will not prompt.
-    fn current_gas_instrument_has_tz(&self, project: &mut Option<Project>) -> bool {
+    fn current_gas_instrument_has_tz(&self, instrument: &InstrumentType) -> bool {
         let is_gas = self.selected_data_type == Some(DataType::Gas);
         if !is_gas {
             return false;
         }
 
-        project
-            .as_ref()
-            .and_then(|p| p.upload_from)
-            .map(|instrument| instrument.get_config().has_tz)
-            .unwrap_or(false)
+        instrument.get_config().has_tz
     }
 
     fn start_processing_if_ready(
         &mut self,
         selected_project: &Option<Project>,
         log_messages: &mut VecDeque<RichText>,
-        init_in_progress: &mut bool,
         async_ctx: &mut AsyncCtx,
     ) {
-        if *init_in_progress {
+        // Don't start a new job if one is already running
+        if self.reading_in_progress {
             return;
         }
 
+        // Wait until the timezone dialog is closed
         if self.tz_prompt_open {
             return;
         }
 
+        // We need files selected
         let Some(paths) = self.opened_files.clone() else {
             return;
         };
 
+        // And a project selected
         let Some(project) = selected_project.clone() else {
             return;
         };
 
-        let has_instrument_tz =
-            FileApp::project_gas_instrument_has_tz(selected_project, self.selected_data_type);
+        // Determine which instrument we're uploading for:
+        // use the UI-selected one or fall back to the project's main instrument.
+        let instrument = self.selected_instrument.unwrap_or(project.instrument.model);
 
+        // Only gas data cares about the instrument's `has_tz` flag
+        let has_instrument_tz =
+            self.selected_data_type == Some(DataType::Gas) && instrument.get_config().has_tz;
+
+        // Resolve timezone:
+        // - if instrument has its own TZ info, we just need a fallback (default UTC)
+        // - otherwise we *must* have a user-provided TZ (open dialog if missing)
         let tz = if has_instrument_tz {
             self.tz_for_files.unwrap_or(UTC)
         } else {
             match self.tz_for_files {
                 Some(t) => t,
                 None => {
+                    // Ask the user to pick a timezone
                     self.tz_prompt_open = true;
+                    self.tz_state.focus_search_once = true;
                     return;
                 },
             }
         };
 
+        // Clone log messages into an Arc<Mutex<..>> for the async task
         let arc_msgs = Arc::new(Mutex::new(log_messages.clone()));
 
-        *init_in_progress = true;
+        self.reading_in_progress = true;
+        let _ = async_ctx
+            .prog_sender
+            .send(ProcessEvent::Progress(fluxrs_core::processevent::ProgressEvent::EnableUI));
 
-        self.process_files_async(paths, self.selected_data_type, &project, tz, arc_msgs, async_ctx);
+        // Note: process_files_async signature now includes `instrument`
+        self.process_files_async(
+            paths,
+            self.selected_data_type,
+            &project,
+            &instrument,
+            tz,
+            arc_msgs,
+            async_ctx,
+        );
 
+        // Clear selected files so we don't re-process them
         self.opened_files = None;
     }
-    fn project_gas_instrument_has_tz(
-        selected_project: &Option<Project>,
-        dt: Option<DataType>,
-    ) -> bool {
+
+    fn project_gas_instrument_has_tz(instrument: &Instrument, dt: Option<DataType>) -> bool {
         if dt != Some(DataType::Gas) {
             return false;
         }
 
-        selected_project
-            .as_ref()
-            .and_then(|p| p.upload_from)
-            .map(|instrument| instrument.get_config().has_tz)
-            .unwrap_or(false)
+        instrument.model.get_config().has_tz
     }
 
     pub fn show_timezone_prompt(&mut self, ctx: &egui::Context) {

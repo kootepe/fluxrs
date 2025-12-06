@@ -1,4 +1,5 @@
 use super::download_app::DownloadApp;
+use super::file_app::FileApp;
 use super::manage_proj::ProjectApp;
 use super::table_app::TableApp;
 use super::validation_app::{AsyncCtx, ValidationApp};
@@ -48,12 +49,14 @@ pub struct MainApp {
     switching_allowed: bool,
     pub log_messages: VecDeque<RichText>,
     app_state_loaded: bool,
+    pub selected_project: Option<Project>,
     pub font_size: f32,
     live_panel: Panel,
     pub validation_panel: ValidationApp,
     table_panel: TableApp,
     dl_panel: DownloadApp,
     proj_panel: ProjectApp,
+    file_panel: FileApp,
     empty_panel: EmptyPanel,
 }
 
@@ -75,20 +78,22 @@ impl MainApp {
 
         self.handle_progress_messages(async_ctx);
 
-        // this block would be better in MainApp or FluxApp
+        // NOTE: this block would be better in MainApp or FluxApp
+        // project should exist when app is in validation panel, it doesnt need to be option
         if self.validation_panel.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
-            self.validation_panel.selected_project = self.proj_panel.project.clone();
-            if self.validation_panel.selected_project.is_some() {
-                self.validation_panel.tz_state.query =
-                    self.validation_panel.selected_project.clone().unwrap().tz.to_string();
-                self.validation_panel.tz_state.selected =
-                    Some(self.validation_panel.selected_project.clone().unwrap().tz);
-                self.validation_panel.tz_for_files =
-                    Some(self.validation_panel.selected_project.clone().unwrap().tz);
+            self.selected_project = self.proj_panel.project.clone();
 
-                let user_tz = self.validation_panel.selected_project.clone().unwrap_or_default().tz;
+            if self.selected_project.is_some() {
+                // set the preselected timezone to show in dropdown
+                self.file_panel.tz_state.query =
+                    self.selected_project.clone().unwrap().tz.to_string();
+                self.file_panel.tz_state.selected = Some(self.selected_project.clone().unwrap().tz);
+                self.file_panel.tz_for_files = Some(self.selected_project.clone().unwrap().tz);
+
+                let user_tz = self.selected_project.clone().unwrap_or_default().tz;
                 if !self.app_state_loaded {
+                    // move this block into a function in ValidationApp
                     if let Ok(app) = load_app_state(Path::new("app_state.json")) {
                         println!("Reload app state");
                         self.validation_panel.start_date = app.start_date.with_timezone(&user_tz);
@@ -193,7 +198,7 @@ impl MainApp {
                 self.log_display(ui);
             },
             Panel::FileInit => {
-                self.validation_panel.file_ui(ui, ctx, async_ctx, log_msgs);
+                self.file_panel.ui(ui, ctx, async_ctx, &project, log_msgs);
                 self.log_display(ui);
             },
             Panel::DataTable => {
