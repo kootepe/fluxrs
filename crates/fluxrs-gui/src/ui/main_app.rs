@@ -3,7 +3,7 @@ use super::manage_proj::ProjectApp;
 use super::table_app::TableApp;
 use super::validation_app::{AsyncCtx, ValidationApp};
 use crate::appview::AppState;
-use crate::keybinds::{Action, KeyBind, KeyBindings};
+use crate::keybinds::{self, Action, KeyBind, KeyBindings};
 use crate::utils::{bad_message, good_message, warn_message};
 use egui::{FontFamily, RichText, ScrollArea, Separator, WidgetInfo, WidgetType};
 use fluxrs_core::datatype::DataType;
@@ -57,7 +57,13 @@ pub struct MainApp {
 }
 
 impl MainApp {
-    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, async_ctx: &mut AsyncCtx) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        async_ctx: &mut AsyncCtx,
+        keybinds: &KeyBindings,
+    ) {
         self.apply_font_size(ctx, self.validation_panel.font_size);
         for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
             font_id.family = FontFamily::Monospace;
@@ -68,8 +74,6 @@ impl MainApp {
         if self.validation_panel.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
             self.validation_panel.selected_project = self.proj_panel.project.clone();
-            self.validation_panel.keybinds =
-                KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
             if self.validation_panel.selected_project.is_some() {
                 self.validation_panel.tz_state.query =
                     self.validation_panel.selected_project.clone().unwrap().tz.to_string();
@@ -173,7 +177,7 @@ impl MainApp {
         let log_msgs = &mut self.log_messages;
         match self.live_panel {
             Panel::Validation => {
-                self.validation_panel.ui(ui, ctx, async_ctx);
+                self.validation_panel.ui(ui, ctx, async_ctx, keybinds);
             },
             Panel::DataLoad => {
                 self.validation_panel.load_ui(ui, ctx, async_ctx, log_msgs);
@@ -199,7 +203,12 @@ impl MainApp {
         }
         self.handle_progress_messages(async_ctx);
     }
-    pub fn settings_ui(&mut self, ctx: &egui::Context, async_ctx: &AsyncCtx) {
+    pub fn settings_ui(
+        &mut self,
+        ctx: &egui::Context,
+        async_ctx: &AsyncCtx,
+        keybinds: &mut KeyBindings,
+    ) {
         egui::SidePanel::right("Settings panel").show(ctx, |ui| {
         ScrollArea::vertical().show(ui, |ui| {
 
@@ -300,12 +309,12 @@ impl MainApp {
                         ui.end_row();
         });
             ui.separator();
-            self.keybinding_settings_ui(ui);
+            self.keybinding_settings_ui(ui, keybinds);
                 });
         });
     }
 
-    fn keybinding_settings_ui(&mut self, ui: &mut egui::Ui) {
+    fn keybinding_settings_ui(&mut self, ui: &mut egui::Ui, keybinds: &mut KeyBindings) {
         ui.group(|ui| {
             ui.label("Keybinds");
             ui.label("Press rebind and hit key to set keybind");
@@ -344,36 +353,34 @@ impl MainApp {
                     Action::ToggleShowLag,
                 ] {
                     let mut rebind_text = "Rebind";
-                    if let Some(pending) = self.validation_panel.awaiting_rebind {
+                    if let Some(pending) = keybinds.awaiting_rebind {
                         if pending == action {
                             rebind_text = "Press key to rebind";
                         }
                     }
                     ui.label(format!("{}:", action));
-                    if let Some(key) = self.validation_panel.keybinds.key_for(action) {
+                    if let Some(key) = keybinds.key_for(action) {
                         ui.label(format!("{}", key));
                     } else {
                         ui.label("Unbound");
                     }
 
                     if ui.button(rebind_text).clicked() {
-                        self.validation_panel.awaiting_rebind = Some(action);
+                        keybinds.awaiting_rebind = Some(action);
                     }
-                    if self.validation_panel.keybinds.key_for(action).is_some()
-                        && ui.button("Unbind").clicked()
-                    {
-                        self.validation_panel.keybinds.remove(&action);
-                        self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
-                        self.validation_panel.awaiting_rebind = None;
+                    if keybinds.key_for(action).is_some() && ui.button("Unbind").clicked() {
+                        keybinds.remove(&action);
+                        keybinds.save_to_file("keybinds.json").ok();
+                        keybinds.awaiting_rebind = None;
                     }
                     ui.end_row();
                 }
             });
         });
 
-        if let Some(action) = self.validation_panel.awaiting_rebind {
+        if let Some(action) = keybinds.awaiting_rebind {
             // if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            //     self.validation_panel.awaiting_rebind = None; // cancel
+            //     awaiting_rebind = None; // cancel
             // } else {
             if let Some((key, modifiers)) = ui.input(|i| {
                 i.raw.events.iter().find_map(|event| {
@@ -394,9 +401,9 @@ impl MainApp {
                     shift: modifiers.shift,
                     alt: modifiers.alt,
                 };
-                self.validation_panel.keybinds.set(action, keybind);
-                self.validation_panel.keybinds.save_to_file("keybinds.json").ok();
-                self.validation_panel.awaiting_rebind = None;
+                keybinds.set(action, keybind);
+                keybinds.save_to_file("keybinds.json").ok();
+                keybinds.awaiting_rebind = None;
             }
         }
     }

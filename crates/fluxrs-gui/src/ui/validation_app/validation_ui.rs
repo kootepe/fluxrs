@@ -157,8 +157,6 @@ pub struct ValidationApp {
     pub calc_area_color: Color32,
     pub calc_area_adjust_color: Color32,
     pub calc_area_stroke_color: Color32,
-    pub keybinds: KeyBindings,
-    pub awaiting_rebind: Option<Action>,
     pub show_cycle_details: bool,
     pub show_residuals: bool,
     pub show_standardized_residuals: bool,
@@ -213,8 +211,6 @@ impl Default for ValidationApp {
             calc_area_color: Color32::BLACK,
             calc_area_adjust_color: Color32::BLACK,
             calc_area_stroke_color: Color32::BLACK,
-            keybinds: KeyBindings::default(),
-            awaiting_rebind: None,
             show_residuals: false,
             show_standardized_residuals: false,
             show_lag_plot: true,
@@ -236,7 +232,13 @@ impl Default for ValidationApp {
     }
 }
 impl ValidationApp {
-    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, async_ctx: &mut AsyncCtx) {
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        async_ctx: &mut AsyncCtx,
+        keybinds: &KeyBindings,
+    ) {
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
@@ -406,60 +408,60 @@ impl ValidationApp {
 
         if !ui.ctx().wants_keyboard_input() {
             ui.input(|i| {
-                if self.keybinds.action_triggered(Action::ToggleShowInvalids, i) {
+                if keybinds.action_triggered(Action::ToggleShowInvalids, i) {
                     self.toggler.show_invalids = !self.toggler.show_invalids;
                     show_invalids_clicked = true;
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowValids, i) {
+                if keybinds.action_triggered(Action::ToggleShowValids, i) {
                     self.toggler.show_valids = !self.toggler.show_valids;
                     show_valids_clicked = true;
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowBad, i) {
+                if keybinds.action_triggered(Action::ToggleShowBad, i) {
                     self.toggler.show_bad = !self.toggler.show_bad;
                     show_bad = true;
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowLegend, i) {
+                if keybinds.action_triggered(Action::ToggleShowLegend, i) {
                     self.show_legend = !self.show_legend;
                 }
-                if self.keybinds.action_triggered(Action::ToggleValidity, i) {
+                if keybinds.action_triggered(Action::ToggleValidity, i) {
                     toggle_valid = true;
                 }
-                if self.keybinds.action_triggered(Action::NextCycle, i) {
+                if keybinds.action_triggered(Action::NextCycle, i) {
                     next_clicked = true;
                 }
-                if self.keybinds.action_triggered(Action::PreviousCycle, i) {
+                if keybinds.action_triggered(Action::PreviousCycle, i) {
                     prev_clicked = true;
                 }
-                if self.keybinds.action_triggered(Action::ToggleBad, i) {
+                if keybinds.action_triggered(Action::ToggleBad, i) {
                     mark_bad = true;
                 }
-                if self.keybinds.action_triggered(Action::TogglePlotWidthsWindow, i) {
+                if keybinds.action_triggered(Action::TogglePlotWidthsWindow, i) {
                     self.show_plot_widths = !self.show_plot_widths;
                 }
-                if self.keybinds.action_triggered(Action::ZoomToMeasurement, i) {
+                if keybinds.action_triggered(Action::ZoomToMeasurement, i) {
                     if self.zoom_to_measurement == 2 {
                         self.zoom_to_measurement = 0
                     } else {
                         self.zoom_to_measurement += 1;
                     }
                 }
-                if self.keybinds.action_triggered(Action::ResetCycle, i) {
+                if keybinds.action_triggered(Action::ResetCycle, i) {
                     reset_cycle = true;
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowDetails, i) {
+                if keybinds.action_triggered(Action::ToggleShowDetails, i) {
                     self.show_cycle_details = !self.show_cycle_details
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowResiduals, i) {
+                if keybinds.action_triggered(Action::ToggleShowResiduals, i) {
                     self.show_residuals = !self.show_residuals
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowLag, i) {
+                if keybinds.action_triggered(Action::ToggleShowLag, i) {
                     self.show_lag_plot = !self.show_lag_plot
                 }
-                if self.keybinds.action_triggered(Action::ToggleShowStandResiduals, i) {
+                if keybinds.action_triggered(Action::ToggleShowStandResiduals, i) {
                     self.show_standardized_residuals = !self.show_standardized_residuals
                 }
 
-                if self.keybinds.action_triggered(Action::ToggleCH4Validity, i) {
+                if keybinds.action_triggered(Action::ToggleCH4Validity, i) {
                     if let Some(current_cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles)
                     {
                         for ((g, _), record) in current_cycle.fluxes.iter_mut() {
@@ -470,7 +472,7 @@ impl ValidationApp {
                         self.mark_dirty();
                     }
                 }
-                if self.keybinds.action_triggered(Action::IncrementDeadband, i) {
+                if keybinds.action_triggered(Action::IncrementDeadband, i) {
                     self.mark_dirty();
                     if self.keep_calc_constant_deadband {
                         self.increment_deadband_constant_calc(1.);
@@ -479,7 +481,7 @@ impl ValidationApp {
                     }
                     self.update_plots(&async_ctx);
                 }
-                if self.keybinds.action_triggered(Action::DecrementDeadband, i) {
+                if keybinds.action_triggered(Action::DecrementDeadband, i) {
                     self.mark_dirty();
                     if self.keep_calc_constant_deadband {
                         self.increment_deadband_constant_calc(-1.);
@@ -488,7 +490,7 @@ impl ValidationApp {
                     }
                     self.update_plots(&async_ctx);
                 }
-                if self.keybinds.action_triggered(Action::DecrementLag, i) {
+                if keybinds.action_triggered(Action::DecrementLag, i) {
                     self.mark_dirty();
                     let delta = -1.0;
 
@@ -509,7 +511,7 @@ impl ValidationApp {
                 }
 
                 // BUG: calc area doesnt stick to deadband when incrementing
-                if self.keybinds.action_triggered(Action::IncrementLag, i) {
+                if keybinds.action_triggered(Action::IncrementLag, i) {
                     self.mark_dirty();
                     let delta = 1.0;
 
@@ -530,7 +532,7 @@ impl ValidationApp {
                     self.update_plots(&async_ctx);
                 }
 
-                if self.keybinds.action_triggered(Action::SearchLag, i) {
+                if keybinds.action_triggered(Action::SearchLag, i) {
                     self.mark_dirty();
                     if let Some(cycle) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
                         cycle.search_new_open_lag(&GasKey::from((
@@ -540,7 +542,7 @@ impl ValidationApp {
                         self.update_plots(&async_ctx);
                     }
                 }
-                if self.keybinds.action_triggered(Action::SearchLagPrevious, i) {
+                if keybinds.action_triggered(Action::SearchLagPrevious, i) {
                     if let Some(current_visible_idx) = self.cycle_nav.current_index() {
                         if current_visible_idx > 0 {
                             let chamber_id = self.cycles[current_visible_idx].chamber_id.clone();

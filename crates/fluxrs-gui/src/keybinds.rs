@@ -96,6 +96,8 @@ impl fmt::Display for Action {
 #[derive(Serialize, Deserialize)]
 pub struct KeyBindings {
     bindings: HashMap<Action, KeyBind>,
+    #[serde(skip)]
+    pub awaiting_rebind: Option<Action>,
 }
 
 impl Default for KeyBindings {
@@ -122,9 +124,10 @@ impl Default for KeyBindings {
         bindings.insert(Action::ToggleShowLag, no_mods(F5));
         bindings
             .insert(Action::SearchLag, KeyBind { key: L, ctrl: true, shift: false, alt: false });
-        Self { bindings }
+        Self { bindings, awaiting_rebind: None }
     }
 }
+
 impl KeyBindings {
     pub fn set(&mut self, action: Action, new_bind: KeyBind) {
         self.bindings.retain(|_, &mut k| k != new_bind);

@@ -1,5 +1,6 @@
 use super::validation_app::AsyncCtx;
 use crate::keybinds::Action;
+use crate::keybinds::KeyBindings;
 use crate::ui::main_app::save_app_state;
 use crate::ui::main_app::MainApp;
 use egui::FontFamily;
@@ -10,10 +11,12 @@ pub struct FluxApp {
     pub main_app: MainApp,
     pub show_settings: bool,
     pub async_ctx: AsyncCtx,
+    pub keybinds: KeyBindings,
 }
 impl FluxApp {
     pub fn new() -> Self {
-        Default::default()
+        let keybinds = KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
+        Self { keybinds, ..Default::default() }
     }
 }
 impl eframe::App for FluxApp {
@@ -28,15 +31,11 @@ impl eframe::App for FluxApp {
                 ui.add_space(16.0);
 
                 ui.input(|i| {
-                    if self
-                        .main_app
-                        .validation_panel
-                        .keybinds
-                        .action_triggered(Action::ToggleShowSettings, i)
-                    {
+                    if self.keybinds.action_triggered(Action::ToggleShowSettings, i) {
                         self.show_settings = !self.show_settings;
                     }
                 });
+
                 if self.show_settings {
                     ui.toggle_value(&mut self.show_settings, "Hide settings");
                 } else {
@@ -89,10 +88,10 @@ impl eframe::App for FluxApp {
         });
 
         if self.show_settings {
-            self.main_app.settings_ui(ctx, &self.async_ctx);
+            self.main_app.settings_ui(ctx, &self.async_ctx, &mut self.keybinds);
         }
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.main_app.ui(ui, ctx, &mut self.async_ctx);
+            self.main_app.ui(ui, ctx, &mut self.async_ctx, &self.keybinds);
         });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
