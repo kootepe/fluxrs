@@ -505,61 +505,43 @@ pub fn upload_gas_data_async(
     selected_paths: Vec<PathBuf>,
     conn: &mut Connection,
     project: &Project,
+    instrument: &InstrumentType,
     tz: Tz,
     progress_sender: mpsc::UnboundedSender<ProcessEvent>,
 ) {
     for path in &selected_paths {
-        let mut instrument = match project.instrument.model {
-            InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
-            InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
-        };
-        if let Some(upload_type) = project.upload_from {
-            instrument = match upload_type {
-                InstrumentType::LI7810 => Some(InstrumentConfig::li7810()),
-                InstrumentType::LI7820 => Some(InstrumentConfig::li7820()),
-            };
-        }
-        if let Some(ref mut inst) = instrument {
-            match inst.read_data_file(path) {
-                Ok(data) => {
-                    // inst.serial = Some(data.instrument.serial.clone());
-                    if data.validate_lengths() {
-                        let _rows = data.datetime.len();
-                        let project_id = project.id.unwrap();
+        match instrument.get_config().read_data_file(path) {
+            Ok(data) => {
+                // inst.serial = Some(data.instrument.serial.clone());
+                if data.validate_lengths() {
+                    let _rows = data.datetime.len();
+                    let project_id = project.id.unwrap();
 
-                        let file_name = match path.file_name().and_then(|n| n.to_str()) {
-                            Some(name) => name,
-                            None => {
-                                eprintln!("Skipping path with invalid filename: {:?}", path);
-                                // Optionally notify UI:
-                                let _ =
-                                    progress_sender.send(ProcessEvent::Read(ReadEvent::gas_fail(
-                                        path.to_string_lossy().to_string(),
-                                        "Invalid file name (non-UTF8)".to_string(),
-                                    )));
-                                return (); // or `continue` if this is in a loop
-                            },
-                        };
-                        let tx = match conn.transaction() {
-                            Ok(tx) => tx,
-                            Err(e) => {
-                                eprintln!("Failed to start transaction: {}", e);
-                                let _ = progress_sender.send(ProcessEvent::Insert(
-                                    InsertEvent::Fail(format!(
-                                        "Could not start transaction for '{}': {}",
-                                        file_name, e
-                                    )),
-                                ));
-                                continue;
-                            },
-                        };
-                        let mut file_exists = None;
-                        let file_id = match get_or_insert_data_file(
-                            &tx,
-                            DataType::Gas,
-                            file_name,
-                            project_id,
-                        ) {
+                    let file_name = match path.file_name().and_then(|n| n.to_str()) {
+                        Some(name) => name,
+                        None => {
+                            eprintln!("Skipping path with invalid filename: {:?}", path);
+                            // Optionally notify UI:
+                            let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::gas_fail(
+                                path.to_string_lossy().to_string(),
+                                "Invalid file name (non-UTF8)".to_string(),
+                            )));
+                            return (); // or `continue` if this is in a loop
+                        },
+                    };
+                    let tx = match conn.transaction() {
+                        Ok(tx) => tx,
+                        Err(e) => {
+                            eprintln!("Failed to start transaction: {}", e);
+                            let _ = progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
+                                format!("Could not start transaction for '{}': {}", file_name, e),
+                            )));
+                            continue;
+                        },
+                    };
+                    let mut file_exists = None;
+                    let file_id =
+                        match get_or_insert_data_file(&tx, DataType::Gas, file_name, project_id) {
                             Ok(id) => id,
                             Err(DataFileError::FileAlreadyExists(id)) => {
                                 file_exists = Some(id);
@@ -575,49 +557,44 @@ pub fn upload_gas_data_async(
                             },
                         };
 
-                        match insert_measurements(&tx, &data, project, &file_id) {
-                            Ok((inserts, skips)) => {
-                                touch_if_exists_updated(file_exists, inserts, &tx);
-                                let _ = progress_sender.send(ProcessEvent::Insert(
-                                    InsertEvent::gas_okskip(inserts, skips),
-                                ));
-                                let _ = progress_sender.send(ProcessEvent::Read(
-                                    ReadEvent::FileDetail(
-                                        path.to_string_lossy().to_string(),
-                                        format!("from {}", instrument.unwrap()),
-                                    ),
-                                ));
-                                if let Err(e) = tx.commit() {
-                                    eprintln!(
-                                        "Failed to commit transaction for '{}': {}",
-                                        file_name, e
-                                    );
-                                    let _ = progress_sender.send(ProcessEvent::Insert(
-                                        InsertEvent::Fail(format!(
-                                            "Commit failed for file '{}': {}",
-                                            file_name, e
-                                        )),
-                                    ));
-                                    // no commit = rollback
-                                    continue;
-                                }
-                            },
-                            Err(e) => {
-                                println!("{}", e);
-                                let _ = progress_sender.send(ProcessEvent::Insert(
-                                    InsertEvent::Fail(format!("{}", e)),
-                                ));
-                            },
-                        }
+                    match insert_measurements(&tx, &data, project, &file_id) {
+                        Ok((inserts, skips)) => {
+                            touch_if_exists_updated(file_exists, inserts, &tx);
+                            let _ = progress_sender.send(ProcessEvent::Insert(
+                                InsertEvent::gas_okskip(inserts, skips),
+                            ));
+                            let _ =
+                                progress_sender.send(ProcessEvent::Read(ReadEvent::FileDetail(
+                                    path.to_string_lossy().to_string(),
+                                    format!("from {}", instrument),
+                                )));
+                            if let Err(e) = tx.commit() {
+                                eprintln!(
+                                    "Failed to commit transaction for '{}': {}",
+                                    file_name, e
+                                );
+                                let _ =
+                                    progress_sender.send(ProcessEvent::Insert(InsertEvent::Fail(
+                                        format!("Commit failed for file '{}': {}", file_name, e),
+                                    )));
+                                // no commit = rollback
+                                continue;
+                            }
+                        },
+                        Err(e) => {
+                            println!("{}", e);
+                            let _ = progress_sender
+                                .send(ProcessEvent::Insert(InsertEvent::Fail(format!("{}", e))));
+                        },
                     }
-                },
-                Err(e) => {
-                    let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::meteo_fail(
-                        path.to_str().unwrap().to_owned(),
-                        e.to_string(),
-                    )));
-                },
-            }
+                }
+            },
+            Err(e) => {
+                let _ = progress_sender.send(ProcessEvent::Read(ReadEvent::gas_fail(
+                    path.to_str().unwrap().to_owned(),
+                    e.to_string(),
+                )));
+            },
         }
     }
     let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
