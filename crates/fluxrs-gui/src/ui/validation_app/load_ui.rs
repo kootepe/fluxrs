@@ -108,6 +108,5 @@ impl ValidationApp {
                 ui.label("Start date can't be later then end date");
             }
         }
-        self.log_display(ui, log_msgs);
     }
 }

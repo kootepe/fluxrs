@@ -186,12 +186,15 @@ impl MainApp {
             },
             Panel::DataLoad => {
                 self.validation_panel.load_ui(ui, ctx, async_ctx, log_msgs);
+                self.log_display(ui);
             },
             Panel::DataInit => {
                 self.validation_panel.init_ui(ui, ctx, async_ctx, log_msgs);
+                self.log_display(ui);
             },
             Panel::FileInit => {
                 self.validation_panel.file_ui(ui, ctx, async_ctx, log_msgs);
+                self.log_display(ui);
             },
             Panel::DataTable => {
                 self.table_panel.table_ui(ui, ctx, project);
@@ -207,6 +210,19 @@ impl MainApp {
             },
         }
         // self.handle_progress_messages(async_ctx);
+    }
+
+    pub fn log_display(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        if ui.button("Clear Log").clicked() {
+            self.log_messages.clear();
+        }
+        ui.label("**Log Messages:**");
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for message in &self.log_messages {
+                ui.label(message.clone());
+            }
+        });
     }
     pub fn settings_ui(
         &mut self,

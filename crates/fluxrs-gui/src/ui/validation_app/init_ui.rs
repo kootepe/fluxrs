@@ -44,7 +44,6 @@ impl ValidationApp {
             } else {
                 ui.label("Processing cycles...");
             }
-            self.log_display(ui, log_msgs);
             return;
         }
 
@@ -176,6 +175,5 @@ impl ValidationApp {
         });
 
         // Display log messages
-        self.log_display(ui, log_msgs);
     }
 }

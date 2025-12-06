@@ -1910,30 +1910,9 @@ impl ValidationApp {
     ) {
         // whatever you already had here
 
-        self.file_app.ui(
-            ui,
-            ctx,
-            self.init_enabled,
-            &mut self.init_in_progress,
-            &mut self.selected_project,
-            log_msgs,
-            async_ctx,
-        );
+        self.file_app.ui(ui, ctx, async_ctx, &self.selected_project, log_msgs);
+    }
 
-        self.log_display(ui, log_msgs);
-    }
-    pub fn log_display(&mut self, ui: &mut egui::Ui, log_msgs: &mut VecDeque<RichText>) {
-        ui.separator();
-        if ui.button("Clear Log").clicked() {
-            log_msgs.clear();
-        }
-        ui.label("**Log Messages:**");
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for message in log_msgs {
-                ui.label(message.clone());
-            }
-        });
-    }
     pub fn _display_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
         if self.cycles.is_empty() {
             println!("No cycles");
