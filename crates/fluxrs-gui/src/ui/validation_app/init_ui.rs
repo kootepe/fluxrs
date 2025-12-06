@@ -62,6 +62,9 @@ impl ValidationApp {
                     self.init_enabled = false;
                     self.init_in_progress = true;
                     self.query_in_progress = true;
+                    let _ = async_ctx.prog_sender.send(ProcessEvent::Progress(
+                        fluxrs_core::processevent::ProgressEvent::DisableUI,
+                    ));
 
                     let start_date = self.start_date;
                     let end_date = self.end_date;

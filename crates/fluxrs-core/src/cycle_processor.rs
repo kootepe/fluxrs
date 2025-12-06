@@ -170,7 +170,10 @@ impl Processor {
 
         let done_event = match fatal_error {
             Some(msg) => ProcessEvent::Done(Err(msg)),
-            None => ProcessEvent::Done(Ok(())),
+            None => {
+                let _ = progress_sender.send(ProcessEvent::Progress(ProgressEvent::EnableUI));
+                ProcessEvent::Done(Ok(()))
+            },
         };
 
         let _ = progress_sender.send(done_event);
