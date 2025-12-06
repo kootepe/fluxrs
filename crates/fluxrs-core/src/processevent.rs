@@ -40,6 +40,8 @@ pub enum InsertEvent {
 
 #[derive(Debug)]
 pub enum ProgressEvent {
+    DisableUI,
+    EnableUI,
     CalculationStarted,
     Recalced(usize, usize),
     Generic(String),
