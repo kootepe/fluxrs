@@ -1913,7 +1913,6 @@ impl ValidationApp {
         log_msgs: &mut VecDeque<RichText>,
     ) {
         // whatever you already had here
-        // self.handle_progress_messages(async_ctx);
 
         self.file_app.ui(
             ui,
@@ -1947,12 +1946,6 @@ impl ValidationApp {
 
         ui.heading("Plot selection");
     }
-
-    // pub fn handle_progress_messages(&mut self) {
-    //     if let Some(receiver) = &mut self.progress_receiver {
-    //         drain_progress_messages(self, receiver);
-    //     }
-    // }
 
     pub fn get_project(&self) -> &Project {
         self.selected_project.as_ref().unwrap()
@@ -3084,172 +3077,6 @@ impl ValidationApp {
     }
 }
 
-// impl ProcessEventSink for ValidationApp {
-//     fn on_query_event(&mut self, ev: &QueryEvent) {
-//         match ev {
-//             QueryEvent::InitStarted => {
-//                 self.init_in_progress = true;
-//                 self.recalc.calc_in_progress = true;
-//             },
-//             QueryEvent::InitEnded => {
-//                 self.init_in_progress = false;
-//                 self.recalc.calc_in_progress = false;
-//             },
-//             QueryEvent::QueryComplete => {
-//                 self.query_in_progress = false;
-//                 log_msgs.push_front(good_message("Finished queries."));
-//                 self.recalc.query_in_progress = false;
-//             },
-//             QueryEvent::HeightFail(msg) => {
-//                 log_msgs.push_front(bad_message(msg));
-//             },
-//             QueryEvent::CyclesFail(msg) => {
-//                 log_msgs.push_front(bad_message(msg));
-//             },
-//             QueryEvent::DbFail(msg) => {
-//                 log_msgs.push_front(bad_message(msg));
-//             },
-//             QueryEvent::NoGasData(start_time) => {
-//                 log_msgs.push_front(bad_message(&format!(
-//                     "No gas data found for cycle at {}",
-//                     start_time
-//                 )));
-//             },
-//             QueryEvent::NoGasDataDay(day) => {
-//                 log_msgs.push_front(bad_message(&format!(
-//                     "No gas data found for cycles at day {}",
-//                     day
-//                 )));
-//             },
-//         }
-//     }
-//
-//     fn on_progress_event(&mut self, ev: &ProgressEvent) {
-//         match ev {
-//             ProgressEvent::Rows(current, total) => {
-//                 self.cycles_state = Some((*current, *total));
-//                 self.cycles_progress += current;
-//                 println!("Processed {} out of {} cycles", current, total);
-//             },
-//             ProgressEvent::Recalced(current, total) => {
-//                 self.recalc.cycles_state = Some((*current, *total));
-//                 self.recalc.cycles_progress += current;
-//                 println!("Processed {} out of {} cycles", current, total);
-//             },
-//             ProgressEvent::CalculationStarted => {
-//                 self.recalc.calc_enabled = false;
-//                 self.recalc.calc_in_progress = true;
-//             },
-//             ProgressEvent::Day(date) => {
-//                 log_msgs.push_front(good_message(&format!("Loaded cycles from {}", date)));
-//             },
-//             ProgressEvent::NoGas(msg) => {
-//                 log_msgs.push_front(bad_message(&format!("Gas missing: {}", msg)));
-//             },
-//             ProgressEvent::Generic(msg) => {
-//                 log_msgs.push_front(good_message(msg));
-//             },
-//         }
-//     }
-//
-//     fn on_read_event(&mut self, ev: &ReadEvent) {
-//         match ev {
-//             ReadEvent::File(filename) => {
-//                 log_msgs.push_front(good_message(&format!("Read file: {}", filename)));
-//             },
-//             ReadEvent::FileDetail(filename, detail) => {
-//                 log_msgs.push_front(good_message(&format!("Read file: {} {}", filename, detail)));
-//             },
-//             ReadEvent::DataFail { kind, file, reason } => {
-//                 let what = match kind {
-//                     DataType::Meteo => "meteo",
-//                     DataType::Gas => "gas",
-//                     DataType::Height => "height",
-//                     DataType::Cycle => "cycle",
-//                     DataType::Chamber => "chamber metadata",
-//                 };
-//                 let msg = format!("Could not parse as {} file: {}, {}", what, file, reason);
-//                 log_msgs.push_front(bad_message(&msg));
-//             },
-//             ReadEvent::FileRows(filename, rows) => {
-//                 log_msgs.push_front(good_message(&format!(
-//                     "Read file: {} with {} rows",
-//                     filename, rows
-//                 )));
-//             },
-//             ReadEvent::RowFail(msg) => {
-//                 log_msgs.push_front(bad_message(&msg.to_owned()));
-//             },
-//             ReadEvent::FileFail(filename, e) => {
-//                 log_msgs.push_front(bad_message(&format!(
-//                     "Failed to read file {}, error: {}",
-//                     filename, e
-//                 )));
-//             },
-//         }
-//     }
-//
-//     fn on_insert_event(&mut self, ev: &InsertEvent) {
-//         match ev {
-//             InsertEvent::Ok(msg, rows) => {
-//                 log_msgs.push_front(good_message(&format!("{}{}", rows, msg)));
-//             },
-//             InsertEvent::DataOkSkip { kind, inserts, skips } => {
-//                 let what = match kind {
-//                     DataType::Meteo => "meteo",
-//                     DataType::Gas => "gas",
-//                     DataType::Height => "height",
-//                     DataType::Cycle => "cycle",
-//                     DataType::Chamber => "chamber metadata",
-//                 };
-//                 if *skips == 0 {
-//                     log_msgs.push_front(good_message(&format!(
-//                         "Inserted rows of {} {} data.",
-//                         inserts, what
-//                     )));
-//                 } else {
-//                     log_msgs.push_front(warn_message(&format!(
-//                         "Inserted rows of {} {} data, skipped {} duplicates.",
-//                         inserts, what, skips
-//                     )));
-//                 }
-//             },
-//             InsertEvent::Fail(e) => {
-//                 log_msgs.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
-//                 self.cycles_progress = 0;
-//                 self.init_in_progress = false;
-//                 self.init_enabled = true;
-//                 self.query_in_progress = false;
-//                 self.recalc.calc_enabled = true;
-//                 self.recalc.calc_in_progress = false;
-//                 self.recalc.query_in_progress = false;
-//                 self.recalc.cycles_progress = 0;
-//                 self.recalc.cycles_state = None;
-//             },
-//         }
-//     }
-//
-//     fn on_done(&mut self, res: &Result<(), String>) {
-//         match res {
-//             Ok(()) => {
-//                 log_msgs.push_front(good_message("All processing finished."));
-//             },
-//             Err(e) => {
-//                 log_msgs.push_front(bad_message(&format!("Processing finished with error: {}", e)));
-//             },
-//         }
-//
-//         self.cycles_progress = 0;
-//         self.init_in_progress = false;
-//         self.init_enabled = true;
-//         self.query_in_progress = false;
-//         self.recalc.calc_enabled = true;
-//         self.recalc.calc_in_progress = false;
-//         self.recalc.query_in_progress = false;
-//         self.recalc.cycles_progress = 0;
-//         self.recalc.cycles_state = None;
-//     }
-// }
 pub fn is_inside_polygon(
     point: egui_plot::PlotPoint,
     start_x: f64,
@@ -3305,32 +3132,6 @@ pub fn keybind_triggered(
         }
     }
     false
-}
-pub fn drain_progress_messages<T: ProcessEventSink>(
-    sink: &mut T,
-    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>,
-) {
-    loop {
-        match receiver.try_recv() {
-            Ok(msg) => match msg {
-                ProcessEvent::Query(ev) => sink.on_query_event(&ev),
-                ProcessEvent::Progress(ev) => sink.on_progress_event(&ev),
-                ProcessEvent::Read(ev) => sink.on_read_event(&ev),
-                ProcessEvent::Insert(ev) => sink.on_insert_event(&ev),
-                ProcessEvent::Done(res) => sink.on_done(&res),
-            },
-
-            Err(TryRecvError::Empty) => {
-                // nothing waiting right now -> we're done draining for this tick
-                break;
-            },
-
-            Err(TryRecvError::Disconnected) => {
-                // channel is closed, also done. you *could* choose to store a flag here.
-                break;
-            },
-        }
-    }
 }
 fn flux_value_for_plot(cycle: &Cycle, key: &GasKey, model: FluxKind, flux_unit: FluxUnit) -> f64 {
     let flux_umol_m2_s =

@@ -170,18 +170,19 @@ impl MainApp {
         ui.separator();
 
         let project = self.validation_panel.selected_project.clone();
+        let log_msgs = &mut self.log_messages;
         match self.live_panel {
             Panel::Validation => {
                 self.validation_panel.ui(ui, ctx, async_ctx);
             },
             Panel::DataLoad => {
-                self.validation_panel.load_ui(ui, ctx, async_ctx, &mut self.log_messages);
+                self.validation_panel.load_ui(ui, ctx, async_ctx, log_msgs);
             },
             Panel::DataInit => {
-                self.validation_panel.init_ui(ui, ctx, async_ctx, &mut self.log_messages);
+                self.validation_panel.init_ui(ui, ctx, async_ctx, log_msgs);
             },
             Panel::FileInit => {
-                self.validation_panel.file_ui(ui, ctx, async_ctx, &mut self.log_messages);
+                self.validation_panel.file_ui(ui, ctx, async_ctx, log_msgs);
             },
             Panel::DataTable => {
                 self.table_panel.table_ui(ui, ctx, project);
