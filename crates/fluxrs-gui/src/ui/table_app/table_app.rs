@@ -105,7 +105,7 @@ impl TableApp {
         self.data = rows.unwrap().filter_map(|res| res.ok()).collect(); //   Collect valid rows only
     }
 
-    pub fn table_ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, project: Option<Project>) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, project: Option<Project>) {
         self.project = project;
         ui.heading("Database Table Viewer");
         if self.table_names.is_empty() {

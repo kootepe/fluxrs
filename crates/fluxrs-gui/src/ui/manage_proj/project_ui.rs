@@ -93,7 +93,7 @@ impl Default for ProjectApp {
     }
 }
 impl ProjectApp {
-    pub fn proj_ui(&mut self, ui: &mut egui::Ui, ctx: &Context, async_ctx: &mut AsyncCtx) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, ctx: &Context, async_ctx: &mut AsyncCtx) {
         ui.heading("Project Management");
         ui.add_space(5.0);
         ui.horizontal(|ui| {

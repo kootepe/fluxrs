@@ -189,7 +189,7 @@ impl MainApp {
                 self.log_display(ui);
             },
             Panel::DataInit => {
-                self.validation_panel.init_ui(ui, ctx, async_ctx, log_msgs);
+                self.validation_panel.init_ui(ui, ctx, async_ctx);
                 self.log_display(ui);
             },
             Panel::FileInit => {
@@ -197,13 +197,13 @@ impl MainApp {
                 self.log_display(ui);
             },
             Panel::DataTable => {
-                self.table_panel.table_ui(ui, ctx, project);
+                self.table_panel.ui(ui, ctx, project);
             },
             Panel::DownloadData => {
-                self.dl_panel.dl_ui(ui, ctx, async_ctx, project);
+                self.dl_panel.ui(ui, ctx, async_ctx, project);
             },
             Panel::ProjInit => {
-                self.proj_panel.proj_ui(ui, ctx, async_ctx);
+                self.proj_panel.ui(ui, ctx, async_ctx);
             },
             Panel::Empty => {
                 self.empty_panel.ui(ui);

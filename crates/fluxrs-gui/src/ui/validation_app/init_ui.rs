@@ -15,13 +15,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 impl ValidationApp {
-    pub fn init_ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        ctx: &Context,
-        async_ctx: &mut AsyncCtx,
-        log_msgs: &mut VecDeque<RichText>,
-    ) {
+    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context, async_ctx: &mut AsyncCtx) {
         // Show info if no project selected
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");

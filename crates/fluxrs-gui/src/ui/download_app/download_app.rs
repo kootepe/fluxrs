@@ -31,7 +31,7 @@ pub struct Checks {
 }
 
 impl DownloadApp {
-    pub fn dl_ui(
+    pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
         _ctx: &egui::Context,
