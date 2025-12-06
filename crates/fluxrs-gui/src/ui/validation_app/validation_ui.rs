@@ -1901,17 +1901,6 @@ impl ValidationApp {
             }
         }
     }
-    pub fn file_ui(
-        &mut self,
-        ui: &mut egui::Ui,
-        ctx: &egui::Context,
-        async_ctx: &mut AsyncCtx,
-        log_msgs: &mut VecDeque<RichText>,
-    ) {
-        // whatever you already had here
-
-        self.file_app.ui(ui, ctx, async_ctx, &self.selected_project, log_msgs);
-    }
 
     pub fn _display_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
         if self.cycles.is_empty() {
