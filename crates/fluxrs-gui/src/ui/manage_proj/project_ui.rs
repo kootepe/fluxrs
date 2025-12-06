@@ -189,7 +189,6 @@ impl ProjectApp {
             mode: self.mode,
             min_calc_len: self.min_calc_len,
             tz: self.project_timezone.unwrap_or_default(),
-            upload_from: None,
         })
     }
 
@@ -257,7 +256,6 @@ impl ProjectApp {
                 main_gas,
                 mode,
                 tz,
-                upload_from: None,
             };
 
             self.all_projects.push(proj)
@@ -337,7 +335,6 @@ impl ProjectApp {
                     min_calc_len,
                     mode,
                     tz,
-                    upload_from: None,
                 };
 
                 self.project = Some(project); // assuming you have this field

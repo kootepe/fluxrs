@@ -33,7 +33,6 @@ pub struct Project {
     pub min_calc_len: f64,
     pub mode: Mode,
     pub tz: Tz,
-    pub upload_from: Option<InstrumentType>,
 }
 
 impl Default for Project {
@@ -47,7 +46,6 @@ impl Default for Project {
             min_calc_len: 0.0,
             mode: Mode::default(),
             tz: Tz::UTC,
-            upload_from: None,
         }
     }
 }
@@ -187,7 +185,6 @@ impl Project {
             min_calc_len,
             mode,
             tz,
-            upload_from: None,
         })
     }
     pub fn save(
