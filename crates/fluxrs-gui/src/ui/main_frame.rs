@@ -16,7 +16,9 @@ pub struct FluxApp {
 impl FluxApp {
     pub fn new() -> Self {
         let keybinds = KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
-        Self { keybinds, ..Default::default() }
+        // using non a non derived default will cause a infinite recursion loop
+        let main_app = MainApp::new();
+        Self { keybinds, main_app, ..Default::default() }
     }
 }
 impl eframe::App for FluxApp {

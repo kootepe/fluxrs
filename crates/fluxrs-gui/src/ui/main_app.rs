@@ -57,6 +57,9 @@ pub struct MainApp {
 }
 
 impl MainApp {
+    pub fn new() -> Self {
+        Self { switching_allowed: true, ..Default::default() }
+    }
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -129,7 +132,7 @@ impl MainApp {
                 .widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel"));
 
             ui.ctx().clone().with_accessibility_parent(container_response.id, || {
-                ui.add_enabled(!self.switching_allowed, |ui: &mut egui::Ui| {
+                ui.add_enabled(self.switching_allowed, |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
                         ui.selectable_value(
                             &mut self.live_panel,
@@ -201,7 +204,7 @@ impl MainApp {
                 self.empty_panel.ui(ui);
             },
         }
-        self.handle_progress_messages(async_ctx);
+        // self.handle_progress_messages(async_ctx);
     }
     pub fn settings_ui(
         &mut self,
@@ -450,6 +453,7 @@ impl ProcessEventSink for MainApp {
     fn on_query_event(&mut self, ev: &QueryEvent) {
         match ev {
             QueryEvent::InitStarted => {
+                println!("No switching allowed");
                 self.switching_allowed = false;
                 self.validation_panel.init_in_progress = true;
                 self.validation_panel.recalc.calc_in_progress = true;
@@ -606,6 +610,7 @@ impl ProcessEventSink for MainApp {
             },
         }
 
+        println!("Reset app state");
         self.switching_allowed = true;
         self.validation_panel.cycles_progress = 0;
         self.validation_panel.init_in_progress = false;
