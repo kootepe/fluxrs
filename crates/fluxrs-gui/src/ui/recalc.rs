@@ -224,6 +224,8 @@ impl ProcessEventSink for RecalculateApp {
 
     fn on_progress_event(&mut self, ev: &ProgressEvent) {
         match ev {
+            ProgressEvent::DisableUI => {},
+            ProgressEvent::EnableUI => {},
             ProgressEvent::Rows(current, total) => {
                 self.cycles_state = Some((*current, *total));
                 self.cycles_progress += current;

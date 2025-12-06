@@ -377,6 +377,8 @@ impl ProcessEventSink for Config {
 
     fn on_progress_event(&mut self, ev: &ProgressEvent) {
         match ev {
+            ProgressEvent::DisableUI => {},
+            ProgressEvent::EnableUI => {},
             ProgressEvent::Rows(_, _) => {},
             ProgressEvent::Recalced(_, _) => {},
             ProgressEvent::Day(date) => {

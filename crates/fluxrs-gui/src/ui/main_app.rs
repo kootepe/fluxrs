@@ -512,6 +512,18 @@ impl ProcessEventSink for MainApp {
 
     fn on_progress_event(&mut self, ev: &ProgressEvent) {
         match ev {
+            ProgressEvent::DisableUI => {
+                self.switching_allowed = false;
+                self.file_panel.reading_in_progress = true;
+                self.validation_panel.init_enabled = false;
+                self.validation_panel.recalc.calc_enabled = false;
+            },
+            ProgressEvent::EnableUI => {
+                self.switching_allowed = true;
+                self.file_panel.reading_in_progress = false;
+                self.validation_panel.init_enabled = true;
+                self.validation_panel.recalc.calc_enabled = true;
+            },
             ProgressEvent::Rows(current, total) => {
                 self.validation_panel.cycles_state = Some((*current, *total));
                 self.validation_panel.cycles_progress += current;
