@@ -1,14 +1,21 @@
 use super::{AsyncCtx, ValidationApp};
 use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
-use egui::Color32;
+use egui::{Color32, RichText};
 use fluxrs_core::cycle::cycle::{load_cycles_sync, AppError, Cycle};
 use fluxrs_core::processevent::ProcessEvent;
 use rusqlite::Connection;
+use std::collections::VecDeque;
 
 impl ValidationApp {
-    pub fn load_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context, async_ctx: &mut AsyncCtx) {
-        self.handle_progress_messages(async_ctx);
+    pub fn load_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        _ctx: &Context,
+        async_ctx: &mut AsyncCtx,
+        log_msgs: &mut VecDeque<RichText>,
+    ) {
+        // self.handle_progress_messages(async_ctx);
 
         if self.load_state.done_receiver.try_recv().is_ok() {
             self.init_in_progress = false;
@@ -19,11 +26,10 @@ impl ValidationApp {
                     match result {
                         Ok(cycles) => {
                             self.cycles = cycles;
-                            self.log_messages
-                                .push_front(good_message("Successfully loaded cycles."));
+                            log_msgs.push_front(good_message("Successfully loaded cycles."));
                         },
                         Err(e) => {
-                            self.log_messages.push_front(bad_message(&format!("Error: {}", e)));
+                            log_msgs.push_front(bad_message(&format!("Error: {}", e)));
                         },
                     }
                 }
@@ -101,6 +107,6 @@ impl ValidationApp {
                 ui.label("Start date can't be later then end date");
             }
         }
-        self.log_display(ui);
+        self.log_display(ui, log_msgs);
     }
 }

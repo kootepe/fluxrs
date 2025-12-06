@@ -4,11 +4,18 @@ use super::table_app::TableApp;
 use super::validation_app::{AsyncCtx, ValidationApp};
 use crate::appview::AppState;
 use crate::keybinds::{Action, KeyBind, KeyBindings};
-use egui::{FontFamily, ScrollArea, Separator, WidgetInfo, WidgetType};
+use crate::utils::{bad_message, good_message, warn_message};
+use egui::{FontFamily, RichText, ScrollArea, Separator, WidgetInfo, WidgetType};
+use fluxrs_core::datatype::DataType;
+use fluxrs_core::processevent::{
+    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
+};
 use fluxrs_core::project::Project;
+use std::collections::VecDeque;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use tokio::sync::mpsc::error::TryRecvError;
 
 pub enum AppEvent {
     SelectProject(Option<Project>),
@@ -38,7 +45,8 @@ impl Default for Panel {
 }
 #[derive(Default)]
 pub struct MainApp {
-    pub show_settings: bool,
+    switching_allowed: bool,
+    pub log_messages: VecDeque<RichText>,
     app_state_loaded: bool,
     live_panel: Panel,
     pub validation_panel: ValidationApp,
@@ -54,6 +62,8 @@ impl MainApp {
         for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
             font_id.family = FontFamily::Monospace;
         }
+
+        self.handle_progress_messages(async_ctx);
 
         if self.validation_panel.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
@@ -114,9 +124,8 @@ impl MainApp {
             container_response
                 .widget_info(|| WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel"));
 
-            let panel_switching_allowed = !self.validation_panel.init_in_progress;
             ui.ctx().clone().with_accessibility_parent(container_response.id, || {
-                ui.add_enabled(panel_switching_allowed, |ui: &mut egui::Ui| {
+                ui.add_enabled(!self.switching_allowed, |ui: &mut egui::Ui| {
                     ui.horizontal(|ui| {
                         ui.selectable_value(
                             &mut self.live_panel,
@@ -166,13 +175,13 @@ impl MainApp {
                 self.validation_panel.ui(ui, ctx, async_ctx);
             },
             Panel::DataLoad => {
-                self.validation_panel.load_ui(ui, ctx, async_ctx);
+                self.validation_panel.load_ui(ui, ctx, async_ctx, &mut self.log_messages);
             },
             Panel::DataInit => {
-                self.validation_panel.init_ui(ui, ctx, async_ctx);
+                self.validation_panel.init_ui(ui, ctx, async_ctx, &mut self.log_messages);
             },
             Panel::FileInit => {
-                self.validation_panel.file_ui(ui, ctx, async_ctx);
+                self.validation_panel.file_ui(ui, ctx, async_ctx, &mut self.log_messages);
             },
             Panel::DataTable => {
                 self.table_panel.table_ui(ui, ctx, project);
@@ -187,6 +196,7 @@ impl MainApp {
                 self.empty_panel.ui(ui);
             },
         }
+        self.handle_progress_messages(async_ctx);
     }
     pub fn settings_ui(&mut self, ctx: &egui::Context, async_ctx: &AsyncCtx) {
         egui::SidePanel::right("Settings panel").show(ctx, |ui| {
@@ -406,6 +416,14 @@ impl MainApp {
 
         ctx.set_style(style);
     }
+
+    pub fn handle_progress_messages(&mut self, async_ctx: &mut AsyncCtx) {
+        if let Some(mut receiver) = async_ctx.prog_receiver.take() {
+            drain_progress_messages(self, &mut receiver);
+
+            async_ctx.prog_receiver = Some(receiver);
+        }
+    }
 }
 
 pub fn load_app_state(path: &Path) -> Result<AppState, Box<dyn std::error::Error>> {
@@ -419,4 +437,202 @@ pub fn save_app_state(app: &ValidationApp, path: &Path) -> Result<(), Box<dyn st
     let mut file = fs::File::create(path)?;
     file.write_all(json.as_bytes())?;
     Ok(())
+}
+impl ProcessEventSink for MainApp {
+    fn on_query_event(&mut self, ev: &QueryEvent) {
+        match ev {
+            QueryEvent::InitStarted => {
+                self.switching_allowed = false;
+                self.validation_panel.init_in_progress = true;
+                self.validation_panel.recalc.calc_in_progress = true;
+            },
+            QueryEvent::InitEnded => {
+                self.switching_allowed = true;
+                self.validation_panel.init_in_progress = false;
+                self.validation_panel.recalc.calc_in_progress = false;
+            },
+            QueryEvent::QueryComplete => {
+                self.validation_panel.query_in_progress = false;
+                self.log_messages.push_front(good_message("Finished queries."));
+                self.validation_panel.recalc.query_in_progress = false;
+            },
+            QueryEvent::HeightFail(msg) => {
+                self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::CyclesFail(msg) => {
+                self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::DbFail(msg) => {
+                self.log_messages.push_front(bad_message(msg));
+            },
+            QueryEvent::NoGasData(start_time) => {
+                self.log_messages.push_front(bad_message(&format!(
+                    "No gas data found for cycle at {}",
+                    start_time
+                )));
+            },
+            QueryEvent::NoGasDataDay(day) => {
+                self.log_messages.push_front(bad_message(&format!(
+                    "No gas data found for cycles at day {}",
+                    day
+                )));
+            },
+        }
+    }
+
+    fn on_progress_event(&mut self, ev: &ProgressEvent) {
+        match ev {
+            ProgressEvent::Rows(current, total) => {
+                self.validation_panel.cycles_state = Some((*current, *total));
+                self.validation_panel.cycles_progress += current;
+                println!("Processed {} out of {} cycles", current, total);
+            },
+            ProgressEvent::Recalced(current, total) => {
+                self.validation_panel.recalc.cycles_state = Some((*current, *total));
+                self.validation_panel.recalc.cycles_progress += current;
+                println!("Processed {} out of {} cycles", current, total);
+            },
+            ProgressEvent::CalculationStarted => {
+                self.validation_panel.recalc.calc_enabled = false;
+                self.validation_panel.recalc.calc_in_progress = true;
+            },
+            ProgressEvent::Day(date) => {
+                self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
+            },
+            ProgressEvent::NoGas(msg) => {
+                self.log_messages.push_front(bad_message(&format!("Gas missing: {}", msg)));
+            },
+            ProgressEvent::Generic(msg) => {
+                self.log_messages.push_front(good_message(msg));
+            },
+        }
+    }
+
+    fn on_read_event(&mut self, ev: &ReadEvent) {
+        match ev {
+            ReadEvent::File(filename) => {
+                self.log_messages.push_front(good_message(&format!("Read file: {}", filename)));
+            },
+            ReadEvent::FileDetail(filename, detail) => {
+                self.log_messages
+                    .push_front(good_message(&format!("Read file: {} {}", filename, detail)));
+            },
+            ReadEvent::DataFail { kind, file, reason } => {
+                let what = match kind {
+                    DataType::Meteo => "meteo",
+                    DataType::Gas => "gas",
+                    DataType::Height => "height",
+                    DataType::Cycle => "cycle",
+                    DataType::Chamber => "chamber metadata",
+                };
+                let msg = format!("Could not parse as {} file: {}, {}", what, file, reason);
+                self.log_messages.push_front(bad_message(&msg));
+            },
+            ReadEvent::FileRows(filename, rows) => {
+                self.log_messages.push_front(good_message(&format!(
+                    "Read file: {} with {} rows",
+                    filename, rows
+                )));
+            },
+            ReadEvent::RowFail(msg) => {
+                self.log_messages.push_front(bad_message(&msg.to_owned()));
+            },
+            ReadEvent::FileFail(filename, e) => {
+                self.log_messages.push_front(bad_message(&format!(
+                    "Failed to read file {}, error: {}",
+                    filename, e
+                )));
+            },
+        }
+    }
+
+    fn on_insert_event(&mut self, ev: &InsertEvent) {
+        match ev {
+            InsertEvent::Ok(msg, rows) => {
+                self.log_messages.push_front(good_message(&format!("{}{}", rows, msg)));
+            },
+            InsertEvent::DataOkSkip { kind, inserts, skips } => {
+                let what = match kind {
+                    DataType::Meteo => "meteo",
+                    DataType::Gas => "gas",
+                    DataType::Height => "height",
+                    DataType::Cycle => "cycle",
+                    DataType::Chamber => "chamber metadata",
+                };
+                if *skips == 0 {
+                    self.log_messages.push_front(good_message(&format!(
+                        "Inserted rows of {} {} data.",
+                        inserts, what
+                    )));
+                } else {
+                    self.log_messages.push_front(warn_message(&format!(
+                        "Inserted rows of {} {} data, skipped {} duplicates.",
+                        inserts, what, skips
+                    )));
+                }
+            },
+            InsertEvent::Fail(e) => {
+                self.log_messages.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
+                self.switching_allowed = true;
+                self.validation_panel.cycles_progress = 0;
+                self.validation_panel.init_in_progress = false;
+                self.validation_panel.init_enabled = true;
+                self.validation_panel.query_in_progress = false;
+                self.validation_panel.recalc.calc_enabled = true;
+                self.validation_panel.recalc.calc_in_progress = false;
+                self.validation_panel.recalc.query_in_progress = false;
+                self.validation_panel.recalc.cycles_progress = 0;
+                self.validation_panel.recalc.cycles_state = None;
+            },
+        }
+    }
+
+    fn on_done(&mut self, res: &Result<(), String>) {
+        match res {
+            Ok(()) => {
+                self.log_messages.push_front(good_message("All processing finished."));
+            },
+            Err(e) => {
+                self.log_messages
+                    .push_front(bad_message(&format!("Processing finished with error: {}", e)));
+            },
+        }
+
+        self.switching_allowed = true;
+        self.validation_panel.cycles_progress = 0;
+        self.validation_panel.init_in_progress = false;
+        self.validation_panel.init_enabled = true;
+        self.validation_panel.query_in_progress = false;
+        self.validation_panel.recalc.calc_enabled = true;
+        self.validation_panel.recalc.calc_in_progress = false;
+        self.validation_panel.recalc.query_in_progress = false;
+        self.validation_panel.recalc.cycles_progress = 0;
+        self.validation_panel.recalc.cycles_state = None;
+    }
+}
+pub fn drain_progress_messages<T: ProcessEventSink>(
+    sink: &mut T,
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>,
+) {
+    loop {
+        match receiver.try_recv() {
+            Ok(msg) => match msg {
+                ProcessEvent::Query(ev) => sink.on_query_event(&ev),
+                ProcessEvent::Progress(ev) => sink.on_progress_event(&ev),
+                ProcessEvent::Read(ev) => sink.on_read_event(&ev),
+                ProcessEvent::Insert(ev) => sink.on_insert_event(&ev),
+                ProcessEvent::Done(res) => sink.on_done(&res),
+            },
+
+            Err(TryRecvError::Empty) => {
+                // nothing waiting right now -> we're done draining for this tick
+                break;
+            },
+
+            Err(TryRecvError::Disconnected) => {
+                // channel is closed, also done. you *could* choose to store a flag here.
+                break;
+            },
+        }
+    }
 }

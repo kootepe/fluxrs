@@ -1,7 +1,7 @@
 use super::ValidationApp;
 use crate::ui::validation_app::validation_ui::AsyncCtx;
 use eframe::egui::Context;
-use egui::Color32;
+use egui::{Color32, RichText};
 use fluxrs_core::cycle_processor::{Datasets, Infra, Processor};
 use fluxrs_core::data_formats::chamberdata::query_chamber_async;
 use fluxrs_core::data_formats::gasdata::query_gas_async;
@@ -10,17 +10,23 @@ use fluxrs_core::data_formats::meteodata::query_meteo_async;
 use fluxrs_core::data_formats::timedata::query_cycles_async;
 use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
 use rusqlite::Connection;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 impl ValidationApp {
-    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context, async_ctx: &mut AsyncCtx) {
+    pub fn init_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &Context,
+        async_ctx: &mut AsyncCtx,
+        log_msgs: &mut VecDeque<RichText>,
+    ) {
         // Show info if no project selected
         if self.selected_project.is_none() {
             ui.label("Add or select a project in the Initiate project tab.");
             return;
         }
-        self.handle_progress_messages(async_ctx);
 
         // Show spinner if processing is ongoing
         if self.init_in_progress || !self.init_enabled {
@@ -38,7 +44,7 @@ impl ValidationApp {
             } else {
                 ui.label("Processing cycles...");
             }
-            self.log_display(ui);
+            self.log_display(ui, log_msgs);
             return;
         }
 
@@ -170,6 +176,6 @@ impl ValidationApp {
         });
 
         // Display log messages
-        self.log_display(ui);
+        self.log_display(ui, log_msgs);
     }
 }
