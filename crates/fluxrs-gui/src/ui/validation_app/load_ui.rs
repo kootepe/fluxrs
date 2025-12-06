@@ -98,11 +98,12 @@ impl ValidationApp {
                             },
                         }
                     }
+                    //
                     if let Ok(mut slot) = result_slot.lock() {
                         *slot = Some(result);
                     }
-                    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
                     let _ = sender.send(());
+                    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
                 });
             }
             if !start_after_end {
