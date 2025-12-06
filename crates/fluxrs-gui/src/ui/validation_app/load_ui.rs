@@ -3,7 +3,7 @@ use crate::utils::{bad_message, good_message, warn_message};
 use eframe::egui::Context;
 use egui::{Color32, RichText};
 use fluxrs_core::cycle::cycle::{load_cycles_sync, AppError, Cycle};
-use fluxrs_core::processevent::ProcessEvent;
+use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
 use rusqlite::Connection;
 use std::collections::VecDeque;
 
@@ -66,6 +66,7 @@ impl ValidationApp {
 
                 self.init_enabled = false;
                 self.init_in_progress = true;
+                let _ = async_ctx.prog_sender.send(ProcessEvent::Query(QueryEvent::InitStarted));
 
                 // TODO: Use AppError for clearer error messages.
                 async_ctx.runtime.spawn(async move {
@@ -100,6 +101,7 @@ impl ValidationApp {
                     if let Ok(mut slot) = result_slot.lock() {
                         *slot = Some(result);
                     }
+                    let _ = progress_sender.send(ProcessEvent::Done(Ok(())));
                     let _ = sender.send(());
                 });
             }
