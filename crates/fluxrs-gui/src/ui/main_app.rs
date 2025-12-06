@@ -48,6 +48,7 @@ pub struct MainApp {
     switching_allowed: bool,
     pub log_messages: VecDeque<RichText>,
     app_state_loaded: bool,
+    pub font_size: f32,
     live_panel: Panel,
     pub validation_panel: ValidationApp,
     table_panel: TableApp,
@@ -58,7 +59,7 @@ pub struct MainApp {
 
 impl MainApp {
     pub fn new() -> Self {
-        Self { switching_allowed: true, ..Default::default() }
+        Self { switching_allowed: true, font_size: 14., ..Default::default() }
     }
     pub fn ui(
         &mut self,
@@ -67,13 +68,14 @@ impl MainApp {
         async_ctx: &mut AsyncCtx,
         keybinds: &KeyBindings,
     ) {
-        self.apply_font_size(ctx, self.validation_panel.font_size);
+        self.apply_font_size(ctx, self.font_size);
         for (_text_style, font_id) in ui.style_mut().text_styles.iter_mut() {
             font_id.family = FontFamily::Monospace;
         }
 
         self.handle_progress_messages(async_ctx);
 
+        // this block would be better in MainApp or FluxApp
         if self.validation_panel.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
             self.validation_panel.selected_project = self.proj_panel.project.clone();

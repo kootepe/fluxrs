@@ -46,17 +46,17 @@ impl eframe::App for FluxApp {
                 ui.add_space(16.0);
 
                 egui::ComboBox::from_label("Select font size")
-                    .selected_text(format!("{}", self.main_app.validation_panel.font_size))
+                    .selected_text(format!("{}", self.main_app.font_size))
                     .show_ui(ui, |ui| {
                         for size in 10..=32 {
                             if ui
                                 .selectable_label(
-                                    self.main_app.validation_panel.font_size == size as f32,
+                                    self.main_app.font_size == size as f32,
                                     size.to_string(),
                                 )
                                 .clicked()
                             {
-                                self.main_app.validation_panel.font_size = size as f32;
+                                self.main_app.font_size = size as f32;
                             }
                         }
                     });

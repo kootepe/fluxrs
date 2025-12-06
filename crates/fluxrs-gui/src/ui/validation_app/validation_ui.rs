@@ -12,22 +12,18 @@ use crate::ui::file_app::FileApp;
 use crate::appview::AppState;
 use crate::ui::recalc::RecalculateApp;
 use crate::ui::tz_picker::TimezonePickerState;
-use crate::utils::{bad_message, good_message, warn_message};
 
 use crate::keybinds::{Action, KeyBindings};
 use fluxrs_core::cycle::cycle::{AppError, Cycle};
 use fluxrs_core::cycle::gaskey::GasKey;
 use fluxrs_core::data_formats::chamberdata::ChamberOrigin;
 use fluxrs_core::data_formats::meteodata::MeteoSource;
-use fluxrs_core::datatype::DataType;
 use fluxrs_core::errorcode::ErrorCode;
 use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::gastype::GasType;
 use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::mode::Mode;
-use fluxrs_core::processevent::{
-    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
-};
+use fluxrs_core::processevent::ProcessEvent;
 use fluxrs_core::project::Project;
 use fluxrs_core::types::FastMap;
 
@@ -142,7 +138,6 @@ pub struct ValidationApp {
     pub cycle_nav: CycleNavigator,
     pub toggler: CycleFilter,
     pub plot_widths: PlotAdjust,
-    pub font_size: f32,
     pub dirty_cycles: HashSet<usize>,
     pub zoom_to_measurement: u8,
     pub should_reset_bounds: bool,
@@ -196,7 +191,6 @@ impl Default for ValidationApp {
             cycles: Vec::new(),
             cycle_nav: CycleNavigator::new(),
             toggler: CycleFilter::new(),
-            font_size: 14.,
             plot_widths: PlotAdjust::new(),
             zoom_to_measurement: 0,
             should_reset_bounds: false,

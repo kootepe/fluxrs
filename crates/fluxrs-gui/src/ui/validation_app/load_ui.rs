@@ -15,8 +15,6 @@ impl ValidationApp {
         async_ctx: &mut AsyncCtx,
         log_msgs: &mut VecDeque<RichText>,
     ) {
-        // self.handle_progress_messages(async_ctx);
-
         if self.load_state.done_receiver.try_recv().is_ok() {
             self.init_in_progress = false;
             self.init_enabled = true;
