@@ -47,7 +47,7 @@ impl RecalculateApp {
         runtime: &tokio::runtime::Runtime,
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
-        project: Project,
+        project: &Project,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) {
         let conn = match Connection::open("fluxrs.db") {
@@ -87,7 +87,7 @@ impl RecalculateApp {
                         .send(ProcessEvent::Progress(ProgressEvent::Recalced(0, cycle_data.len())));
                     if !cycle_data.is_empty() {
                         let processor = Recalcer::new(
-                            project.clone(),
+                            proj.clone(),
                             Datasets {
                                 meteo: meteo_data,
                                 height: height_data,
@@ -117,7 +117,7 @@ impl RecalculateApp {
         runtime: &tokio::runtime::Runtime,
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
-        project: Project,
+        project: &Project,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) {
         ui.vertical(|ui| {
@@ -175,7 +175,7 @@ impl RecalculateApp {
     pub fn calculate_all(
         &mut self,
         runtime: &tokio::runtime::Runtime,
-        project: Project,
+        project: &Project,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
     ) {
         // 1970-01-01 to 2100-01-01 in UTC (wide and safe)
