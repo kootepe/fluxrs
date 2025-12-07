@@ -148,6 +148,9 @@ impl Cycle {
     //     ))
     // }
 
+    pub fn gaskey(&self) -> GasKey {
+        GasKey::from((&self.main_gas, &self.project_id.unwrap()))
+    }
     pub fn get_is_valid(&self) -> bool {
         self.is_valid
     }
