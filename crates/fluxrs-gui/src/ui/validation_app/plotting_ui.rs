@@ -1333,12 +1333,15 @@ impl ValidationApp {
 
         merged_traces
     }
-    pub fn render_lag_plot(&mut self, plot_ui: &mut egui_plot::PlotUi, async_ctx: &AsyncCtx) {
-        let main_gas = self.selected_project.as_ref().unwrap().main_gas.unwrap();
-        let id = self.selected_project.as_ref().unwrap().instrument.id.unwrap();
-
+    pub fn render_lag_plot(
+        &mut self,
+        plot_ui: &mut egui_plot::PlotUi,
+        async_ctx: &AsyncCtx,
+        project: &Option<Project>,
+    ) {
+        let key = self.cycle_nav.current_cycle_key(&self.cycles);
         let (valid_traces, invalid_traces) =
-            self.create_traces(&(GasKey::from((&main_gas, &id))), |cycle, _| cycle.get_open_lag());
+            self.create_traces(&(key), |cycle, _| cycle.get_open_lag());
         let lag_traces = self.merge_traces(valid_traces.clone(), invalid_traces.clone());
 
         let mut hovered_point: Option<[f64; 2]> = None;
@@ -1409,7 +1412,7 @@ impl ValidationApp {
                     if cycle.get_start_ts() as f64 == dragged[0] && (steps >= 1. || steps <= -1.) {
                         cycle.increment_open_lag(steps);
                         // cycle.set_open_lag(new_y);
-                        if self.mode_pearsons() {
+                        if project.as_ref().unwrap().mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
                         self.stick_calc_to_range_start_for_all();
