@@ -2,9 +2,12 @@ use super::download_app::DownloadApp;
 use super::file_app::FileApp;
 use super::manage_proj::ProjectApp;
 use super::table_app::TableApp;
-use super::validation_app::{AsyncCtx, ValidationApp};
+use super::AsyncCtx;
+use super::InitApp;
+use super::LoadApp;
+use super::ValidationApp;
 use crate::appview::AppState;
-use crate::keybinds::{self, Action, KeyBind, KeyBindings};
+use crate::keybinds::{Action, KeyBind, KeyBindings};
 use crate::utils::{bad_message, good_message, warn_message};
 use egui::{FontFamily, RichText, ScrollArea, Separator, WidgetInfo, WidgetType};
 use fluxrs_core::datatype::DataType;
@@ -18,8 +21,34 @@ use std::io::Write;
 use std::path::Path;
 use tokio::sync::mpsc::error::TryRecvError;
 
+use chrono::{DateTime, TimeZone};
+use chrono_tz::{Tz, UTC};
+
 pub enum AppEvent {
     SelectProject(Option<Project>),
+}
+
+pub struct DateRange {
+    pub start: DateTime<Tz>,
+    pub end: DateTime<Tz>,
+}
+
+impl DateRange {
+    pub fn new() -> Self {
+        Self {
+            start: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
+            end: UTC.with_ymd_and_hms(2024, 9, 30, 23, 59, 59).unwrap(),
+        }
+    }
+    pub fn from(start: DateTime<Tz>, end: DateTime<Tz>) -> Self {
+        Self { start, end }
+    }
+}
+
+impl Default for DateRange {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Default, PartialEq)]
@@ -46,13 +75,16 @@ impl Default for Panel {
 }
 #[derive(Default)]
 pub struct MainApp {
-    switching_allowed: bool,
     pub log_messages: VecDeque<RichText>,
-    app_state_loaded: bool,
     pub selected_project: Option<Project>,
     pub font_size: f32,
+    pub date_range: DateRange,
+    app_state_loaded: bool,
     live_panel: Panel,
+    switching_allowed: bool,
     pub validation_panel: ValidationApp,
+    load_panel: LoadApp,
+    init_panel: InitApp,
     table_panel: TableApp,
     dl_panel: DownloadApp,
     proj_panel: ProjectApp,
@@ -62,7 +94,19 @@ pub struct MainApp {
 
 impl MainApp {
     pub fn new() -> Self {
-        Self { switching_allowed: true, font_size: 14., ..Default::default() }
+        let date_range = DateRange {
+            start: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
+            end: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
+        };
+        // infinite recursion if try to use default
+        let init_panel = InitApp::new();
+        Self {
+            switching_allowed: true,
+            font_size: 14.,
+            date_range,
+            init_panel,
+            ..Default::default()
+        }
     }
     pub fn ui(
         &mut self,
@@ -80,7 +124,7 @@ impl MainApp {
 
         // NOTE: this block would be better in MainApp or FluxApp
         // project should exist when app is in validation panel, it doesnt need to be option
-        if self.validation_panel.selected_project.is_none() {
+        if self.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
             self.selected_project = self.proj_panel.project.clone();
 
@@ -93,11 +137,10 @@ impl MainApp {
 
                 let user_tz = self.selected_project.clone().unwrap_or_default().tz;
                 if !self.app_state_loaded {
-                    // move this block into a function in ValidationApp
                     if let Ok(app) = load_app_state(Path::new("app_state.json")) {
                         println!("Reload app state");
-                        self.validation_panel.start_date = app.start_date.with_timezone(&user_tz);
-                        self.validation_panel.end_date = app.end_date.with_timezone(&user_tz);
+                        self.date_range.start = app.start_date.with_timezone(&user_tz);
+                        self.date_range.end = app.end_date.with_timezone(&user_tz);
                         // prevent constantly reloading the app state file
                         self.app_state_loaded = true;
                     }
@@ -109,26 +152,21 @@ impl MainApp {
             match event {
                 AppEvent::SelectProject(proj) => {
                     if proj.is_some() {
-                        if self.validation_panel.selected_project.clone().unwrap_or_default().name
-                            != proj.clone().unwrap_or_default().name
+                        if self.selected_project.clone().unwrap_or_default().id
+                            != proj.clone().unwrap_or_default().id
                         {
-                            self.validation_panel.selected_project = proj;
+                            self.selected_project = proj;
                             self.validation_panel.cycles = Vec::new();
 
-                            self.validation_panel.tz_state.query = self
-                                .validation_panel
-                                .selected_project
-                                .clone()
-                                .unwrap()
-                                .tz
-                                .to_string();
-                            self.validation_panel.tz_state.selected =
-                                Some(self.validation_panel.selected_project.clone().unwrap().tz);
-                            self.validation_panel.tz_for_files =
-                                Some(self.validation_panel.selected_project.clone().unwrap().tz);
+                            self.file_panel.tz_state.query =
+                                self.selected_project.clone().unwrap().tz.to_string();
+                            self.file_panel.tz_state.selected =
+                                Some(self.selected_project.clone().unwrap().tz);
+                            self.file_panel.tz_for_files =
+                                Some(self.selected_project.clone().unwrap().tz);
                         }
                     } else {
-                        self.validation_panel.selected_project = None
+                        self.selected_project = None
                     }
                 },
             }
@@ -183,32 +221,75 @@ impl MainApp {
         });
         ui.separator();
 
-        let project = self.validation_panel.selected_project.clone();
+        let project = &self.selected_project;
         let log_msgs = &mut self.log_messages;
         match self.live_panel {
             Panel::Validation => {
-                self.validation_panel.ui(ui, ctx, async_ctx, keybinds);
+                if self.selected_project.is_some() {
+                    let project = &project.as_ref().unwrap();
+                    self.validation_panel.ui(ui, ctx, async_ctx, keybinds, project);
+                } else {
+                    ui.label("Add or select a project in the Initiate project tab.");
+                }
             },
             Panel::DataLoad => {
-                self.validation_panel.load_ui(ui, ctx, async_ctx, log_msgs);
-                self.log_display(ui);
+                if self.selected_project.is_some() {
+                    let project = &project.as_ref().unwrap();
+                    self.load_panel.ui(
+                        ui,
+                        ctx,
+                        async_ctx,
+                        &mut self.validation_panel,
+                        project,
+                        &mut self.date_range,
+                        log_msgs,
+                    );
+                    self.log_display(ui);
+                } else {
+                    ui.label("Add or select a project in the Initiate project tab.");
+                }
             },
             Panel::DataInit => {
-                self.validation_panel.init_ui(ui, ctx, async_ctx);
-                self.log_display(ui);
+                if self.selected_project.is_some() {
+                    let project = &project.as_ref().unwrap();
+                    self.init_panel.ui(ui, ctx, async_ctx, &mut self.date_range, project);
+                    self.log_display(ui);
+                    // NOTE: this now runs all the time while in init_panel and nothing is happening..
+                    // make it trigger by some signal?
+                    if self.init_panel.init_enabled && !self.init_panel.init_in_progress {
+                        self.validation_panel.commit_all_dirty_cycles(async_ctx);
+                    }
+                } else {
+                    ui.label("Add or select a project in the Initiate project tab.");
+                }
             },
             Panel::FileInit => {
-                self.file_panel.ui(ui, ctx, async_ctx, &project, log_msgs);
-                self.log_display(ui);
-            },
-            Panel::DataTable => {
-                self.table_panel.ui(ui, ctx, project);
-            },
-            Panel::DownloadData => {
-                self.dl_panel.ui(ui, ctx, async_ctx, project);
+                if self.selected_project.is_some() {
+                    let project = &project.as_ref().unwrap();
+                    self.file_panel.ui(ui, ctx, async_ctx, project, log_msgs);
+                    self.log_display(ui);
+                } else {
+                    ui.label("Add or select a project in the Initiate project tab.");
+                }
             },
             Panel::ProjInit => {
                 self.proj_panel.ui(ui, ctx, async_ctx);
+            },
+            Panel::DataTable => {
+                if self.selected_project.is_some() {
+                    let project = &project.as_ref().unwrap();
+                    self.table_panel.ui(ui, ctx, project);
+                } else {
+                    ui.label("Add or select a project in the Initiate project tab.");
+                }
+            },
+            Panel::DownloadData => {
+                if self.selected_project.is_some() {
+                    let project = &project.as_ref().unwrap();
+                    self.dl_panel.ui(ui, ctx, async_ctx, project);
+                } else {
+                    ui.label("Add or select a project in the Initiate project tab.");
+                }
             },
             Panel::Empty => {
                 self.empty_panel.ui(ui);
@@ -280,11 +361,11 @@ impl MainApp {
                         .range(0.0..=100.)
                 );
                 if rmse_adjuster.changed() {
-                    self.validation_panel.update_plots(&async_ctx);
+                    self.validation_panel.update_plots(async_ctx);
                 }
                 if rmse_adjuster.double_clicked() {
                     self.validation_panel.rmse_thresh = 25.;
-                    self.validation_panel.update_plots(&async_ctx);
+                    self.validation_panel.update_plots(async_ctx);
                 }
                 ui.end_row();
 
@@ -295,11 +376,11 @@ impl MainApp {
                         .range(0.0..=1.0)
                 );
                 if r2_adjuster.changed() {
-                    self.validation_panel.update_plots(&async_ctx)
+                    self.validation_panel.update_plots(async_ctx)
                 }
                 if r2_adjuster.double_clicked() {
                     self.validation_panel.r2_thresh = 0.9;
-                    self.validation_panel.update_plots(&async_ctx);
+                    self.validation_panel.update_plots(async_ctx);
                 }
                 ui.end_row();
 
@@ -310,11 +391,11 @@ impl MainApp {
                         .range(0.0..=1.0)
                 );
                 if p_val_adjuster.changed() {
-                    self.validation_panel.update_plots(&async_ctx)
+                    self.validation_panel.update_plots(async_ctx)
                 }
                 if p_val_adjuster.double_clicked() {
                     self.validation_panel.p_val_thresh = 0.05;
-                    self.validation_panel.update_plots(&async_ctx);
+                    self.validation_panel.update_plots(async_ctx);
                 }
                         ui.end_row();
 
@@ -325,11 +406,11 @@ impl MainApp {
                         .range(0.0..=30000.0)
                 );
                 if t0_adjuster.changed() {
-                    self.validation_panel.update_plots(&async_ctx)
+                    self.validation_panel.update_plots(async_ctx)
                 }
                 if t0_adjuster.double_clicked() {
                     self.validation_panel.t0_thresh= 30000.;
-                    self.validation_panel.update_plots(&async_ctx);
+                    self.validation_panel.update_plots(async_ctx);
                 }
             });
                         ui.end_row();
@@ -458,14 +539,22 @@ impl MainApp {
             async_ctx.prog_receiver = Some(receiver);
         }
     }
+
+    pub fn to_app_state(&self) -> AppState {
+        AppState {
+            start_date: self.date_range.start.to_utc(),
+            end_date: self.date_range.end.to_utc(),
+        }
+    }
 }
 
+// NOTE: make this an impl?
 pub fn load_app_state(path: &Path) -> Result<AppState, Box<dyn std::error::Error>> {
     let data = std::fs::read_to_string(path)?;
     let state: AppState = serde_json::from_str(&data)?;
     Ok(state)
 }
-pub fn save_app_state(app: &ValidationApp, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn save_app_state(app: &MainApp, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let state = app.to_app_state();
     let json = serde_json::to_string_pretty(&state)?;
     let mut file = fs::File::create(path)?;
@@ -478,16 +567,12 @@ impl ProcessEventSink for MainApp {
             QueryEvent::InitStarted => {
                 println!("No switching allowed");
                 self.switching_allowed = false;
-                self.validation_panel.init_in_progress = true;
-                self.validation_panel.recalc.calc_in_progress = true;
             },
             QueryEvent::InitEnded => {
                 self.switching_allowed = true;
-                self.validation_panel.init_in_progress = false;
-                self.validation_panel.recalc.calc_in_progress = false;
             },
             QueryEvent::QueryComplete => {
-                self.validation_panel.query_in_progress = false;
+                self.init_panel.query_in_progress = false;
                 self.log_messages.push_front(good_message("Finished queries."));
                 self.validation_panel.recalc.query_in_progress = false;
             },
@@ -520,28 +605,36 @@ impl ProcessEventSink for MainApp {
             ProgressEvent::DisableUI => {
                 self.switching_allowed = false;
                 self.file_panel.reading_in_progress = true;
-                self.validation_panel.init_enabled = false;
-                self.validation_panel.recalc.calc_enabled = false;
+                self.init_panel.query_in_progress = true;
+                self.init_panel.init_in_progress = true;
+                self.init_panel.init_enabled = false;
+                self.init_panel.recalc.calc_enabled = false;
+                self.init_panel.recalc.calc_in_progress = true;
+                self.init_panel.recalc.query_in_progress = true;
             },
             ProgressEvent::EnableUI => {
                 self.switching_allowed = true;
+                self.init_panel.query_in_progress = false;
+                self.init_panel.init_in_progress = false;
+                self.init_panel.init_enabled = true;
                 self.file_panel.reading_in_progress = false;
-                self.validation_panel.init_enabled = true;
-                self.validation_panel.recalc.calc_enabled = true;
+                self.init_panel.recalc.calc_enabled = true;
+                self.init_panel.recalc.calc_in_progress = false;
+                self.init_panel.recalc.query_in_progress = false;
             },
             ProgressEvent::Rows(current, total) => {
-                self.validation_panel.cycles_state = Some((*current, *total));
-                self.validation_panel.cycles_progress += current;
+                self.init_panel.cycles_state = Some((*current, *total));
+                self.init_panel.cycles_progress += current;
                 println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::Recalced(current, total) => {
-                self.validation_panel.recalc.cycles_state = Some((*current, *total));
-                self.validation_panel.recalc.cycles_progress += current;
+                self.init_panel.recalc.cycles_state = Some((*current, *total));
+                self.init_panel.recalc.cycles_progress += current;
                 println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::CalculationStarted => {
-                self.validation_panel.recalc.calc_enabled = false;
-                self.validation_panel.recalc.calc_in_progress = true;
+                self.init_panel.recalc.calc_enabled = false;
+                self.init_panel.recalc.calc_in_progress = true;
             },
             ProgressEvent::Day(date) => {
                 self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
@@ -608,12 +701,12 @@ impl ProcessEventSink for MainApp {
                 };
                 if *skips == 0 {
                     self.log_messages.push_front(good_message(&format!(
-                        "Inserted rows of {} {} data.",
+                        "Inserted {} rows of {} data.",
                         inserts, what
                     )));
                 } else {
                     self.log_messages.push_front(warn_message(&format!(
-                        "Inserted rows of {} {} data, skipped {} duplicates.",
+                        "Inserted {} rows of {} data, skipped {} duplicates.",
                         inserts, what, skips
                     )));
                 }
@@ -621,15 +714,13 @@ impl ProcessEventSink for MainApp {
             InsertEvent::Fail(e) => {
                 self.log_messages.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
                 self.switching_allowed = true;
-                self.validation_panel.cycles_progress = 0;
-                self.validation_panel.init_in_progress = false;
-                self.validation_panel.init_enabled = true;
-                self.validation_panel.query_in_progress = false;
-                self.validation_panel.recalc.calc_enabled = true;
-                self.validation_panel.recalc.calc_in_progress = false;
-                self.validation_panel.recalc.query_in_progress = false;
-                self.validation_panel.recalc.cycles_progress = 0;
-                self.validation_panel.recalc.cycles_state = None;
+                self.init_panel.cycles_progress = 0;
+                self.init_panel.query_in_progress = false;
+                self.init_panel.recalc.calc_enabled = true;
+                self.init_panel.recalc.calc_in_progress = false;
+                self.init_panel.recalc.query_in_progress = false;
+                self.init_panel.recalc.cycles_progress = 0;
+                self.init_panel.recalc.cycles_state = None;
             },
         }
     }
@@ -647,15 +738,18 @@ impl ProcessEventSink for MainApp {
 
         println!("Reset app state");
         self.switching_allowed = true;
-        self.validation_panel.cycles_progress = 0;
-        self.validation_panel.init_in_progress = false;
-        self.validation_panel.init_enabled = true;
-        self.validation_panel.query_in_progress = false;
-        self.validation_panel.recalc.calc_enabled = true;
-        self.validation_panel.recalc.calc_in_progress = false;
-        self.validation_panel.recalc.query_in_progress = false;
-        self.validation_panel.recalc.cycles_progress = 0;
-        self.validation_panel.recalc.cycles_state = None;
+        self.init_panel.cycles_progress = 0;
+        self.init_panel.query_in_progress = false;
+        self.init_panel.init_enabled = true;
+        self.init_panel.init_in_progress = false;
+        self.init_panel.cycles_state = None;
+        self.init_panel.init_in_progress = false;
+
+        self.init_panel.recalc.calc_enabled = true;
+        self.init_panel.recalc.calc_in_progress = false;
+        self.init_panel.recalc.query_in_progress = false;
+        self.init_panel.recalc.cycles_progress = 0;
+        self.init_panel.recalc.cycles_state = None;
     }
 }
 pub fn drain_progress_messages<T: ProcessEventSink>(

@@ -1,10 +1,37 @@
-use super::validation_app::AsyncCtx;
 use crate::keybinds::Action;
 use crate::keybinds::KeyBindings;
 use crate::ui::main_app::save_app_state;
 use crate::ui::main_app::MainApp;
+use fluxrs_core::processevent::ProcessEvent;
+
 use egui::FontFamily;
 use std::path::Path;
+
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
+pub type ProgReceiver = UnboundedReceiver<ProcessEvent>;
+pub type ProgSender = UnboundedSender<ProcessEvent>;
+
+pub struct AsyncCtx {
+    pub runtime: tokio::runtime::Runtime,
+    pub prog_sender: ProgSender,
+    pub prog_receiver: Option<ProgReceiver>,
+}
+
+impl Default for AsyncCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl AsyncCtx {
+    pub fn new() -> Self {
+        let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
+        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        Self { prog_sender, prog_receiver: Some(prog_receiver), runtime }
+    }
+}
 
 #[derive(Default)]
 pub struct FluxApp {
@@ -13,6 +40,7 @@ pub struct FluxApp {
     pub async_ctx: AsyncCtx,
     pub keybinds: KeyBindings,
 }
+
 impl FluxApp {
     pub fn new() -> Self {
         let keybinds = KeyBindings::load_from_file("keybinds.json").unwrap_or_default();
@@ -21,6 +49,7 @@ impl FluxApp {
         Self { keybinds, main_app, ..Default::default() }
     }
 }
+
 impl eframe::App for FluxApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -64,7 +93,6 @@ impl eframe::App for FluxApp {
                 ui.label(format!(
                     "Current project: {}",
                     self.main_app
-                        .validation_panel
                         .selected_project
                         .as_ref()
                         .map(|p| &p.name)
@@ -74,7 +102,6 @@ impl eframe::App for FluxApp {
                 ui.label(format!(
                     "Display timezone: {}",
                     self.main_app
-                        .validation_panel
                         .selected_project
                         .as_ref()
                         .map(|p| p.tz.to_string())
@@ -98,7 +125,7 @@ impl eframe::App for FluxApp {
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.main_app.validation_panel.commit_all_dirty_cycles(&self.async_ctx); // <-- do cleanup here
-        let app = &self.main_app.validation_panel;
+        let app = &self.main_app;
         let path = Path::new("app_state.json");
         let _ = save_app_state(app, path);
     }

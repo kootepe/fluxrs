@@ -7,14 +7,14 @@ use super::{
     init_attribute_plot, init_gas_plot, init_lag_plot, init_residual_bars,
     init_standardized_residuals_plot,
 };
-use crate::ui::file_app::FileApp;
+use crate::ui::AsyncCtx;
 
 use crate::appview::AppState;
 use crate::ui::recalc::RecalculateApp;
 use crate::ui::tz_picker::TimezonePickerState;
 
 use crate::keybinds::{Action, KeyBindings};
-use fluxrs_core::cycle::cycle::{AppError, Cycle};
+use fluxrs_core::cycle::cycle::Cycle;
 use fluxrs_core::cycle::gaskey::GasKey;
 use fluxrs_core::data_formats::chamberdata::ChamberOrigin;
 use fluxrs_core::data_formats::meteodata::MeteoSource;
@@ -23,24 +23,16 @@ use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::gastype::GasType;
 use fluxrs_core::instruments::instruments::Instrument;
 use fluxrs_core::mode::Mode;
-use fluxrs_core::processevent::ProcessEvent;
 use fluxrs_core::project::Project;
 use fluxrs_core::types::FastMap;
-
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver, UnboundedSender};
 
 use eframe::egui::{Color32, Context, Label, RichText, Stroke, TextWrapMode};
 use egui_plot::{LineStyle, MarkerShape, PlotPoints, Polygon, VLine};
 
 use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone};
 use chrono_tz::{Tz, UTC};
-use rusqlite::Result;
-use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
 
 // logs which item on the plot is being dragged
 pub enum Adjuster {
@@ -76,58 +68,8 @@ impl Default for Adjuster {
     }
 }
 
-type LoadResult = Arc<Mutex<Option<Result<Vec<Cycle>, AppError>>>>;
-pub type ProgReceiver = UnboundedReceiver<ProcessEvent>;
-pub type ProgSender = UnboundedSender<ProcessEvent>;
-
-pub struct AsyncCtx {
-    pub runtime: tokio::runtime::Runtime,
-    pub prog_sender: ProgSender,
-    pub prog_receiver: Option<ProgReceiver>,
-}
-
-impl Default for AsyncCtx {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AsyncCtx {
-    pub fn new() -> Self {
-        let (prog_sender, prog_receiver) = mpsc::unbounded_channel();
-        let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-        Self { prog_sender, prog_receiver: Some(prog_receiver), runtime }
-    }
-}
-
-pub struct LoadAsyncState {
-    pub result: LoadResult,
-    pub done_sender: Sender<()>,
-    pub done_receiver: Receiver<()>,
-}
-
-impl LoadAsyncState {
-    pub fn new() -> Self {
-        let (done_sender, done_receiver) = std::sync::mpsc::channel();
-        let result = Arc::new(Mutex::new(None));
-        Self { done_sender, done_receiver, result }
-    }
-}
-
-impl Default for LoadAsyncState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct ValidationApp {
     pub recalc: RecalculateApp,
-    pub init_enabled: bool,
-    pub init_in_progress: bool,
-    pub cycles_progress: usize,
-    pub cycles_state: Option<(usize, usize)>,
-    pub query_in_progress: bool,
-    pub load_state: LoadAsyncState,
     pub plot_enabler: EnabledPlots,
 
     pub p_val_thresh: f32,
@@ -144,10 +86,7 @@ pub struct ValidationApp {
     pub selected_point: Option<[f64; 2]>,
     pub dragged_point: Option<[f64; 2]>,
     pub chamber_colors: FastMap<String, Color32>, // Stores colors per chamber
-    pub start_date: DateTime<Tz>,
-    pub end_date: DateTime<Tz>,
     pub keep_calc_constant_deadband: bool,
-    pub selected_project: Option<Project>,
     pub show_fits: EnableFit,
     pub calc_area_color: Color32,
     pub calc_area_adjust_color: Color32,
@@ -163,11 +102,7 @@ pub struct ValidationApp {
     pub current_delta: f64,
     pub current_z_delta: f64,
     pub current_ydelta: f64,
-    pub tz_prompt_open: bool,
-    pub tz_state: TimezonePickerState,
-    pub tz_for_files: Option<Tz>,
     pub flux_unit: FluxUnit,
-    pub file_app: FileApp,
     pub plot_point_size: f32,
 }
 
@@ -176,12 +111,6 @@ impl Default for ValidationApp {
         Self {
             recalc: RecalculateApp::new(),
             dirty_cycles: HashSet::new(),
-            load_state: LoadAsyncState::default(),
-            cycles_progress: 0,
-            cycles_state: None,
-            query_in_progress: false,
-            init_enabled: true,
-            init_in_progress: false,
             plot_enabler: EnabledPlots::default(),
 
             p_val_thresh: 0.05,
@@ -197,9 +126,6 @@ impl Default for ValidationApp {
             selected_point: None,
             dragged_point: None,
             chamber_colors: FastMap::default(),
-            start_date: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
-            end_date: UTC.with_ymd_and_hms(2024, 9, 30, 23, 59, 59).unwrap(),
-            selected_project: None,
             show_fits: EnableFit::new(),
             keep_calc_constant_deadband: true,
             calc_area_color: Color32::BLACK,
@@ -216,11 +142,7 @@ impl Default for ValidationApp {
             current_delta: 0.,
             current_z_delta: 0.,
             current_ydelta: 0.,
-            tz_prompt_open: false,
-            tz_state: TimezonePickerState::default(),
-            tz_for_files: Some(UTC), // sensible default
             flux_unit: FluxUnit::default(),
-            file_app: FileApp::default(),
             plot_point_size: 3.,
         }
     }
@@ -232,12 +154,8 @@ impl ValidationApp {
         ctx: &egui::Context,
         async_ctx: &mut AsyncCtx,
         keybinds: &KeyBindings,
+        project: &Project,
     ) {
-        if self.selected_project.is_none() {
-            ui.label("Add or select a project in the Initiate project tab.");
-            return;
-        }
-
         if self.cycles.is_empty() {
             ui.label("No cycles with data loaded, use Initiate measurements tab to initiate data.");
             return;
@@ -247,12 +165,12 @@ impl ValidationApp {
         // egui::Window::new("Select visible traces").max_width(50.).show(ctx, |ui| {
         if self.show_legend {
             egui::Window::new("Legend").title_bar(false).resizable(false).show(ctx, |ui| {
-                self.render_legend(ui, &async_ctx);
+                self.render_legend(ui, async_ctx);
             });
         }
 
         if self.show_cycle_details {
-            self.show_cycle_details(ctx)
+            self.show_cycle_details(ctx, project)
         }
         if self.show_plot_widths {
             egui::Window::new("Adjust plot widths").show(ctx, |ui| {
@@ -498,7 +416,7 @@ impl ValidationApp {
                         _ => {},
                     }
 
-                    if self.mode_pearsons() {
+                    if project.mode_pearsons() {
                         self.set_all_calc_range_to_best_r();
                     }
                     self.update_plots(&async_ctx);
@@ -519,7 +437,7 @@ impl ValidationApp {
                         _ => {},
                     }
 
-                    if self.mode_pearsons() {
+                    if project.mode_pearsons() {
                         self.set_all_calc_range_to_best_r();
                     }
 
@@ -557,9 +475,7 @@ impl ValidationApp {
                                 let current_open_offset = current_cycle.get_open_offset() as f64;
                                 let target = current_start + current_open_offset + prev_lag;
 
-                                let Some(main_gas) =
-                                    self.selected_project.as_ref().unwrap().main_gas
-                                else {
+                                let Some(main_gas) = project.main_gas else {
                                     eprintln!("No main gas selected!");
                                     return;
                                 };
@@ -615,7 +531,7 @@ impl ValidationApp {
         if reset_cycle {
             self.mark_dirty();
             // NOTE: hitting reset on a cycle that has no changes, will cause it to be archived
-            self.reset_cycle();
+            self.reset_cycle(&project);
             self.update_plots(&async_ctx);
         }
 
@@ -720,14 +636,15 @@ impl ValidationApp {
                             let gas_plot = init_gas_plot(
                                 key,
                                 instruments.get(&key.id).unwrap().clone(),
-                                self.selected_project.as_ref().unwrap().tz,
+                                project.tz,
                                 self.get_start(),
                                 self.get_end(),
                                 self.plot_widths.gas_w,
                                 self.plot_widths.gas_h,
                             );
-                            let response =
-                                gas_plot.show(ui, |plot_ui| self.render_gas_plot_ui(plot_ui, key));
+                            let response = gas_plot.show(ui, |plot_ui| {
+                                self.render_gas_plot_ui(plot_ui, key, &project)
+                            });
                             if response.response.hovered() {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::None);
                                 // Hide cursor
@@ -1735,7 +1652,7 @@ impl ValidationApp {
                         self.plot_widths.lag_h,
                     );
                     let response = lag_plot.show(ui, |plot_ui| {
-                        self.render_lag_plot(plot_ui, async_ctx);
+                        self.render_lag_plot(plot_ui, async_ctx, &project);
                     });
                     if response.response.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -1815,93 +1732,6 @@ impl ValidationApp {
         }
     }
 
-    pub fn date_picker(&mut self, ui: &mut egui::Ui) {
-        let mut picker_start = self.start_date.date_naive();
-        let mut picker_end = self.end_date.date_naive();
-        let user_tz = self.selected_project.as_ref().unwrap().tz;
-
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                // Start Date Picker
-                ui.label("Pick start date:");
-                if ui
-                    .add(
-                        egui_extras::DatePickerButton::new(&mut picker_start)
-                            .highlight_weekends(false)
-                            .id_salt("start_date"),
-                    )
-                    .changed()
-                {
-                    let naive = NaiveDateTime::from(picker_start);
-                    let pick: DateTime<Tz> = user_tz.clone().from_local_datetime(&naive).unwrap();
-                    self.start_date = pick;
-                }
-            });
-
-            ui.vertical(|ui| {
-                ui.label("Pick end date:");
-                if ui
-                    .add(
-                        egui_extras::DatePickerButton::new(&mut picker_end)
-                            .highlight_weekends(false)
-                            .id_salt("end_date"),
-                    )
-                    .changed()
-                {
-                    let naive = NaiveDateTime::from(picker_end);
-                    let pick: DateTime<Tz> = user_tz.clone().from_local_datetime(&naive).unwrap();
-                    self.end_date = pick + TimeDelta::seconds(86399);
-                }
-            });
-        });
-
-        let start_before_end = self.start_date < self.end_date;
-
-        if start_before_end {
-            let delta = self.end_date - self.start_date;
-
-            if let Ok(duration) = delta.to_std() {
-                let total_secs = duration.as_secs();
-
-                let days = total_secs / 86_400;
-                let hours = (total_secs % 86_400) / 3_600;
-                let minutes = (total_secs % 3_600) / 60;
-                let seconds = total_secs % 60;
-
-                let duration_str = if days > 0 {
-                    format!("{}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
-                } else if hours > 0 {
-                    format!("{:02}h {:02}m {:02}s", hours, minutes, seconds)
-                } else if minutes > 0 {
-                    format!("{:02}m {:02}s", minutes, seconds)
-                } else {
-                    format!("{:02}s", seconds)
-                };
-                ui.label(format!("From: {}", self.start_date));
-                ui.label(format!("to: {}", self.end_date));
-
-                ui.label(format!("Duration: {}", duration_str));
-
-                // Buttons with full duration string
-                if ui
-                    .add_enabled(true, egui::Button::new(format!("Next ({})", duration_str)))
-                    .clicked()
-                {
-                    self.start_date += delta;
-                    self.end_date += delta;
-                }
-
-                if ui
-                    .add_enabled(true, egui::Button::new(format!("Previous ({})", duration_str)))
-                    .clicked()
-                {
-                    self.start_date -= delta;
-                    self.end_date -= delta;
-                }
-            }
-        }
-    }
-
     pub fn _display_ui(&mut self, ui: &mut egui::Ui, _ctx: &Context) {
         if self.cycles.is_empty() {
             println!("No cycles");
@@ -1909,19 +1739,6 @@ impl ValidationApp {
         }
 
         ui.heading("Plot selection");
-    }
-
-    pub fn get_project(&self) -> &Project {
-        self.selected_project.as_ref().unwrap()
-    }
-    pub fn get_project_mode(&self) -> Mode {
-        self.selected_project.as_ref().unwrap().mode
-    }
-    pub fn mode_after_deadband(&self) -> bool {
-        self.selected_project.as_ref().unwrap().mode == Mode::AfterDeadband
-    }
-    pub fn mode_pearsons(&self) -> bool {
-        self.selected_project.as_ref().unwrap().mode == Mode::BestPearsonsR
     }
 
     /// Find the most recent previous cycle with matching chamber_id
@@ -2810,17 +2627,14 @@ impl ValidationApp {
         }
     }
 
-    pub fn to_app_state(&self) -> AppState {
-        AppState { start_date: self.start_date.to_utc(), end_date: self.end_date.to_utc() }
-    }
-    pub fn show_cycle_details(&self, ctx: &Context) {
+    pub fn show_cycle_details(&self, ctx: &Context, project: &Project) {
         egui::Window::new("Current Cycle details").show(ctx, |ui| {
             if let Some(cycle) = self.cycle_nav.current_cycle(&self.cycles) {
                 let errors = ErrorCode::from_mask(cycle.error_code.0);
                 let error_messages: Vec<String> =
                     errors.iter().map(|error| error.to_string()).collect();
 
-                let main_gas = if let Some(gas) = self.get_project().main_gas {
+                let main_gas = if let Some(gas) = project.main_gas {
                     gas
                 } else {
                     eprintln!("No main gas selected!");
@@ -2931,7 +2745,7 @@ impl ValidationApp {
                     ui.label(
                         DateTime::from_timestamp(cycle.get_start() as i64, 0)
                             .unwrap()
-                            .with_timezone(&self.selected_project.as_ref().unwrap().tz)
+                            .with_timezone(&project.tz)
                             .to_string(),
                     );
                     ui.end_row();

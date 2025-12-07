@@ -1,5 +1,7 @@
 pub mod download_app;
 pub mod file_app;
+pub mod init_app;
+pub mod load_app;
 pub mod main_app;
 pub mod main_frame;
 pub mod manage_proj;
@@ -8,4 +10,11 @@ pub mod table_app;
 pub mod tz_picker;
 pub mod validation_app;
 
+pub use download_app::DownloadApp;
+pub use file_app::FileApp;
+pub use init_app::InitApp;
+pub use load_app::LoadApp;
 pub use main_frame::{AsyncCtx, ProgReceiver, ProgSender};
+pub use manage_proj::ProjectApp;
+pub use table_app::TableApp;
+pub use validation_app::ValidationApp;

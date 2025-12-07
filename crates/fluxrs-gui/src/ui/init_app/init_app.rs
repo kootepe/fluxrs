@@ -1,5 +1,6 @@
-use super::ValidationApp;
-use crate::ui::validation_app::validation_ui::AsyncCtx;
+use crate::ui::main_app::DateRange;
+use crate::ui::recalc::RecalculateApp;
+use crate::ui::AsyncCtx;
 use eframe::egui::Context;
 use egui::{Color32, RichText};
 use fluxrs_core::cycle_processor::{Datasets, Infra, Processor};
@@ -8,20 +9,37 @@ use fluxrs_core::data_formats::gasdata::query_gas_async;
 use fluxrs_core::data_formats::heightdata::query_height_async;
 use fluxrs_core::data_formats::meteodata::query_meteo_async;
 use fluxrs_core::data_formats::timedata::query_cycles_async;
-use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
+use fluxrs_core::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
+use fluxrs_core::project::Project;
 use rusqlite::Connection;
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-impl ValidationApp {
-    pub fn init_ui(&mut self, ui: &mut egui::Ui, ctx: &Context, async_ctx: &mut AsyncCtx) {
-        // Show info if no project selected
-        if self.selected_project.is_none() {
-            ui.label("Add or select a project in the Initiate project tab.");
-            return;
-        }
+use chrono::{DateTime, NaiveDateTime, TimeDelta, TimeZone};
+use chrono_tz::{Tz, UTC};
 
+#[derive(Default)]
+pub struct InitApp {
+    pub recalc: RecalculateApp,
+    pub init_in_progress: bool,
+    pub init_enabled: bool,
+    pub cycles_progress: usize,
+    pub cycles_state: Option<(usize, usize)>,
+    pub query_in_progress: bool,
+}
+
+impl InitApp {
+    pub fn new() -> Self {
+        Self { init_enabled: true, ..Default::default() }
+    }
+    pub fn ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &Context,
+        async_ctx: &mut AsyncCtx,
+        date_range: &mut DateRange,
+        project: &Project,
+    ) {
         // Show spinner if processing is ongoing
         if self.init_in_progress || !self.init_enabled {
             ui.add(egui::Spinner::new());
@@ -45,11 +63,11 @@ impl ValidationApp {
         let sender = async_ctx.prog_sender.clone();
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                self.date_picker(ui);
+                self.date_picker(ui, project, date_range);
                 // Date navigation buttons
 
                 let sender_clone = sender.clone();
-                let start_after_end = self.start_date < self.end_date;
+                let start_after_end = date_range.start < date_range.end;
                 // Trigger processing with selected date range
                 if ui
                     .add_enabled(
@@ -58,18 +76,16 @@ impl ValidationApp {
                     )
                     .clicked()
                 {
-                    self.commit_all_dirty_cycles(async_ctx);
                     self.init_enabled = false;
                     self.init_in_progress = true;
                     self.query_in_progress = true;
-                    let _ = async_ctx.prog_sender.send(ProcessEvent::Progress(
-                        fluxrs_core::processevent::ProgressEvent::DisableUI,
-                    ));
+                    let _ = async_ctx
+                        .prog_sender
+                        .send(ProcessEvent::Progress(ProgressEvent::DisableUI));
 
-                    let start_date = self.start_date;
-                    let end_date = self.end_date;
-                    let project = self.get_project().clone();
-                    let instrument_serial = self.get_project().instrument.serial.clone();
+                    let start_date = date_range.start;
+                    let end_date = date_range.end;
+                    let project = project.clone();
 
                     let conn = match Connection::open("fluxrs.db") {
                         Ok(conn) => conn,
@@ -164,13 +180,104 @@ impl ValidationApp {
                 ui,
                 ctx,
                 &async_ctx.runtime,
-                self.start_date.to_utc(),
-                self.end_date.to_utc(),
-                self.get_project().clone(),
+                date_range.start.to_utc(),
+                date_range.end.to_utc(),
+                project,
                 sender.clone(),
             );
         });
 
         // Display log messages
+    }
+    pub fn date_picker(
+        &mut self,
+        ui: &mut egui::Ui,
+        project: &Project,
+        date_range: &mut DateRange,
+    ) {
+        let mut picker_start = date_range.start.date_naive();
+        let mut picker_end = date_range.end.date_naive();
+        let user_tz = &project.tz;
+
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                // Start Date Picker
+                ui.label("Pick start date:");
+                if ui
+                    .add(
+                        egui_extras::DatePickerButton::new(&mut picker_start)
+                            .highlight_weekends(false)
+                            .id_salt("start_date"),
+                    )
+                    .changed()
+                {
+                    let naive = NaiveDateTime::from(picker_start);
+                    let pick: DateTime<Tz> = user_tz.clone().from_local_datetime(&naive).unwrap();
+                    date_range.start = pick;
+                }
+            });
+
+            ui.vertical(|ui| {
+                ui.label("Pick end date:");
+                if ui
+                    .add(
+                        egui_extras::DatePickerButton::new(&mut picker_end)
+                            .highlight_weekends(false)
+                            .id_salt("end_date"),
+                    )
+                    .changed()
+                {
+                    let naive = NaiveDateTime::from(picker_end);
+                    let pick: DateTime<Tz> = user_tz.clone().from_local_datetime(&naive).unwrap();
+                    date_range.end = pick + TimeDelta::seconds(86399);
+                }
+            });
+        });
+
+        let start_before_end = date_range.start < date_range.end;
+
+        if start_before_end {
+            let delta = date_range.end - date_range.start;
+
+            if let Ok(duration) = delta.to_std() {
+                let total_secs = duration.as_secs();
+
+                let days = total_secs / 86_400;
+                let hours = (total_secs % 86_400) / 3_600;
+                let minutes = (total_secs % 3_600) / 60;
+                let seconds = total_secs % 60;
+
+                let duration_str = if days > 0 {
+                    format!("{}d {:02}h {:02}m {:02}s", days, hours, minutes, seconds)
+                } else if hours > 0 {
+                    format!("{:02}h {:02}m {:02}s", hours, minutes, seconds)
+                } else if minutes > 0 {
+                    format!("{:02}m {:02}s", minutes, seconds)
+                } else {
+                    format!("{:02}s", seconds)
+                };
+                ui.label(format!("From: {}", date_range.start));
+                ui.label(format!("to: {}", date_range.end));
+
+                ui.label(format!("Duration: {}", duration_str));
+
+                // Buttons with full duration string
+                if ui
+                    .add_enabled(true, egui::Button::new(format!("Next ({})", duration_str)))
+                    .clicked()
+                {
+                    date_range.start += delta;
+                    date_range.end += delta;
+                }
+
+                if ui
+                    .add_enabled(true, egui::Button::new(format!("Previous ({})", duration_str)))
+                    .clicked()
+                {
+                    date_range.start -= delta;
+                    date_range.end -= delta;
+                }
+            }
+        }
     }
 }

@@ -1,7 +1,8 @@
 use super::Adjuster;
-use super::AsyncCtx;
 use super::ValidationApp;
 use super::{create_polygon, create_vline, is_inside_polygon};
+use crate::ui::AsyncCtx;
+use fluxrs_core::project::Project;
 
 use super::cycle_navigator::compute_visible_indexes;
 use crate::flux_extension::UiColor;
@@ -44,8 +45,6 @@ impl ValidationApp {
     }
 
     pub fn commit_all_dirty_cycles(&mut self, async_ctx: &AsyncCtx) {
-        let Some(project) = self.selected_project.clone() else { return };
-
         let dirty: Vec<_> =
             self.dirty_cycles.drain().filter_map(|i| self.cycles.get(i).cloned()).collect();
 
@@ -488,11 +487,6 @@ impl ValidationApp {
 
     /// Commits the current cycle to the DB if a project is selected
     pub fn commit_current_cycle(&mut self, async_ctx: &AsyncCtx) {
-        let Some(project) = self.selected_project.clone() else {
-            eprintln!("[warn] No project selected, skipping commit.");
-            return;
-        };
-
         let Some(current_index) = self.cycle_nav.current_index() else {
             eprintln!("[warn] No current cycle selected.");
             return;
@@ -827,14 +821,14 @@ impl ValidationApp {
             cycle.reload_gas_data();
         }
     }
-    pub fn reset_cycle(&mut self) {
-        let mode = self.get_project_mode();
+    pub fn reset_cycle(&mut self, project: &Project) {
+        let mode = project.mode();
         if let Some(c) = self.cycle_nav.current_cycle_mut(&mut self.cycles) {
             c.manual_adjusted = false;
             c.override_valid = None;
             c.set_close_lag(0.);
             c.set_open_lag(0.);
-            c.reset_deadbands(self.selected_project.as_ref().unwrap().deadband);
+            c.reset_deadbands(project.deadband());
             c.set_end_lag_only(0.);
             c.set_start_lag_only(0.);
             c.error_code.0 = 0;
@@ -1337,7 +1331,7 @@ impl ValidationApp {
         &mut self,
         plot_ui: &mut egui_plot::PlotUi,
         async_ctx: &AsyncCtx,
-        project: &Option<Project>,
+        project: &Project,
     ) {
         let key = self.cycle_nav.current_cycle_key(&self.cycles);
         let (valid_traces, invalid_traces) =
@@ -1412,7 +1406,7 @@ impl ValidationApp {
                     if cycle.get_start_ts() as f64 == dragged[0] && (steps >= 1. || steps <= -1.) {
                         cycle.increment_open_lag(steps);
                         // cycle.set_open_lag(new_y);
-                        if project.as_ref().unwrap().mode_pearsons() {
+                        if project.mode_pearsons() {
                             self.set_all_calc_range_to_best_r();
                         }
                         self.stick_calc_to_range_start_for_all();
@@ -1509,7 +1503,7 @@ impl ValidationApp {
         &mut self,
         plot_ui: &mut egui_plot::PlotUi,
         key: &GasKey,
-        project: &Option<Project>,
+        project: &Project,
     ) {
         let dpw = self.get_dragger_width(key);
 
@@ -1664,7 +1658,7 @@ impl ValidationApp {
                             // Anchor calc window to new start of range (stick-to-beginning)
                             self.stick_calc_to_range_start_for_all();
 
-                            if project.as_ref().unwrap().mode_pearsons() {
+                            if project.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
                         }
@@ -1691,7 +1685,7 @@ impl ValidationApp {
                             // Anchor calc window to new start of range (stick-to-beginning)
                             self.stick_calc_to_range_start_for_all();
 
-                            if project.as_ref().unwrap().mode_pearsons() {
+                            if project.mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
                         }
