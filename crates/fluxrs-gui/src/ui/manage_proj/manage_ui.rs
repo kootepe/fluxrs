@@ -123,7 +123,7 @@ impl DeleteMeasurementApp {
                                 recalc.query_in_progress = true;
                                 recalc.calculate_all(
                                     &async_ctx.runtime,
-                                    self.project.clone(),
+                                    &self.project,
                                     async_ctx.prog_sender.clone(),
                                 );
                             },

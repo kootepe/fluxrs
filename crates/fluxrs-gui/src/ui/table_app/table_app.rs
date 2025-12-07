@@ -3,7 +3,6 @@ use rusqlite::{params, types::ValueRef, Connection, Result, Row};
 
 #[derive(Default)]
 pub struct TableApp {
-    project: Option<Project>,
     table_names: Vec<String>,
     selected_table: Option<String>,
     column_names: Vec<String>,
@@ -40,7 +39,7 @@ impl TableApp {
             },
         }
     }
-    fn fetch_table_data(&mut self, table_name: &str) {
+    fn fetch_table_data(&mut self, table_name: &str, project: &Project) {
         self.column_names.clear();
         self.data.clear();
         self.current_page = 0; // Reset page when switching tables
@@ -57,7 +56,7 @@ impl TableApp {
         let mut index = None;
         let mut project_col = None;
 
-        if table_name != "projects" && self.project.is_some() {
+        if table_name != "projects" {
             project_col = Some("project_link");
         }
 
@@ -73,11 +72,7 @@ impl TableApp {
         let mut query = format!("SELECT * FROM {}", table_name);
 
         if let Some(col) = project_col {
-            query.push_str(&format!(
-                " WHERE {} = '{}'",
-                col,
-                self.project.as_ref().unwrap().id.unwrap()
-            ));
+            query.push_str(&format!(" WHERE {} = '{}'", col, project.id.unwrap()));
         }
 
         if let Some(col) = index {
@@ -105,8 +100,7 @@ impl TableApp {
         self.data = rows.unwrap().filter_map(|res| res.ok()).collect(); //   Collect valid rows only
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, project: Option<Project>) {
-        self.project = project;
+    pub fn ui(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context, project: &Project) {
         ui.heading("Database Table Viewer");
         if self.table_names.is_empty() {
             let conn = Connection::open("fluxrs.db").expect("Failed to open database");
@@ -133,7 +127,7 @@ impl TableApp {
                             if table == "measurements" {
                                 return;
                             }
-                            self.fetch_table_data(table);
+                            self.fetch_table_data(table, project);
                         }
                     }
                 });
@@ -177,8 +171,7 @@ impl TableApp {
                             let display = if col_name == "datetime" || col_name == "start_time" {
                                 if let Ok(ts) = value.parse::<i64>() {
                                     if let Some(dt_utc) = chrono::DateTime::from_timestamp(ts, 0) {
-                                        let dt_local = dt_utc
-                                            .with_timezone(&self.project.as_ref().unwrap().tz); // or &self.project.tz / &tz
+                                        let dt_local = dt_utc.with_timezone(&project.tz); // or &self.project.tz / &tz
                                         dt_local.format("%Y-%m-%d %H:%M:%S").to_string()
                                     } else {
                                         format!("Invalid timestamp: {}", ts)

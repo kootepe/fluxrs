@@ -18,7 +18,6 @@ use crate::ui::AsyncCtx;
 
 #[derive(Default)]
 pub struct DownloadApp {
-    project: Option<Project>,
     processing: bool,
     checks: Checks,
 }
@@ -36,9 +35,8 @@ impl DownloadApp {
         ui: &mut egui::Ui,
         _ctx: &egui::Context,
         async_ctx: &mut AsyncCtx,
-        project: Option<Project>,
+        project: &Project,
     ) {
-        self.project = project;
         if let Some(receiver) = async_ctx.prog_receiver.as_mut() {
             while let Ok(ev) = receiver.try_recv() {
                 match ev {
@@ -68,11 +66,7 @@ impl DownloadApp {
         }
 
         ui.heading("Data downloader");
-        if self.project.is_none() {
-            ui.label("add or select a project in the initiate project tab.");
-            return;
-        }
-        let gases = self.project.as_ref().unwrap().instrument.model.available_gases();
+        let gases = project.instrument.model.available_gases();
         for gas in &gases {
             self.checks.gas_checked.entry(*gas).or_insert(false);
         }
@@ -129,8 +123,8 @@ impl DownloadApp {
                 self.processing = true;
 
                 let sender_clone = async_ctx.prog_sender.clone();
-                let export_name = format!("fluxrs_{}.csv", self.project.as_ref().unwrap().name);
-                let proj_clone = self.project.clone().unwrap();
+                let export_name = format!("fluxrs_{}.csv", project.name);
+                let proj_clone = project.clone();
                 let checks_clone = self.checks.clone();
                 let _ = async_ctx.prog_sender.send(ProcessEvent::Query(QueryEvent::InitStarted));
 
