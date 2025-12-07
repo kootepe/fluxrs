@@ -72,6 +72,19 @@ impl fmt::Display for Project {
 }
 
 impl Project {
+    pub fn mode_after_deadband(&self) -> bool {
+        self.mode == Mode::AfterDeadband
+    }
+    pub fn mode_pearsons(&self) -> bool {
+        self.mode == Mode::BestPearsonsR
+    }
+    pub fn mode(&self) -> Mode {
+        self.mode
+    }
+    pub fn deadband(&self) -> f64 {
+        self.deadband
+    }
+
     pub fn load_instruments(&self) -> rusqlite::Result<FastMap<i64, Instrument>> {
         let conn = Connection::open("fluxrs.db")?;
         let mut stmt = conn.prepare(
