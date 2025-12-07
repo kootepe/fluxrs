@@ -1505,7 +1505,12 @@ impl ValidationApp {
     ) {
         self.render_residual_plot(plot_ui, key, kind);
     }
-    pub fn render_gas_plot_ui(&mut self, plot_ui: &mut egui_plot::PlotUi, key: &GasKey) {
+    pub fn render_gas_plot_ui(
+        &mut self,
+        plot_ui: &mut egui_plot::PlotUi,
+        key: &GasKey,
+        project: &Option<Project>,
+    ) {
         let dpw = self.get_dragger_width(key);
 
         self.render_gas_plot(plot_ui, key);
@@ -1659,7 +1664,7 @@ impl ValidationApp {
                             // Anchor calc window to new start of range (stick-to-beginning)
                             self.stick_calc_to_range_start_for_all();
 
-                            if self.mode_pearsons() {
+                            if project.as_ref().unwrap().mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
                         }
@@ -1686,7 +1691,7 @@ impl ValidationApp {
                             // Anchor calc window to new start of range (stick-to-beginning)
                             self.stick_calc_to_range_start_for_all();
 
-                            if self.mode_pearsons() {
+                            if project.as_ref().unwrap().mode_pearsons() {
                                 self.set_all_calc_range_to_best_r();
                             }
                         }
