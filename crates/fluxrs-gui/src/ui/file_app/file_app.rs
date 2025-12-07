@@ -64,14 +64,9 @@ impl FileApp {
         ui: &mut Ui,
         ctx: &Context,
         async_ctx: &mut AsyncCtx,
-        selected_project: &Option<Project>,
+        project: &Project,
         log_msgs: &mut VecDeque<RichText>,
     ) {
-        if selected_project.is_none() {
-            ui.label("Add or select a project in the Initiate project tab.");
-            return;
-        }
-
         if self.reading_in_progress {
             ui.add(egui::Spinner::new());
             ui.label("Reading files.");
@@ -79,26 +74,24 @@ impl FileApp {
 
         let mut gas_btn_text = "Select Analyzer Files".to_owned();
 
-        if let Some(project) = selected_project {
-            // Pick default instrument only once
-            if self.selected_instrument.is_none() {
-                self.selected_instrument = Some(project.instrument.model);
-            }
-            let current = self.selected_instrument.unwrap();
-
-            egui::ComboBox::from_label("Instrument").selected_text(current.to_string()).show_ui(
-                ui,
-                |ui| {
-                    for instrument in InstrumentType::available_instruments() {
-                        let selected = Some(instrument) == self.selected_instrument;
-                        if ui.selectable_label(selected, instrument.to_string()).clicked() {
-                            self.selected_instrument = Some(instrument);
-                        }
-                    }
-                },
-            );
-            gas_btn_text = format!("Select {} Files", current);
+        // Pick default instrument only once
+        if self.selected_instrument.is_none() {
+            self.selected_instrument = Some(project.instrument.model);
         }
+        let current = self.selected_instrument.unwrap();
+
+        egui::ComboBox::from_label("Instrument").selected_text(current.to_string()).show_ui(
+            ui,
+            |ui| {
+                for instrument in InstrumentType::available_instruments() {
+                    let selected = Some(instrument) == self.selected_instrument;
+                    if ui.selectable_label(selected, instrument.to_string()).clicked() {
+                        self.selected_instrument = Some(instrument);
+                    }
+                }
+            },
+        );
+        gas_btn_text = format!("Select {} Files", current);
 
         let btns_enabled = !self.reading_in_progress;
         ui.add_enabled(btns_enabled, |ui: &mut egui::Ui| {
@@ -127,8 +120,8 @@ impl FileApp {
             .response
         });
 
-        self.handle_file_selection(ctx, log_msgs, selected_project);
-        self.start_processing_if_ready(selected_project, log_msgs, async_ctx);
+        self.handle_file_selection(ctx, log_msgs, project);
+        self.start_processing_if_ready(async_ctx, log_msgs, project);
         self.show_timezone_prompt(ctx);
     }
 
@@ -148,7 +141,7 @@ impl FileApp {
         &mut self,
         ctx: &Context,
         log_messages: &mut VecDeque<RichText>,
-        project: &Option<Project>,
+        project: &Project,
     ) {
         if let Some(dialog) = &mut self.open_file_dialog {
             dialog.show(ctx);
@@ -162,9 +155,8 @@ impl FileApp {
                         self.opened_files = Some(selected_paths.clone());
 
                         // Only open the timezone prompt if we actually need it
-                        let instrument = self
-                            .selected_instrument
-                            .unwrap_or(project.as_ref().unwrap().instrument.model);
+                        let instrument =
+                            self.selected_instrument.unwrap_or(project.instrument.model);
                         if !self.current_gas_instrument_has_tz(&instrument) {
                             // non-gas OR gas instrument without its own TZ
                             self.tz_prompt_open = true;
@@ -192,13 +184,13 @@ impl FileApp {
 
     pub fn process_files_async(
         &mut self,
+        async_ctx: &AsyncCtx,
         path_list: Vec<PathBuf>,
         data_type: Option<DataType>,
         project: &Project,
         instrument: &InstrumentType,
         tz: Tz,
         log_messages: Arc<Mutex<VecDeque<RichText>>>,
-        async_ctx: &AsyncCtx,
     ) {
         let log_messages_clone = Arc::clone(&log_messages);
         let project_clone = project.clone();
@@ -291,9 +283,9 @@ impl FileApp {
 
     fn start_processing_if_ready(
         &mut self,
-        selected_project: &Option<Project>,
-        log_messages: &mut VecDeque<RichText>,
         async_ctx: &mut AsyncCtx,
+        log_messages: &mut VecDeque<RichText>,
+        project: &Project,
     ) {
         // Don't start a new job if one is already running
         if self.reading_in_progress {
@@ -307,11 +299,6 @@ impl FileApp {
 
         // We need files selected
         let Some(paths) = self.opened_files.clone() else {
-            return;
-        };
-
-        // And a project selected
-        let Some(project) = selected_project.clone() else {
             return;
         };
 
@@ -350,13 +337,13 @@ impl FileApp {
 
         // Note: process_files_async signature now includes `instrument`
         self.process_files_async(
+            async_ctx,
             paths,
             self.selected_data_type,
-            &project,
+            project,
             &instrument,
             tz,
             arc_msgs,
-            async_ctx,
         );
 
         // Clear selected files so we don't re-process them
