@@ -55,7 +55,7 @@ impl ValidationApp {
 
         async_ctx.runtime.spawn_blocking(move || {
             if let Ok(mut conn) = rusqlite::Connection::open("fluxrs.db") {
-                if let Err(e) = update_fluxes(&mut conn, &dirty, &project) {
+                if let Err(e) = update_fluxes(&mut conn, &dirty) {
                     eprintln!("Failed to commit dirty cycles: {e}");
                 } else {
                     println!("Committed {} dirty cycles", dirty.len());
@@ -511,10 +511,10 @@ impl ValidationApp {
 
         async_ctx.runtime.spawn_blocking(move || match rusqlite::Connection::open("fluxrs.db") {
             Ok(mut conn) => {
-                if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()], &project) {
+                if let Err(e) = update_fluxes(&mut conn, &[cycle.clone()]) {
                     eprintln!("[error] Failed to update cycle: {e}");
                 }
-                if let Err(e) = insert_flux_history(&mut conn, &[cycle], &project) {
+                if let Err(e) = insert_flux_history(&mut conn, &[cycle]) {
                     eprintln!("[error] Failed to insert history cycle: {e}");
                 }
             },

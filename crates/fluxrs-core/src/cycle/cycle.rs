@@ -1732,7 +1732,6 @@ pub fn insert_flux_results(
 pub fn update_fluxes(
     conn: &mut Connection,
     cycles: &[Cycle],
-    project: &Project,
 ) -> Result<(usize, usize), Box<dyn std::error::Error + Send + Sync>> {
     let mut inserted = 0;
     let mut skipped = 0;
@@ -1741,17 +1740,12 @@ pub fn update_fluxes(
         let mut update_stmt = tx.prepare(&make_update_fluxes())?;
 
         for cycle in cycles {
-            let affected = execute_update(&mut update_stmt, cycle, &project.id.unwrap())?;
+            let affected = execute_update(&mut update_stmt, cycle)?;
             if affected > 0 {
                 inserted += 1;
                 let archived_at = Utc::now().to_rfc3339();
                 let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
-                match execute_history_insert(
-                    &mut insert_stmt,
-                    &archived_at,
-                    cycle,
-                    &project.id.unwrap(),
-                ) {
+                match execute_history_insert(&mut insert_stmt, &archived_at, cycle) {
                     Ok(_) => {},
                     Err(e) => eprintln!("Error archiving fluxes: {}", e),
                 };
@@ -1766,7 +1760,6 @@ pub fn update_fluxes(
 pub fn insert_flux_history(
     conn: &mut Connection,
     cycles: &[Cycle],
-    project: &Project,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let archived_at = Utc::now().to_rfc3339();
     let tx = conn.transaction()?; // Start transaction for consistency
@@ -1774,12 +1767,7 @@ pub fn insert_flux_history(
         let mut insert_stmt = tx.prepare(&make_insert_flux_history())?;
 
         for cycle in cycles {
-            match execute_history_insert(
-                &mut insert_stmt,
-                &archived_at,
-                cycle,
-                &project.id.unwrap(),
-            ) {
+            match execute_history_insert(&mut insert_stmt, &archived_at, cycle) {
                 Ok(_) => println!("Archived cycle successfully."),
                 Err(e) => eprintln!("Error archiving fluxes: {}", e),
             }
@@ -1792,7 +1780,6 @@ fn execute_history_insert(
     stmt: &mut rusqlite::Statement,
     archived_at: &String,
     cycle: &Cycle,
-    project_id: &i64,
 ) -> Result<()> {
     for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
@@ -1824,7 +1811,7 @@ fn execute_history_insert(
             instrument_id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
-            project_id,
+            cycle.project_id.unwrap(),
             cycle.id,
             cycle.get_open_lag() as i64,
             cycle.get_close_lag() as i64,
@@ -2035,11 +2022,7 @@ fn execute_insert(
     }
     Ok(affected)
 }
-fn execute_update(
-    stmt: &mut rusqlite::Statement,
-    cycle: &Cycle,
-    project_id: &i64,
-) -> Result<usize> {
+fn execute_update(stmt: &mut rusqlite::Statement, cycle: &Cycle) -> Result<usize> {
     let mut affected = 0;
     for &key in &cycle.gases {
         let linear = cycle.fluxes.get(&(key, FluxKind::Linear));
@@ -2067,7 +2050,7 @@ fn execute_update(
             instrument_id,
             cycle.main_gas.as_int(),
             key.gas_type.as_int(),
-            project_id,
+            cycle.project_id.unwrap(),
             cycle.id,
             cycle.get_open_lag() as i64,
             cycle.get_close_lag() as i64,

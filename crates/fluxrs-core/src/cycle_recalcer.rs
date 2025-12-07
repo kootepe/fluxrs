@@ -89,7 +89,7 @@ impl Recalcer {
 
         if !cycles.is_empty() {
             let mut conn = self.infra.conn.lock().unwrap();
-            match update_fluxes(&mut conn, &cycles, &self.project) {
+            match update_fluxes(&mut conn, &cycles) {
                 Ok((inserts, skips)) => {
                     total_inserts += inserts;
                     total_skips += skips;
