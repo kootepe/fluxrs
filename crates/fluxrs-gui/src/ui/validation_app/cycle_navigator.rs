@@ -1,5 +1,6 @@
 use super::CycleFilter;
 use fluxrs_core::cycle::cycle::Cycle;
+use fluxrs_core::cycle::gaskey::GasKey;
 
 use std::cell::Cell;
 
@@ -116,6 +117,9 @@ impl CycleNavigator {
     /// Returns a reference to the currently selected visible Cycle, if any
     pub fn current_cycle<'a>(&self, cycles: &'a [Cycle]) -> Option<&'a Cycle> {
         self.current_index().and_then(move |i| cycles.get(i))
+    }
+    pub fn current_cycle_key<'a>(&self, cycles: &'a [Cycle]) -> GasKey {
+        self.current_index().and_then(move |i| cycles.get(i)).unwrap().gaskey()
     }
     /// Returns a mutable reference to the currently selected visible Cycle, if any
     pub fn current_cycle_mut<'a>(&self, cycles: &'a mut [Cycle]) -> Option<&'a mut Cycle> {

@@ -1,8 +1,7 @@
 use crate::ui::main_app::AppEvent;
 use crate::ui::manage_proj::manage_ui::ManageApp;
 use crate::ui::tz_picker::TimezonePickerState;
-use crate::ui::validation_app::validation_ui::AsyncCtx;
-use crate::ui::validation_app::{ProgReceiver, ProgSender};
+use crate::ui::{AsyncCtx, ProgReceiver, ProgSender};
 use chrono_tz::Tz;
 use egui::Color32;
 use egui::{Area, Button, Context, Id};

@@ -14,7 +14,7 @@ use std::fs::File;
 use std::path::Path;
 use tokio::task;
 
-use crate::ui::validation_app::AsyncCtx;
+use crate::ui::AsyncCtx;
 
 #[derive(Default)]
 pub struct DownloadApp {
