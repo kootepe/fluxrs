@@ -73,16 +73,10 @@ impl Default for Panel {
         Self::Empty
     }
 }
+
 #[derive(Default)]
-pub struct MainApp {
-    pub log_messages: VecDeque<RichText>,
-    pub selected_project: Option<Project>,
-    pub font_size: f32,
-    pub date_range: DateRange,
-    app_state_loaded: bool,
-    live_panel: Panel,
-    switching_allowed: bool,
-    pub validation_panel: ValidationApp,
+pub struct Panels {
+    validation_panel: ValidationApp,
     load_panel: LoadApp,
     init_panel: InitApp,
     table_panel: TableApp,
@@ -92,25 +86,39 @@ pub struct MainApp {
     empty_panel: EmptyPanel,
 }
 
+impl Panels {
+    pub fn new() -> Self {
+        Self { init_panel: InitApp::new(), ..Default::default() }
+    }
+}
+
+#[derive(Default)]
+pub struct MainApp {
+    pub log_messages: VecDeque<RichText>,
+    pub selected_project: Option<Project>,
+    pub font_size: f32,
+    pub date_range: DateRange,
+    app_state_loaded: bool,
+    switching_allowed: bool,
+    live_panel: Panel,
+    apps: Panels,
+}
+
 impl MainApp {
     pub fn set_project(&mut self, project: Option<Project>) {
         self.selected_project = project;
     }
     pub fn new() -> Self {
-        let date_range = DateRange {
-            start: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
-            end: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
-        };
-        // infinite recursion if try to use default
-        let init_panel = InitApp::new();
-        Self {
-            switching_allowed: true,
-            font_size: 14.,
-            date_range,
-            init_panel,
-            ..Default::default()
-        }
+        let date_range = DateRange::default();
+        // infinite recursion if try to use default for InitApp
+        let apps = Panels::new();
+
+        Self { apps, switching_allowed: true, font_size: 14., date_range, ..Default::default() }
     }
+    pub fn commit_all_dirty_cycles(&mut self, async_ctx: &AsyncCtx) {
+        self.apps.validation_panel.commit_all_dirty_cycles(async_ctx);
+    }
+
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -126,12 +134,12 @@ impl MainApp {
         self.handle_progress_messages(async_ctx);
 
         if self.selected_project.is_none() {
-            self.proj_panel.load_projects_from_db().unwrap();
-            self.set_project(self.proj_panel.project.clone());
+            self.apps.proj_panel.load_projects_from_db().unwrap();
+            self.set_project(self.apps.proj_panel.project.clone());
 
             if self.selected_project.is_some() {
                 let user_tz = self.selected_project.clone().unwrap_or_default().tz;
-                self.file_panel.set_tz(user_tz);
+                self.apps.file_panel.set_tz(user_tz);
 
                 if !self.app_state_loaded {
                     if let Ok(app) = load_app_state(Path::new("app_state.json")) {
@@ -144,22 +152,17 @@ impl MainApp {
             }
         }
 
-        if let Some(event) = self.proj_panel.update_project() {
+        if let Some(event) = self.apps.proj_panel.update_project() {
             match event {
                 AppEvent::SelectProject(proj) => {
                     if proj.is_some() {
                         if self.selected_project.clone().unwrap_or_default().id
                             != proj.clone().unwrap_or_default().id
                         {
+                            let user_tz = self.selected_project.clone().unwrap_or_default().tz;
                             self.selected_project = proj;
-                            self.validation_panel.cycles = Vec::new();
-
-                            self.file_panel.tz_state.query =
-                                self.selected_project.clone().unwrap().tz.to_string();
-                            self.file_panel.tz_state.selected =
-                                Some(self.selected_project.clone().unwrap().tz);
-                            self.file_panel.tz_for_files =
-                                Some(self.selected_project.clone().unwrap().tz);
+                            self.apps.validation_panel.cycles = Vec::new();
+                            self.apps.file_panel.set_tz(user_tz);
                         }
                     } else {
                         self.selected_project = None
@@ -223,7 +226,7 @@ impl MainApp {
             Panel::Validation => {
                 if self.selected_project.is_some() {
                     let project = &project.as_ref().unwrap();
-                    self.validation_panel.ui(ui, ctx, async_ctx, keybinds, project);
+                    self.apps.validation_panel.ui(ui, ctx, async_ctx, keybinds, project);
                 } else {
                     ui.label("Add or select a project in the Initiate project tab.");
                 }
@@ -231,11 +234,11 @@ impl MainApp {
             Panel::DataLoad => {
                 if self.selected_project.is_some() {
                     let project = &project.as_ref().unwrap();
-                    self.load_panel.ui(
+                    self.apps.load_panel.ui(
                         ui,
                         ctx,
                         async_ctx,
-                        &mut self.validation_panel,
+                        &mut self.apps.validation_panel,
                         project,
                         &mut self.date_range,
                         log_msgs,
@@ -248,12 +251,12 @@ impl MainApp {
             Panel::DataInit => {
                 if self.selected_project.is_some() {
                     let project = &project.as_ref().unwrap();
-                    self.init_panel.ui(ui, ctx, async_ctx, &mut self.date_range, project);
+                    self.apps.init_panel.ui(ui, ctx, async_ctx, &mut self.date_range, project);
                     self.log_display(ui);
                     // NOTE: this now runs all the time while in init_panel and nothing is happening..
                     // make it trigger by some signal?
-                    if self.init_panel.init_enabled && !self.init_panel.init_in_progress {
-                        self.validation_panel.commit_all_dirty_cycles(async_ctx);
+                    if self.apps.init_panel.init_enabled && !self.apps.init_panel.init_in_progress {
+                        self.apps.validation_panel.commit_all_dirty_cycles(async_ctx);
                     }
                 } else {
                     ui.label("Add or select a project in the Initiate project tab.");
@@ -262,19 +265,19 @@ impl MainApp {
             Panel::FileInit => {
                 if self.selected_project.is_some() {
                     let project = &project.as_ref().unwrap();
-                    self.file_panel.ui(ui, ctx, async_ctx, project, log_msgs);
+                    self.apps.file_panel.ui(ui, ctx, async_ctx, project, log_msgs);
                     self.log_display(ui);
                 } else {
                     ui.label("Add or select a project in the Initiate project tab.");
                 }
             },
             Panel::ProjInit => {
-                self.proj_panel.ui(ui, ctx, async_ctx);
+                self.apps.proj_panel.ui(ui, ctx, async_ctx);
             },
             Panel::DataTable => {
                 if self.selected_project.is_some() {
                     let project = &project.as_ref().unwrap();
-                    self.table_panel.ui(ui, ctx, project);
+                    self.apps.table_panel.ui(ui, ctx, project);
                 } else {
                     ui.label("Add or select a project in the Initiate project tab.");
                 }
@@ -282,13 +285,13 @@ impl MainApp {
             Panel::DownloadData => {
                 if self.selected_project.is_some() {
                     let project = &project.as_ref().unwrap();
-                    self.dl_panel.ui(ui, ctx, async_ctx, project);
+                    self.apps.dl_panel.ui(ui, ctx, async_ctx, project);
                 } else {
                     ui.label("Add or select a project in the Initiate project tab.");
                 }
             },
             Panel::Empty => {
-                self.empty_panel.ui(ui);
+                self.apps.empty_panel.ui(ui);
             },
         }
         // self.handle_progress_messages(async_ctx);
@@ -318,29 +321,29 @@ impl MainApp {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        self.validation_panel.render_measurement_plots(ui);
-                        self.validation_panel.enable_floaters(ui);
+                        self.apps.validation_panel.render_measurement_plots(ui);
+                        self.apps.validation_panel.enable_floaters(ui);
                     });
 
-                    self.validation_panel.render_lin_plot_selection(ui);
+                    self.apps.validation_panel.render_lin_plot_selection(ui);
                     ui.add(Separator::default().vertical());
-                    self.validation_panel.render_exp_plot_selection(ui);
+                    self.apps.validation_panel.render_exp_plot_selection(ui);
                     ui.add(Separator::default().vertical());
-                    self.validation_panel.render_roblin_plot_selection(ui);
+                    self.apps.validation_panel.render_roblin_plot_selection(ui);
                     ui.add(Separator::default().vertical());
-                    self.validation_panel.render_poly_plot_selection(ui);
+                    self.apps.validation_panel.render_poly_plot_selection(ui);
                 });
             });
             ui.group(|ui| {
                 ui.label("Adjust plot point size");
                 let pt_size = ui.add(
-                    egui::DragValue::new(&mut self.validation_panel.plot_point_size)
+                    egui::DragValue::new(&mut self.apps.validation_panel.plot_point_size)
                         .speed(0.01)
                         .range(1.0..=10.)
                 );
 
                 if pt_size.double_clicked() {
-                    self.validation_panel.plot_point_size = 3.;
+                    self.apps.validation_panel.plot_point_size = 3.;
                 }
                 });
 
@@ -352,61 +355,61 @@ impl MainApp {
                 egui::Grid::new("thresholds_grid").min_col_width(100.).show(ui,|ui| {
                 ui.label("RMSE");
                 let rmse_adjuster = ui.add(
-                    egui::DragValue::new(&mut self.validation_panel.rmse_thresh)
+                    egui::DragValue::new(&mut self.apps.validation_panel.rmse_thresh)
                         .speed(0.1)
                         .range(0.0..=100.)
                 );
                 if rmse_adjuster.changed() {
-                    self.validation_panel.update_plots(async_ctx);
+                    self.apps.validation_panel.update_plots(async_ctx);
                 }
                 if rmse_adjuster.double_clicked() {
-                    self.validation_panel.rmse_thresh = 25.;
-                    self.validation_panel.update_plots(async_ctx);
+                    self.apps.validation_panel.rmse_thresh = 25.;
+                    self.apps.validation_panel.update_plots(async_ctx);
                 }
                 ui.end_row();
 
                 ui.label("r2");
                 let r2_adjuster = ui.add(
-                    egui::DragValue::new(&mut self.validation_panel.r2_thresh)
+                    egui::DragValue::new(&mut self.apps.validation_panel.r2_thresh)
                         .speed(0.00001)
                         .range(0.0..=1.0)
                 );
                 if r2_adjuster.changed() {
-                    self.validation_panel.update_plots(async_ctx)
+                    self.apps.validation_panel.update_plots(async_ctx)
                 }
                 if r2_adjuster.double_clicked() {
-                    self.validation_panel.r2_thresh = 0.9;
-                    self.validation_panel.update_plots(async_ctx);
+                    self.apps.validation_panel.r2_thresh = 0.9;
+                    self.apps.validation_panel.update_plots(async_ctx);
                 }
                 ui.end_row();
 
                 ui.label("p-value");
                 let p_val_adjuster = ui.add(
-                    egui::DragValue::new(&mut self.validation_panel.p_val_thresh)
+                    egui::DragValue::new(&mut self.apps.validation_panel.p_val_thresh)
                         .speed(0.0001)
                         .range(0.0..=1.0)
                 );
                 if p_val_adjuster.changed() {
-                    self.validation_panel.update_plots(async_ctx)
+                    self.apps.validation_panel.update_plots(async_ctx)
                 }
                 if p_val_adjuster.double_clicked() {
-                    self.validation_panel.p_val_thresh = 0.05;
-                    self.validation_panel.update_plots(async_ctx);
+                    self.apps.validation_panel.p_val_thresh = 0.05;
+                    self.apps.validation_panel.update_plots(async_ctx);
                 }
                         ui.end_row();
 
                 ui.label("t0 concentration");
                 let t0_adjuster= ui.add(
-                    egui::DragValue::new(&mut self.validation_panel.t0_thresh)
+                    egui::DragValue::new(&mut self.apps.validation_panel.t0_thresh)
                         .speed(1)
                         .range(0.0..=30000.0)
                 );
                 if t0_adjuster.changed() {
-                    self.validation_panel.update_plots(async_ctx)
+                    self.apps.validation_panel.update_plots(async_ctx)
                 }
                 if t0_adjuster.double_clicked() {
-                    self.validation_panel.t0_thresh= 30000.;
-                    self.validation_panel.update_plots(async_ctx);
+                    self.apps.validation_panel.t0_thresh= 30000.;
+                    self.apps.validation_panel.update_plots(async_ctx);
                 }
             });
                         ui.end_row();
@@ -568,9 +571,9 @@ impl ProcessEventSink for MainApp {
                 self.switching_allowed = true;
             },
             QueryEvent::QueryComplete => {
-                self.init_panel.query_in_progress = false;
+                self.apps.init_panel.query_in_progress = false;
                 self.log_messages.push_front(good_message("Finished queries."));
-                self.validation_panel.recalc.query_in_progress = false;
+                self.apps.validation_panel.recalc.query_in_progress = false;
             },
             QueryEvent::HeightFail(msg) => {
                 self.log_messages.push_front(bad_message(msg));
@@ -600,42 +603,42 @@ impl ProcessEventSink for MainApp {
         match ev {
             ProgressEvent::DisableUI => {
                 self.switching_allowed = false;
-                self.file_panel.reading_in_progress = true;
-                self.init_panel.query_in_progress = true;
-                self.init_panel.init_in_progress = true;
-                self.init_panel.init_enabled = false;
-                self.init_panel.recalc.calc_enabled = false;
-                self.init_panel.recalc.calc_in_progress = true;
-                self.init_panel.recalc.query_in_progress = true;
-                self.dl_panel.disable_ui();
-                self.proj_panel.manage.disable_recalc_ui();
+                self.apps.file_panel.reading_in_progress = true;
+                self.apps.init_panel.query_in_progress = true;
+                self.apps.init_panel.init_in_progress = true;
+                self.apps.init_panel.init_enabled = false;
+                self.apps.init_panel.recalc.calc_enabled = false;
+                self.apps.init_panel.recalc.calc_in_progress = true;
+                self.apps.init_panel.recalc.query_in_progress = true;
+                self.apps.dl_panel.disable_ui();
+                self.apps.proj_panel.manage.disable_recalc_ui();
             },
             ProgressEvent::EnableUI => {
                 self.switching_allowed = true;
-                self.init_panel.query_in_progress = false;
-                self.init_panel.init_in_progress = false;
-                self.init_panel.init_enabled = true;
-                self.file_panel.reading_in_progress = false;
-                self.init_panel.recalc.calc_enabled = true;
-                self.init_panel.recalc.calc_in_progress = false;
-                self.init_panel.recalc.query_in_progress = false;
-                self.dl_panel.enable_ui();
-                self.proj_panel.manage.enable_recalc_ui();
+                self.apps.init_panel.query_in_progress = false;
+                self.apps.init_panel.init_in_progress = false;
+                self.apps.init_panel.init_enabled = true;
+                self.apps.file_panel.reading_in_progress = false;
+                self.apps.init_panel.recalc.calc_enabled = true;
+                self.apps.init_panel.recalc.calc_in_progress = false;
+                self.apps.init_panel.recalc.query_in_progress = false;
+                self.apps.dl_panel.enable_ui();
+                self.apps.proj_panel.manage.enable_recalc_ui();
             },
             ProgressEvent::Rows(current, total) => {
-                self.init_panel.cycles_state = Some((*current, *total));
-                self.init_panel.cycles_progress += current;
+                self.apps.init_panel.cycles_state = Some((*current, *total));
+                self.apps.init_panel.cycles_progress += current;
                 println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::Recalced(current, total) => {
-                self.init_panel.recalc.cycles_state = Some((*current, *total));
-                self.init_panel.recalc.cycles_progress += current;
-                self.proj_panel.manage.increment_recalc_cycles(Some((current, total)));
+                self.apps.init_panel.recalc.cycles_state = Some((*current, *total));
+                self.apps.init_panel.recalc.cycles_progress += current;
+                self.apps.proj_panel.manage.increment_recalc_cycles(Some((current, total)));
                 println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::CalculationStarted => {
-                self.init_panel.recalc.calc_enabled = false;
-                self.init_panel.recalc.calc_in_progress = true;
+                self.apps.init_panel.recalc.calc_enabled = false;
+                self.apps.init_panel.recalc.calc_in_progress = true;
             },
             ProgressEvent::Day(date) => {
                 self.log_messages.push_front(good_message(&format!("Loaded cycles from {}", date)));
@@ -715,13 +718,13 @@ impl ProcessEventSink for MainApp {
             InsertEvent::Fail(e) => {
                 self.log_messages.push_front(bad_message(&format!("Failed to insert rows: {}", e)));
                 self.switching_allowed = true;
-                self.init_panel.cycles_progress = 0;
-                self.init_panel.query_in_progress = false;
-                self.init_panel.recalc.calc_enabled = true;
-                self.init_panel.recalc.calc_in_progress = false;
-                self.init_panel.recalc.query_in_progress = false;
-                self.init_panel.recalc.cycles_progress = 0;
-                self.init_panel.recalc.cycles_state = None;
+                self.apps.init_panel.cycles_progress = 0;
+                self.apps.init_panel.query_in_progress = false;
+                self.apps.init_panel.recalc.calc_enabled = true;
+                self.apps.init_panel.recalc.calc_in_progress = false;
+                self.apps.init_panel.recalc.query_in_progress = false;
+                self.apps.init_panel.recalc.cycles_progress = 0;
+                self.apps.init_panel.recalc.cycles_state = None;
             },
         }
     }
@@ -739,19 +742,19 @@ impl ProcessEventSink for MainApp {
 
         println!("Reset app state");
         self.switching_allowed = true;
-        self.init_panel.cycles_progress = 0;
-        self.init_panel.query_in_progress = false;
-        self.init_panel.init_enabled = true;
-        self.init_panel.init_in_progress = false;
-        self.init_panel.cycles_state = None;
-        self.init_panel.init_in_progress = false;
+        self.apps.init_panel.cycles_progress = 0;
+        self.apps.init_panel.query_in_progress = false;
+        self.apps.init_panel.init_enabled = true;
+        self.apps.init_panel.init_in_progress = false;
+        self.apps.init_panel.cycles_state = None;
+        self.apps.init_panel.init_in_progress = false;
 
-        self.init_panel.recalc.calc_enabled = true;
-        self.init_panel.recalc.calc_in_progress = false;
-        self.init_panel.recalc.query_in_progress = false;
-        self.init_panel.recalc.cycles_progress = 0;
-        self.init_panel.recalc.cycles_state = None;
-        self.proj_panel.manage.enable_recalc_ui();
+        self.apps.init_panel.recalc.calc_enabled = true;
+        self.apps.init_panel.recalc.calc_in_progress = false;
+        self.apps.init_panel.recalc.query_in_progress = false;
+        self.apps.init_panel.recalc.cycles_progress = 0;
+        self.apps.init_panel.recalc.cycles_state = None;
+        self.apps.proj_panel.manage.enable_recalc_ui();
     }
 }
 pub fn drain_progress_messages<T: ProcessEventSink>(

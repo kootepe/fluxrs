@@ -7,15 +7,12 @@ use chrono::NaiveDateTime;
 use egui::{Align2, Color32, Context, Frame, Ui, Window};
 use egui::{RichText, ScrollArea, WidgetInfo, WidgetType};
 use fluxrs_core::datatype::DataType;
-use fluxrs_core::processevent::{
-    InsertEvent, ProcessEvent, ProcessEventSink, ProgressEvent, QueryEvent, ReadEvent,
-};
+use fluxrs_core::processevent::{ProcessEvent, ProcessEventSink};
 use rusqlite::{params, Connection};
 use std::collections::HashSet;
 use tokio::sync::mpsc::error::TryRecvError;
 
 use fluxrs_core::project::Project;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug, Clone)]
 struct DataFileRow {

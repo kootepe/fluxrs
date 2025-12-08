@@ -124,7 +124,7 @@ impl eframe::App for FluxApp {
         });
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.main_app.validation_panel.commit_all_dirty_cycles(&self.async_ctx); // <-- do cleanup here
+        self.main_app.commit_all_dirty_cycles(&self.async_ctx); // <-- do cleanup here
         let app = &self.main_app;
         let path = Path::new("app_state.json");
         let _ = save_app_state(app, path);
