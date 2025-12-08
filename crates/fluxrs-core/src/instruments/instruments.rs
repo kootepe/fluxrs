@@ -482,7 +482,7 @@ pub fn get_or_insert_instrument(
     instrument: &Instrument,
     project_id: i64,
 ) -> Result<i64> {
-    // First, check if the file already exists for this project
+    // First, check if the instrument already exists for this project
     if let Ok(existing_id) = conn.query_row(
         "SELECT id FROM instruments WHERE instrument_serial = ?1 AND project_link = ?2",
         params![instrument.serial, project_id],
