@@ -93,6 +93,9 @@ pub struct MainApp {
 }
 
 impl MainApp {
+    pub fn set_project(&mut self, project: Option<Project>) {
+        self.selected_project = project;
+    }
     pub fn new() -> Self {
         let date_range = DateRange {
             start: UTC.with_ymd_and_hms(2024, 9, 30, 0, 0, 0).unwrap(),
@@ -122,20 +125,14 @@ impl MainApp {
 
         self.handle_progress_messages(async_ctx);
 
-        // NOTE: this block would be better in MainApp or FluxApp
-        // project should exist when app is in validation panel, it doesnt need to be option
         if self.selected_project.is_none() {
             self.proj_panel.load_projects_from_db().unwrap();
-            self.selected_project = self.proj_panel.project.clone();
+            self.set_project(self.proj_panel.project.clone());
 
             if self.selected_project.is_some() {
-                // set the preselected timezone to show in dropdown
-                self.file_panel.tz_state.query =
-                    self.selected_project.clone().unwrap().tz.to_string();
-                self.file_panel.tz_state.selected = Some(self.selected_project.clone().unwrap().tz);
-                self.file_panel.tz_for_files = Some(self.selected_project.clone().unwrap().tz);
-
                 let user_tz = self.selected_project.clone().unwrap_or_default().tz;
+                self.file_panel.set_tz(user_tz);
+
                 if !self.app_state_loaded {
                     if let Ok(app) = load_app_state(Path::new("app_state.json")) {
                         println!("Reload app state");

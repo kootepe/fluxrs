@@ -45,6 +45,11 @@ impl Default for FileApp {
 }
 
 impl FileApp {
+    pub fn set_tz(&mut self, tz: Tz) {
+        self.tz_for_files = Some(tz);
+        self.tz_state.selected = Some(tz);
+        self.tz_state.query = tz.to_string();
+    }
     pub fn new() -> Self {
         Self {
             opened_files: None,
