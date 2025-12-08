@@ -274,6 +274,9 @@ impl Config {
                         let _ = progress_sender.send(ProcessEvent::Done(Err(msg.to_owned())));
                     }
                 },
+                (_, Err(err), _, _, _) => {
+                    let _ = progress_sender.send(ProcessEvent::Done(Err(err.to_string())));
+                },
                 e => eprintln!("Failed to query database: {:?}", e),
             }
         });
