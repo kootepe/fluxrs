@@ -5,7 +5,7 @@ use eframe::egui::Context;
 use egui::{Color32, RichText};
 use fluxrs_core::cycle_processor::{Datasets, Infra, Processor};
 use fluxrs_core::data_formats::chamberdata::query_chamber_async;
-use fluxrs_core::data_formats::gasdata::query_gas_async;
+use fluxrs_core::data_formats::gasdata::{query_gas_async, QueryError};
 use fluxrs_core::data_formats::heightdata::query_height_async;
 use fluxrs_core::data_formats::meteodata::query_meteo_async;
 use fluxrs_core::data_formats::timedata::query_cycles_async;
@@ -97,34 +97,16 @@ impl InitApp {
                     let arc_conn = Arc::new(Mutex::new(conn));
 
                     async_ctx.runtime.spawn(async move {
-                        let cycles_result = query_cycles_async(
-                            arc_conn.clone(),
-                            start_date.to_utc(),
-                            end_date.to_utc(),
-                            project.clone(),
-                        )
-                        .await;
-                        let gas_result = query_gas_async(
-                            arc_conn.clone(),
-                            start_date.to_utc(),
-                            end_date.to_utc(),
-                            project.clone(),
-                        )
-                        .await;
-                        let meteo_result = query_meteo_async(
-                            arc_conn.clone(),
-                            start_date.to_utc(),
-                            end_date.to_utc(),
-                            project.clone(),
-                        )
-                        .await;
-                        let height_result = query_height_async(
-                            arc_conn.clone(),
-                            start_date.to_utc(),
-                            end_date.to_utc(),
-                            project.clone(),
-                        )
-                        .await;
+                        let start = start_date.to_utc();
+                        let end = end_date.to_utc();
+                        let cycles_result =
+                            query_cycles_async(arc_conn.clone(), start, end, project.clone()).await;
+                        let gas_result =
+                            query_gas_async(arc_conn.clone(), start, end, project.clone()).await;
+                        let meteo_result =
+                            query_meteo_async(arc_conn.clone(), start, end, project.clone()).await;
+                        let height_result =
+                            query_height_async(arc_conn.clone(), start, end, project.clone()).await;
                         let chamber_result =
                             query_chamber_async(arc_conn.clone(), project.clone()).await;
 
@@ -166,6 +148,12 @@ impl InitApp {
                                     )));
                                 }
                             },
+                            (_, Err(err), _, _, _) => {
+                                let _ = sender_clone
+                                    .clone()
+                                    .send(ProcessEvent::Done(Err(err.to_string())));
+                            },
+
                             e => eprintln!("Failed to query database: {:?}", e),
                         }
                     });
