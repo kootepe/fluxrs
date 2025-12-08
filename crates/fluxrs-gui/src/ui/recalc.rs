@@ -175,8 +175,8 @@ impl RecalculateApp {
     pub fn calculate_all(
         &mut self,
         runtime: &tokio::runtime::Runtime,
-        project: &Project,
         progress_sender: mpsc::UnboundedSender<ProcessEvent>,
+        project: &Project,
     ) {
         // 1970-01-01 to 2100-01-01 in UTC (wide and safe)
         let start = Utc.timestamp_opt(0, 0).unwrap();
