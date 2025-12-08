@@ -34,6 +34,7 @@ pub struct DeleteMeasurementApp {
     files: Vec<DataFileRow>,
     last_error: Option<String>,
     datatype: DataType,
+    pub recalc: RecalculateApp,
 }
 
 impl DeleteMeasurementApp {
@@ -46,6 +47,7 @@ impl DeleteMeasurementApp {
             reload_requested: true,
             last_error: None,
             datatype,
+            recalc: RecalculateApp::default(),
         };
         app.reload_files(); // initial load
         app
@@ -55,10 +57,9 @@ impl DeleteMeasurementApp {
         &mut self,
         ui: &mut Ui,
         ctx: &Context,
+        async_ctx: &mut AsyncCtx,
         project: Project,
         datatype: DataType,
-        recalc: &mut RecalculateApp,
-        async_ctx: &mut AsyncCtx,
     ) {
         self.project = project;
 
@@ -74,7 +75,10 @@ impl DeleteMeasurementApp {
 
         ui.heading("Data Files");
 
-        if recalc.calc_in_progress || !recalc.calc_enabled || recalc.query_in_progress {
+        if self.recalc.calc_in_progress
+            || !self.recalc.calc_enabled
+            || self.recalc.query_in_progress
+        {
             input_block_overlay(ctx, "blocker22");
 
             Window::new("tester")
@@ -91,21 +95,21 @@ impl DeleteMeasurementApp {
                 .show(ctx, |ui| {
                     ui.add(egui::Spinner::new());
 
-                    if recalc.query_in_progress {
+                    if self.recalc.query_in_progress {
                         ui.label("Querying data, this can take a while for large time ranges.");
-                    } else if recalc.calc_in_progress {
+                    } else if self.recalc.calc_in_progress {
                         ui.label("Recalculating fluxes");
                     }
 
-                    if let Some((_, total)) = recalc.cycles_state {
+                    if let Some((_, total)) = self.recalc.cycles_state {
                         let total = total.max(1); // avoid division by zero
                         let fraction =
-                            (recalc.cycles_progress as f32 / total as f32).clamp(0.0, 1.0);
+                            (self.recalc.cycles_progress as f32 / total as f32).clamp(0.0, 1.0);
                         let pb = egui::widgets::ProgressBar::new(fraction)
                             .desired_width(200.)
                             .corner_radius(1)
                             .show_percentage()
-                            .text(format!("{}/{}", recalc.cycles_progress, total));
+                            .text(format!("{}/{}", self.recalc.cycles_progress, total));
                         ui.add(pb);
                     }
                 });
@@ -119,12 +123,12 @@ impl DeleteMeasurementApp {
                     Ok(n) if n > 0 => {
                         match self.datatype {
                             DataType::Meteo | DataType::Height | DataType::Chamber => {
-                                recalc.calc_enabled = false;
-                                recalc.query_in_progress = true;
-                                recalc.calculate_all(
+                                self.recalc.calc_enabled = false;
+                                self.recalc.query_in_progress = true;
+                                self.recalc.calculate_all(
                                     &async_ctx.runtime,
-                                    &self.project,
                                     async_ctx.prog_sender.clone(),
+                                    &self.project,
                                 );
                             },
                             _ => {
@@ -290,10 +294,6 @@ pub struct ManageApp {
     project: Project,
     live_panel: ManagePanel,
     del_measurement: DeleteMeasurementApp,
-    del_meteo: DeleteMeasurementApp,
-    del_height: DeleteMeasurementApp,
-    del_meta: DeleteMeasurementApp,
-    recalc_app: RecalculateApp,
 }
 
 impl Default for ManageApp {
@@ -310,15 +310,27 @@ impl ManageApp {
             live_panel: ManagePanel::default(),
             project: Project::default(),
             del_measurement: DeleteMeasurementApp::new(Project::default(), DataType::Gas),
-            del_meteo: DeleteMeasurementApp::new(Project::default(), DataType::Meteo),
-            del_height: DeleteMeasurementApp::new(Project::default(), DataType::Height),
-            del_meta: DeleteMeasurementApp::new(Project::default(), DataType::Chamber),
-            recalc_app: RecalculateApp::default(),
         }
     }
 }
 
 impl ManageApp {
+    pub fn disable_recalc_ui(&mut self) {
+        self.del_measurement.recalc.calc_enabled = false;
+        self.del_measurement.recalc.calc_in_progress = true;
+        self.del_measurement.recalc.query_in_progress = true;
+    }
+    pub fn enable_recalc_ui(&mut self) {
+        self.del_measurement.recalc.calc_enabled = true;
+        self.del_measurement.recalc.calc_in_progress = false;
+        self.del_measurement.recalc.query_in_progress = false;
+    }
+    pub fn increment_recalc_cycles(&mut self, state: Option<(&usize, &usize)>) {
+        if let Some((current, total)) = state {
+            self.del_measurement.recalc.cycles_state = Some((*current, *total));
+            self.del_measurement.recalc.cycles_progress += current;
+        }
+    }
     fn close_manage_proj(&mut self) {
         self.open = false;
         self.live_panel = ManagePanel::default();
@@ -326,8 +338,8 @@ impl ManageApp {
     pub fn show_manage_proj_data(
         &mut self,
         ctx: &egui::Context,
-        project: Project,
         async_ctx: &mut AsyncCtx,
+        project: Project,
     ) {
         self.project = project;
 
@@ -338,7 +350,7 @@ impl ManageApp {
             self.close_manage_proj();
             return;
         }
-        self.can_close = self.recalc_app.calc_enabled;
+        // self.can_close = self.recalc_app.calc_enabled;
 
         let mut open = self.open;
         Window::new("Manage project")
@@ -373,9 +385,9 @@ impl ManageApp {
                     container_response.widget_info(|| {
                         WidgetInfo::labeled(WidgetType::RadioGroup, true, "Select panel")
                     });
-                    if let Some(receiver) = async_ctx.prog_receiver.as_mut() {
-                        drain_progress_messages(&mut self.recalc_app, receiver);
-                    }
+                    // if let Some(receiver) = async_ctx.prog_receiver.as_mut() {
+                    //     drain_progress_messages(&mut self.recalc_app, receiver);
+                    // }
                     // let panel_switching_allowed = !self.validation_panel.init_in_progress;
                     let panel_switching_allowed = true;
                     ui.ctx().clone().with_accessibility_parent(container_response.id, || {
@@ -415,53 +427,30 @@ impl ManageApp {
                 let project_clone = self.project.clone();
                 match self.live_panel {
                     ManagePanel::DeleteMeasurement => {
-                        self.del_measurement.ui(
-                            ui,
-                            ctx,
-                            project_clone,
-                            DataType::Gas,
-                            &mut self.recalc_app,
-                            async_ctx,
-                        );
+                        self.del_measurement.ui(ui, ctx, async_ctx, project_clone, DataType::Gas);
                     },
                     ManagePanel::DeleteCycle => {
-                        self.del_measurement.ui(
-                            ui,
-                            ctx,
-                            project_clone,
-                            DataType::Cycle,
-                            &mut self.recalc_app,
-                            async_ctx,
-                        );
+                        self.del_measurement.ui(ui, ctx, async_ctx, project_clone, DataType::Cycle);
                     },
                     ManagePanel::DeleteMeteo => {
-                        self.del_measurement.ui(
-                            ui,
-                            ctx,
-                            project_clone,
-                            DataType::Meteo,
-                            &mut self.recalc_app,
-                            async_ctx,
-                        );
+                        self.del_measurement.ui(ui, ctx, async_ctx, project_clone, DataType::Meteo);
                     },
                     ManagePanel::DeleteHeight => {
                         self.del_measurement.ui(
                             ui,
                             ctx,
+                            async_ctx,
                             project_clone,
                             DataType::Height,
-                            &mut self.recalc_app,
-                            async_ctx,
                         );
                     },
                     ManagePanel::DeleteChamber => {
                         self.del_measurement.ui(
                             ui,
                             ctx,
+                            async_ctx,
                             project_clone,
                             DataType::Chamber,
-                            &mut self.recalc_app,
-                            async_ctx,
                         );
                     },
                     ManagePanel::Empty => {},

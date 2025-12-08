@@ -163,7 +163,7 @@ impl ProjectApp {
         if any_prompt_open {
             input_block_overlay(ctx, "blocker222");
         }
-        self.manage.show_manage_proj_data(ctx, self.project.clone().unwrap(), async_ctx);
+        self.manage.show_manage_proj_data(ctx, async_ctx, self.project.clone().unwrap());
         self.show_proj_create_prompt(ctx);
         self.show_proj_delete_prompt(ctx);
         self.show_verify_delete(ctx);

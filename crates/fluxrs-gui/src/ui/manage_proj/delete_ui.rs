@@ -1,6 +1,5 @@
 use crate::ui::manage_proj::project_ui::MsgType;
 use crate::ui::manage_proj::project_ui::{clicked_outside_window, ProjectApp};
-use egui::{Align2, Color32, Frame, Window};
 use rusqlite::{params, Connection, Result};
 
 impl ProjectApp {
