@@ -8,6 +8,7 @@ pub mod manage_proj;
 pub mod recalc;
 pub mod table_app;
 pub mod tz_picker;
+pub mod utils;
 pub mod validation_app;
 
 pub use download_app::DownloadApp;
@@ -17,4 +18,5 @@ pub use load_app::LoadApp;
 pub use main_frame::{AsyncCtx, ProgReceiver, ProgSender};
 pub use manage_proj::ProjectApp;
 pub use table_app::TableApp;
+pub use utils::date_picker;
 pub use validation_app::ValidationApp;
