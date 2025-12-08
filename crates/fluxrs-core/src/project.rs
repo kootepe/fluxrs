@@ -1,5 +1,5 @@
 use crate::gastype::GasType;
-use crate::instruments::instruments::{Instrument, InstrumentType};
+use crate::instruments::{get_or_insert_instrument, Instrument, InstrumentType};
 use crate::mode::Mode;
 use crate::types::FastMap;
 use chrono_tz::Tz;
@@ -237,15 +237,7 @@ impl Project {
 
         let project_rowid = tx.last_insert_rowid(); // i64
 
-        tx.execute(
-            "INSERT INTO instruments (instrument_model, instrument_serial, project_link)
-         VALUES (?1, ?2, ?3)",
-            params![project.instrument.model.to_string(), project.instrument.serial, project_rowid],
-        )?;
-        // DB id of the new instrument
-        let instrument_id = tx.last_insert_rowid();
-        // If your Project has a field for this, set it:
-        // project.instrument_link = Some(instrument_id);
+        let instrument_id = get_or_insert_instrument(&tx, &project.instrument, project_rowid)?;
 
         // Now update the project to point at this instrument
         tx.execute(
