@@ -135,7 +135,6 @@ impl MainApp {
 
                 if !self.app_state_loaded {
                     if let Ok(app) = load_app_state(Path::new("app_state.json")) {
-                        println!("Reload app state");
                         self.date_range.start = app.start_date.with_timezone(&user_tz);
                         self.date_range.end = app.end_date.with_timezone(&user_tz);
                         // prevent constantly reloading the app state file
@@ -609,6 +608,7 @@ impl ProcessEventSink for MainApp {
                 self.init_panel.recalc.calc_in_progress = true;
                 self.init_panel.recalc.query_in_progress = true;
                 self.dl_panel.disable_ui();
+                self.proj_panel.manage.disable_recalc_ui();
             },
             ProgressEvent::EnableUI => {
                 self.switching_allowed = true;
@@ -620,6 +620,7 @@ impl ProcessEventSink for MainApp {
                 self.init_panel.recalc.calc_in_progress = false;
                 self.init_panel.recalc.query_in_progress = false;
                 self.dl_panel.enable_ui();
+                self.proj_panel.manage.enable_recalc_ui();
             },
             ProgressEvent::Rows(current, total) => {
                 self.init_panel.cycles_state = Some((*current, *total));
@@ -629,6 +630,7 @@ impl ProcessEventSink for MainApp {
             ProgressEvent::Recalced(current, total) => {
                 self.init_panel.recalc.cycles_state = Some((*current, *total));
                 self.init_panel.recalc.cycles_progress += current;
+                self.proj_panel.manage.increment_recalc_cycles(Some((current, total)));
                 println!("Processed {} out of {} cycles", current, total);
             },
             ProgressEvent::CalculationStarted => {
@@ -749,6 +751,7 @@ impl ProcessEventSink for MainApp {
         self.init_panel.recalc.query_in_progress = false;
         self.init_panel.recalc.cycles_progress = 0;
         self.init_panel.recalc.cycles_state = None;
+        self.proj_panel.manage.enable_recalc_ui();
     }
 }
 pub fn drain_progress_messages<T: ProcessEventSink>(
