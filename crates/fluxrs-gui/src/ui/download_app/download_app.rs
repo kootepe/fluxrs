@@ -6,7 +6,7 @@ use fluxrs_core::data_formats::meteodata::MeteoSource;
 use fluxrs_core::db::fluxes_schema::make_select_all_fluxes;
 use fluxrs_core::flux::{FluxKind, FluxUnit};
 use fluxrs_core::gastype::GasType;
-use fluxrs_core::processevent::{ProcessEvent, QueryEvent};
+use fluxrs_core::processevent::{ProcessEvent, ProgressEvent, QueryEvent};
 use fluxrs_core::project::Project;
 use fluxrs_core::types::FastMap;
 use rusqlite::{types::ValueRef, Connection, Result};
@@ -20,6 +20,7 @@ use crate::ui::AsyncCtx;
 pub struct DownloadApp {
     processing: bool,
     checks: Checks,
+    msg: String,
 }
 
 #[derive(Default, Clone)]
@@ -30,6 +31,12 @@ pub struct Checks {
 }
 
 impl DownloadApp {
+    pub fn disable_ui(&mut self) {
+        self.processing = true
+    }
+    pub fn enable_ui(&mut self) {
+        self.processing = false
+    }
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
@@ -127,6 +134,8 @@ impl DownloadApp {
                 let proj_clone = project.clone();
                 let checks_clone = self.checks.clone();
                 let _ = async_ctx.prog_sender.send(ProcessEvent::Query(QueryEvent::InitStarted));
+                let _ =
+                    async_ctx.prog_sender.send(ProcessEvent::Progress(ProgressEvent::DisableUI));
 
                 async_ctx.runtime.spawn(async move {
                     let result = task::spawn_blocking(move || {
@@ -150,9 +159,11 @@ impl DownloadApp {
                     };
 
                     let _ = sender_clone.send(event);
+                    let _ = sender_clone.send(ProcessEvent::Progress(ProgressEvent::EnableUI));
                 });
             }
         });
+        ui.label(self.msg.clone());
 
         if !any_gas_selected || !any_model_selected {
             ui.label("Select a gas and model to download data.");

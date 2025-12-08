@@ -608,6 +608,7 @@ impl ProcessEventSink for MainApp {
                 self.init_panel.recalc.calc_enabled = false;
                 self.init_panel.recalc.calc_in_progress = true;
                 self.init_panel.recalc.query_in_progress = true;
+                self.dl_panel.disable_ui();
             },
             ProgressEvent::EnableUI => {
                 self.switching_allowed = true;
@@ -618,6 +619,7 @@ impl ProcessEventSink for MainApp {
                 self.init_panel.recalc.calc_enabled = true;
                 self.init_panel.recalc.calc_in_progress = false;
                 self.init_panel.recalc.query_in_progress = false;
+                self.dl_panel.enable_ui();
             },
             ProgressEvent::Rows(current, total) => {
                 self.init_panel.cycles_state = Some((*current, *total));
