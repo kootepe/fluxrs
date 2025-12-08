@@ -11,7 +11,9 @@
 - Searching lag from previous cycle now actually uses the previous cycles lag
 - Added custom errors for flux calculations
 - Sanity checks for instrument serials
-
+- Added ability to adjust plot point size in settings
+- A lot of internal refactoring, giving various parts of the GUI clearer
+responsibilities
 
 ## v0.4.8
 - All data formats now allow inserting the same file multiple times, but only
