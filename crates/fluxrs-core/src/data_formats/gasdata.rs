@@ -256,7 +256,7 @@ pub fn query_gas2(
         }
         let available_gases = instrument_type.available_gases();
 
-        let entry = grouped_data.entry(date_key).or_insert_with(|| GasData {
+        let entry = grouped_data.entry(date_key.clone()).or_insert_with(|| GasData {
             header: StringRecord::new(),
             instruments: HashSet::new(),
             model_key: FastMap::default(),
@@ -288,6 +288,10 @@ pub fn query_gas2(
             } else {
                 gas_vec.push(None);
             }
+        }
+        let no_datetime_data = entry.datetime.values().all(|v| v.is_empty());
+        if no_datetime_data {
+            grouped_data.remove(&date_key);
         }
     }
     if !saw_selected_instrument {
