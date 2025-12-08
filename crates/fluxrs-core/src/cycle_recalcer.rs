@@ -62,12 +62,12 @@ impl Recalcer {
                 MeteoPoint {
                     value: Some(DEFAULT_TEMP),
                     source: MeteoSource::Default,
-                    distance_from_target: Some(0), // Default originates at ts=0 away
+                    distance_from_target: None,
                 },
                 MeteoPoint {
                     value: Some(DEFAULT_PRESSURE),
                     source: MeteoSource::Default,
-                    distance_from_target: Some(0),
+                    distance_from_target: None,
                 },
             ));
 
